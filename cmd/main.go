@@ -17,39 +17,58 @@ import (
 	"gorm.io/gorm"
 )
 
-type ledgerEntry struct {
-	ID          uint `gorm:"primaryKey"`
-	CreatedAt   time.Time
-	Kind        string
-	AmountCents int64
-	Note        string
+type account struct {
+	ID            uint `gorm:"primaryKey"`
+	CreatedAt     time.Time
+	Name          string
+	Description   string
+	Currency      string
+	BalanceCents  int64
+	LeftoverCents int64
 }
 
+type screen int
+
+const (
+	screenMenu screen = iota
+	screenAddAccount
+	screenAccountTable
+	screenEditAmount
+)
+
 type model struct {
-	db        *gorm.DB
-	dbPath    string
-	created   bool
-	entries   []ledgerEntry
-	input     textinput.Model
-	status    string
-	width     int
-	height    int
-	quitting  bool
-	hasLoaded bool
+	db       *gorm.DB
+	dbPath   string
+	created  bool
+	screen   screen
+	accounts []account
+	status   string
+	width    int
+	height   int
+	quitting bool
+	cursor   int
+	addForm  addAccountForm
+	editInput textinput.Model
+}
+
+type addAccountForm struct {
+	fields []textinput.Model
+	labels []string
+	active int
 }
 
 var (
-	appTitleStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#F4E9D8"))
-	mutedStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#9C927F"))
-	panelStyle    = lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("#6F5F47")).
-		Padding(0, 1)
-	sectionTitleStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#E7C96D"))
-	statusStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("#C8C1B2"))
-	entryKindIncome    = lipgloss.NewStyle().Foreground(lipgloss.Color("#7DB88A")).Bold(true)
-	entryKindExpense   = lipgloss.NewStyle().Foreground(lipgloss.Color("#D27D7D")).Bold(true)
-	inputStyle         = lipgloss.NewStyle().Foreground(lipgloss.Color("#F4E9D8")).Border(lipgloss.NormalBorder()).BorderForeground(lipgloss.Color("#6F5F47")).Padding(0, 1)
+	appTitleStyle     = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#F4E9D8"))
+	mutedStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color("#9C927F"))
+	headlineStyle     = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#E7C96D"))
+	statusStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("#D0CABD"))
+	panelStyle        = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("#6F5F47")).Padding(0, 1)
+	buttonStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("#F4E9D8")).Background(lipgloss.Color("#4E4334")).Padding(0, 1)
+	buttonActiveStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#1F1A17")).Background(lipgloss.Color("#E7C96D")).Bold(true).Padding(0, 1)
+	fieldLabelStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("#E7C96D")).Bold(true)
+	selectedRowStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#1F1A17")).Background(lipgloss.Color("#E7C96D"))
+	rowStyle          = lipgloss.NewStyle().Foreground(lipgloss.Color("#F4E9D8"))
+	inputBoxStyle     = lipgloss.NewStyle().Border(lipgloss.NormalBorder()).BorderForeground(lipgloss.Color("#6F5F47")).Padding(0, 1)
 )
 
 func main() {
@@ -59,13 +78,13 @@ func main() {
 		os.Exit(1)
 	}
 
-	entries, err := loadEntries(db)
+	accounts, err := loadAccounts(db)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "database read failed:", err)
 		os.Exit(1)
 	}
 
-	m := newModel(db, dbPath, created, entries)
+	m := newModel(db, dbPath, created, accounts)
 	program := tea.NewProgram(m, tea.WithAltScreen())
 	if _, err := program.Run(); err != nil {
 		fmt.Fprintln(os.Stderr, "program failed:", err)
@@ -91,50 +110,97 @@ func openDatabase() (*gorm.DB, string, bool, error) {
 		return nil, "", false, err
 	}
 
-	if err := db.AutoMigrate(&ledgerEntry{}); err != nil {
+	if err := db.AutoMigrate(&account{}); err != nil {
 		return nil, "", false, err
 	}
 
 	return db, dbPath, created, nil
 }
 
-func loadEntries(db *gorm.DB) ([]ledgerEntry, error) {
-	var entries []ledgerEntry
-	if err := db.Order("created_at desc, id desc").Find(&entries).Error; err != nil {
+func loadAccounts(db *gorm.DB) ([]account, error) {
+	var accounts []account
+	if err := db.Order("created_at desc, id desc").Find(&accounts).Error; err != nil {
 		return nil, err
 	}
 
-	return entries, nil
+	return accounts, nil
 }
 
-func newModel(db *gorm.DB, dbPath string, created bool, entries []ledgerEntry) model {
-	input := textinput.New()
-	input.Placeholder = "income 2500 salary"
-	input.Focus()
-	input.CharLimit = 120
-	input.Width = 44
+func newModel(db *gorm.DB, dbPath string, created bool, accounts []account) model {
+	addForm := newAddAccountForm()
+	editInput := textinput.New()
+	editInput.Placeholder = "1234.56"
+	editInput.CharLimit = 24
+	editInput.Width = 20
 
-	status := databaseStatus(created, len(entries), dbPath)
-	if len(entries) == 0 {
-		status = status + " | no ledger entries yet"
+	status := databaseStatus(created, len(accounts), dbPath)
+	if len(accounts) == 0 {
+		status += " | no accounts yet"
 	}
 
 	return model{
-		db:      db,
-		dbPath:  dbPath,
-		created: created,
-		entries: entries,
-		input:   input,
-		status:  status,
+		db:       db,
+		dbPath:   dbPath,
+		created:  created,
+		screen:   screenMenu,
+		accounts: accounts,
+		status:   status,
+		addForm:  addForm,
+		editInput: editInput,
 	}
+}
+
+func newAddAccountForm() addAccountForm {
+	labels := []string{"Name", "Description", "Currency", "Amount"}
+	placeholders := []string{"Emergency Fund", "Rainy day savings", "USD", "2500.00"}
+	fields := make([]textinput.Model, len(labels))
+
+	for i := range fields {
+		field := textinput.New()
+		field.Placeholder = placeholders[i]
+		field.CharLimit = 80
+		field.Width = 34
+		fields[i] = field
+	}
+
+	form := addAccountForm{fields: fields, labels: labels}
+	return form.focusActive()
+}
+
+func (f addAccountForm) focusActive() addAccountForm {
+	for i := range f.fields {
+		if i == f.active {
+			f.fields[i].Focus()
+		} else {
+			f.fields[i].Blur()
+		}
+	}
+
+	return f
+}
+
+func (f addAccountForm) next() addAccountForm {
+	if f.active < len(f.fields)-1 {
+		f.active++
+	}
+
+	return f.focusActive()
+}
+
+func (f addAccountForm) prev() addAccountForm {
+	if f.active > 0 {
+		f.active--
+	}
+
+	return f.focusActive()
 }
 
 func databaseStatus(created bool, count int, dbPath string) string {
 	if created {
-		return "created " + dbPath + " and loaded " + strconv.Itoa(count) + " entries"
+		return "created " + dbPath + " and loaded " + strconv.Itoa(count) + " accounts"
 	}
 
-	return "opened " + dbPath + " with " + strconv.Itoa(count) + " entries"
+	return "opened " + dbPath + " with " + strconv.Itoa(count) + " accounts"
 }
 
 func (m model) Init() tea.Cmd {
@@ -148,18 +214,245 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 		return m, nil
 	case tea.KeyMsg:
-		switch msg.String() {
-		case "ctrl+c", "esc", "q":
+		if msg.String() == "ctrl+c" {
 			m.quitting = true
 			return m, tea.Quit
-		case "enter":
-			return m.submitEntry()
+		}
+
+		switch m.screen {
+		case screenMenu:
+			return m.updateMenu(msg)
+		case screenAddAccount:
+			return m.updateAddAccount(msg)
+		case screenAccountTable:
+			return m.updateAccountTable(msg)
+		case screenEditAmount:
+			return m.updateEditAmount(msg)
 		}
 	}
 
+	if m.screen == screenAddAccount {
+		var cmd tea.Cmd
+		m.addForm.fields[m.addForm.active], cmd = m.addForm.fields[m.addForm.active].Update(msg)
+		return m, cmd
+	}
+
+	if m.screen == screenEditAmount {
+		var cmd tea.Cmd
+		m.editInput, cmd = m.editInput.Update(msg)
+		return m, cmd
+	}
+
+	return m, nil
+}
+
+func (m model) updateMenu(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "enter", "a":
+		m.screen = screenAddAccount
+		m.addForm = newAddAccountForm()
+		m.status = "add a new account"
+		return m, nil
+	case "e":
+		if len(m.accounts) == 0 {
+			m.status = "no accounts to edit"
+			return m, nil
+		}
+		m.screen = screenAccountTable
+		m.cursor = 0
+		m.status = "use arrows to pick an account, enter to edit amount, d to delete"
+		return m, nil
+	case "q":
+		m.quitting = true
+		return m, tea.Quit
+	default:
+		return m, nil
+	}
+}
+
+func (m model) updateAddAccount(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc", "b":
+		m.screen = screenMenu
+		m.status = databaseStatus(m.created, len(m.accounts), m.dbPath)
+		return m, nil
+	case "tab", "enter":
+		if m.addForm.active == len(m.addForm.fields)-1 && msg.String() == "enter" {
+			return m.saveAccountFromForm()
+		}
+		m.addForm = m.addForm.next()
+		return m, nil
+	case "shift+tab":
+		m.addForm = m.addForm.prev()
+		return m, nil
+	}
+
 	var cmd tea.Cmd
-	m.input, cmd = m.input.Update(msg)
+	m.addForm.fields[m.addForm.active], cmd = m.addForm.fields[m.addForm.active].Update(msg)
 	return m, cmd
+}
+
+func (m model) updateAccountTable(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if len(m.accounts) == 0 {
+		m.screen = screenMenu
+		m.status = "no accounts available"
+		return m, nil
+	}
+
+	switch msg.String() {
+	case "esc", "b":
+		m.screen = screenMenu
+		m.status = databaseStatus(m.created, len(m.accounts), m.dbPath)
+		return m, nil
+	case "q":
+		m.quitting = true
+		return m, tea.Quit
+	case "up", "k":
+		if m.cursor > 0 {
+			m.cursor--
+		}
+		return m, nil
+	case "down", "j":
+		if m.cursor < len(m.accounts)-1 {
+			m.cursor++
+		}
+		return m, nil
+	case "enter", "l":
+		return m.beginEditAmount(), nil
+	case "d", "x":
+		return m.deleteSelectedAccount()
+	default:
+		return m, nil
+	}
+}
+
+func (m model) updateEditAmount(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc", "b":
+		m.screen = screenAccountTable
+		m.status = "amount edit cancelled"
+		return m, nil
+	case "enter":
+		return m.saveAmount()
+	}
+
+	var cmd tea.Cmd
+	m.editInput, cmd = m.editInput.Update(msg)
+	return m, cmd
+}
+
+func (m model) saveAccountFromForm() (tea.Model, tea.Cmd) {
+	name := strings.TrimSpace(m.addForm.fields[0].Value())
+	description := strings.TrimSpace(m.addForm.fields[1].Value())
+	currency := strings.TrimSpace(m.addForm.fields[2].Value())
+	amountRaw := strings.TrimSpace(m.addForm.fields[3].Value())
+
+	if name == "" {
+		m.status = "name is required"
+		return m, nil
+	}
+	if description == "" {
+		m.status = "description is required"
+		return m, nil
+	}
+	if currency == "" {
+		m.status = "currency is required"
+		return m, nil
+	}
+
+	amount, err := parseAmountCents(amountRaw)
+	if err != nil {
+		m.status = "amount error: " + err.Error()
+		return m, nil
+	}
+
+	newAccount := account{
+		Name:          name,
+		Description:   description,
+		Currency:      currency,
+		BalanceCents:  amount,
+		LeftoverCents: amount,
+	}
+
+	if err := m.db.Create(&newAccount).Error; err != nil {
+		m.status = "save failed: " + err.Error()
+		return m, nil
+	}
+
+	m.accounts = append([]account{newAccount}, m.accounts...)
+	m.addForm = newAddAccountForm()
+	m.screen = screenMenu
+	m.status = "saved account " + name
+	return m, nil
+}
+
+func (m model) beginEditAmount() tea.Model {
+	if m.cursor < 0 || m.cursor >= len(m.accounts) {
+		m.status = "no account selected"
+		return m
+	}
+
+	current := m.accounts[m.cursor]
+	m.editInput = textinput.New()
+	m.editInput.Placeholder = "1234.56"
+	m.editInput.CharLimit = 24
+	m.editInput.Width = 20
+	m.editInput.SetValue(formatAmount(current.BalanceCents))
+	m.editInput.Focus()
+	m.screen = screenEditAmount
+	m.status = "editing amount only for " + current.Name
+	return m
+}
+
+func (m model) saveAmount() (tea.Model, tea.Cmd) {
+	if m.cursor < 0 || m.cursor >= len(m.accounts) {
+		m.status = "no account selected"
+		return m, nil
+	}
+
+	amount, err := parseAmountCents(strings.TrimSpace(m.editInput.Value()))
+	if err != nil {
+		m.status = "amount error: " + err.Error()
+		return m, nil
+	}
+
+	selected := m.accounts[m.cursor]
+	if err := m.db.Model(&account{}).Where("id = ?", selected.ID).Updates(map[string]any{"balance_cents": amount, "leftover_cents": amount}).Error; err != nil {
+		m.status = "update failed: " + err.Error()
+		return m, nil
+	}
+
+	selected.BalanceCents = amount
+	selected.LeftoverCents = amount
+	m.accounts[m.cursor] = selected
+	m.screen = screenAccountTable
+	m.status = "updated amount for " + selected.Name
+	return m, nil
+}
+
+func (m model) deleteSelectedAccount() (tea.Model, tea.Cmd) {
+	if m.cursor < 0 || m.cursor >= len(m.accounts) {
+		m.status = "no account selected"
+		return m, nil
+	}
+
+	selected := m.accounts[m.cursor]
+	if err := m.db.Delete(&account{}, selected.ID).Error; err != nil {
+		m.status = "delete failed: " + err.Error()
+		return m, nil
+	}
+
+	m.accounts = append(m.accounts[:m.cursor], m.accounts[m.cursor+1:]...)
+	if m.cursor >= len(m.accounts) && m.cursor > 0 {
+		m.cursor--
+	}
+
+	m.status = "deleted account " + selected.Name
+	if len(m.accounts) == 0 {
+		m.screen = screenMenu
+	}
+
+	return m, nil
 }
 
 func (m model) View() string {
@@ -169,126 +462,191 @@ func (m model) View() string {
 
 	width := m.width
 	if width == 0 {
-		width = 80
+		width = 100
 	}
 
-	headline := appTitleStyle.Render("CENTS") + "\n" + mutedStyle.Render("Simple personal finance tracker")
-	header := panelStyle.Width(clamp(width-4, 34, width)).Render(headline)
+	contentWidth := clamp(width-6, 76, 120)
+	header := renderHeader(contentWidth)
+	body := m.renderBody(contentWidth)
+	footer := renderFooter(contentWidth, m.status)
 
-	entriesPanel := m.renderEntriesPanel(clamp(width-4, 34, width))
-	inputPanel := m.renderInputPanel(clamp(width-4, 34, width))
-	footer := statusStyle.Render(m.status)
-
-	return lipgloss.JoinVertical(lipgloss.Left, header, "", entriesPanel, "", inputPanel, "", footer)
+	return lipgloss.JoinVertical(lipgloss.Left, header, "", body, "", footer)
 }
 
-func (m model) submitEntry() (tea.Model, tea.Cmd) {
-	value := strings.TrimSpace(m.input.Value())
-	if value == "" {
-		return m, nil
-	}
-
-	if strings.EqualFold(value, "help") {
-		m.status = "use: income <amount> <note> | expense <amount> <note> | q to quit"
-		m.input.SetValue("")
-		return m, nil
-	}
-
-	if strings.EqualFold(value, "clear") {
-		if err := m.db.Delete(&ledgerEntry{}).Error; err != nil {
-			m.status = "clear failed: " + err.Error()
-			return m, nil
-		}
-
-		m.entries = nil
-		m.status = "ledger cleared"
-		m.input.SetValue("")
-		return m, nil
-	}
-
-	entry, err := parseEntry(value)
-	if err != nil {
-		m.status = err.Error()
-		return m, nil
-	}
-
-	if err := m.db.Create(&entry).Error; err != nil {
-		m.status = "save failed: " + err.Error()
-		return m, nil
-	}
-
-	m.entries = append([]ledgerEntry{entry}, m.entries...)
-	m.status = fmt.Sprintf("saved %s for %s", formatMoney(entry.AmountCents), entry.Note)
-	m.input.SetValue("")
-	return m, nil
+func renderHeader(width int) string {
+	title := appTitleStyle.Render("CENTS")
+	subtitle := mutedStyle.Render("personal finance accounts with one editable amount")
+	line := lipgloss.JoinVertical(lipgloss.Left, title, subtitle)
+	return panelStyle.Width(width).Render(line)
 }
 
-func (m model) renderEntriesPanel(width int) string {
-	lines := make([]string, 0, len(m.entries)+2)
-	lines = append(lines, sectionTitleStyle.Render("Ledger"))
-	if len(m.entries) == 0 {
-		lines = append(lines, mutedStyle.Render("No entries yet. Start with: income 2500 salary"))
-	} else {
-		for _, entry := range m.entries {
-			kindStyle := entryKindExpense
-			if entry.Kind == "income" {
-				kindStyle = entryKindIncome
-			}
+func renderFooter(width int, status string) string {
+	return panelStyle.Width(width).Render(statusStyle.Render(status))
+}
 
-			lines = append(lines, fmt.Sprintf("%s  %s  %s", kindStyle.Render(strings.ToUpper(entry.Kind)), formatMoney(entry.AmountCents), mutedStyle.Render(entry.Note)))
-		}
+func (m model) renderBody(width int) string {
+	switch m.screen {
+	case screenMenu:
+		return m.renderMenu(width)
+	case screenAddAccount:
+		return m.renderAddAccount(width)
+	case screenAccountTable:
+		return m.renderAccountTable(width)
+	case screenEditAmount:
+		return m.renderEditAmount(width)
+	default:
+		return m.renderMenu(width)
+	}
+}
+
+func (m model) renderMenu(width int) string {
+	buttons := lipgloss.JoinHorizontal(
+		lipgloss.Top,
+		buttonActiveStyle.Render("a  add account"),
+		" ",
+		buttonStyle.Render("e  edit accounts"),
+		" ",
+		buttonStyle.Render("q  quit"),
+	)
+
+	content := lipgloss.JoinVertical(
+		lipgloss.Left,
+		headlineStyle.Render("Choose a flow"),
+		"",
+		buttons,
+		"",
+		mutedStyle.Render("Add new accounts from scratch, or open the account table to edit the amount and delete records."),
+	)
+
+	return panelStyle.Width(width).Render(content)
+}
+
+func (m model) renderAddAccount(width int) string {
+	lines := []string{
+		headlineStyle.Render("Add account"),
+		mutedStyle.Render("Fill the fields, then press Enter on Amount to save."),
+		"",
+	}
+
+	for i := range m.addForm.fields {
+		label := fieldLabelStyle.Render(m.addForm.labels[i])
+		value := inputBoxStyle.Width(width - 18).Render(m.addForm.fields[i].View())
+		lines = append(lines, lipgloss.JoinHorizontal(lipgloss.Top, label, "  ", value))
+	}
+
+	lines = append(lines, "")
+	lines = append(lines, mutedStyle.Render("Tab moves forward, Shift+Tab moves back, Esc returns home."))
+
+	return panelStyle.Width(width).Render(strings.Join(lines, "\n"))
+}
+
+func (m model) renderAccountTable(width int) string {
+	lines := []string{headlineStyle.Render("Accounts")}
+	lines = append(lines, mutedStyle.Render("Use up/down to move, Enter to edit amount, d to delete, b or Esc to go back."))
+	lines = append(lines, "")
+
+	if len(m.accounts) == 0 {
+		lines = append(lines, mutedStyle.Render("No accounts yet."))
+		return panelStyle.Width(width).Render(strings.Join(lines, "\n"))
+	}
+
+	lines = append(lines, m.renderAccountTableHeader(width))
+	for i, acct := range m.accounts {
+		lines = append(lines, m.renderAccountRow(width, i, acct))
 	}
 
 	return panelStyle.Width(width).Render(strings.Join(lines, "\n"))
 }
 
-func (m model) renderInputPanel(width int) string {
-	inputLine := inputStyle.Width(width - 4).Render(m.input.View())
-	helpText := mutedStyle.Render("Commands: income <amount> <note>, expense <amount> <note>, clear, help, q")
+func (m model) renderAccountTableHeader(width int) string {
+	nameWidth := 18
+	currencyWidth := 10
+	amountWidth := 14
+	descWidth := width - 14 - nameWidth - currencyWidth - amountWidth - 8
+	if descWidth < 16 {
+		descWidth = 16
+	}
 
-	return panelStyle.Width(width).Render(sectionTitleStyle.Render("Quick add") + "\n" + inputLine + "\n" + helpText)
+	header := fmt.Sprintf("%-2s %-*s %-*s %-*s %-*s", "#", nameWidth, "Name", currencyWidth, "Currency", amountWidth, "Amount", descWidth, "Description")
+	return mutedStyle.Render(header)
 }
 
-func parseEntry(value string) (ledgerEntry, error) {
-	parts := strings.Fields(value)
-	if len(parts) < 3 {
-		return ledgerEntry{}, errors.New("use: income <amount> <note> or expense <amount> <note>")
+func (m model) renderAccountRow(width int, index int, acct account) string {
+	nameWidth := 18
+	currencyWidth := 10
+	amountWidth := 14
+	descWidth := width - 14 - nameWidth - currencyWidth - amountWidth - 8
+	if descWidth < 16 {
+		descWidth = 16
 	}
 
-	kind := strings.ToLower(parts[0])
-	if kind != "income" && kind != "expense" {
-		return ledgerEntry{}, errors.New("first word must be income or expense")
+	prefix := " "
+	style := rowStyle
+	if index == m.cursor {
+		prefix = ">"
+		style = selectedRowStyle
 	}
 
-	amount, err := parseAmountCents(parts[1])
-	if err != nil {
-		return ledgerEntry{}, err
+	row := fmt.Sprintf("%s %-*s %-*s %-*s %-*s", prefix, nameWidth, truncateText(acct.Name, nameWidth), currencyWidth, truncateText(acct.Currency, currencyWidth), amountWidth, renderMoneyWithCurrency(acct.Currency, acct.BalanceCents), descWidth, truncateText(acct.Description, descWidth))
+	return style.Render(row)
+}
+
+func (m model) renderEditAmount(width int) string {
+	if m.cursor < 0 || m.cursor >= len(m.accounts) {
+		return panelStyle.Width(width).Render(mutedStyle.Render("No account selected."))
 	}
 
-	note := strings.TrimSpace(strings.TrimPrefix(value, parts[0]))
-	note = strings.TrimSpace(strings.TrimPrefix(note, parts[1]))
-	if note == "" {
-		return ledgerEntry{}, errors.New("note is required")
+	acct := m.accounts[m.cursor]
+	lines := []string{
+		headlineStyle.Render("Edit amount only"),
+		mutedStyle.Render("Account: " + acct.Name + " | " + acct.Currency + " | amount " + renderMoneyWithCurrency(acct.Currency, acct.BalanceCents)),
+		"",
+		fieldLabelStyle.Render("Amount"),
+		inputBoxStyle.Width(24).Render(m.editInput.View()),
+		"",
+		mutedStyle.Render("Enter saves, Esc cancels."),
 	}
 
-	return ledgerEntry{Kind: kind, AmountCents: amount, Note: note}, nil
+	return panelStyle.Width(width).Render(strings.Join(lines, "\n"))
 }
 
 func parseAmountCents(raw string) (int64, error) {
-	amount, err := strconv.ParseFloat(raw, 64)
+	amount, err := strconv.ParseFloat(strings.TrimSpace(raw), 64)
 	if err != nil {
 		return 0, errors.New("amount must be a number")
 	}
 
-	if amount <= 0 {
-		return 0, errors.New("amount must be greater than zero")
+	if amount < 0 {
+		return 0, errors.New("amount cannot be negative")
 	}
 
 	return int64(math.Round(amount * 100)), nil
 }
 
-func formatMoney(cents int64) string {
-	return fmt.Sprintf("$%.2f", float64(cents)/100)
+func formatAmount(cents int64) string {
+	return fmt.Sprintf("%.2f", float64(cents)/100)
+}
+
+func renderMoneyWithCurrency(currency string, cents int64) string {
+	if currency == "" {
+		return formatAmount(cents)
+	}
+
+	return currency + " " + formatAmount(cents)
+}
+
+func truncateText(value string, limit int) string {
+	value = strings.TrimSpace(value)
+	if limit <= 0 {
+		return ""
+	}
+	if len(value) <= limit {
+		return value
+	}
+	if limit <= 1 {
+		return value[:limit]
+	}
+	return value[:limit-1] + "…"
 }
 
 func clamp(value, minimum, maximum int) int {
