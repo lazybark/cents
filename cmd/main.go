@@ -500,6 +500,7 @@ func (m model) renderBody(width int) string {
 }
 
 func (m model) renderMenu(width int) string {
+	overview := m.renderReadOnlyAccountOverview(width)
 	buttons := lipgloss.JoinHorizontal(
 		lipgloss.Top,
 		buttonActiveStyle.Render("a  add account"),
@@ -511,6 +512,8 @@ func (m model) renderMenu(width int) string {
 
 	content := lipgloss.JoinVertical(
 		lipgloss.Left,
+		overview,
+		"",
 		headlineStyle.Render("Choose a flow"),
 		"",
 		buttons,
@@ -519,6 +522,34 @@ func (m model) renderMenu(width int) string {
 	)
 
 	return panelStyle.Width(width).Render(content)
+}
+
+func (m model) renderReadOnlyAccountOverview(width int) string {
+	lines := []string{headlineStyle.Render("Accounts at a glance")}
+	if len(m.accounts) == 0 {
+		lines = append(lines, mutedStyle.Render("No accounts yet. Add one to get started."))
+		return panelStyle.Width(width).Render(strings.Join(lines, "\n"))
+	}
+
+	lines = append(lines, m.renderAccountTableHeader(width))
+	for _, acct := range m.accounts {
+		lines = append(lines, m.renderReadOnlyAccountRow(width, acct))
+	}
+
+	return panelStyle.Width(width).Render(strings.Join(lines, "\n"))
+}
+
+func (m model) renderReadOnlyAccountRow(width int, acct account) string {
+	nameWidth := 18
+	currencyWidth := 10
+	amountWidth := 14
+	descWidth := width - 14 - nameWidth - currencyWidth - amountWidth - 8
+	if descWidth < 16 {
+		descWidth = 16
+	}
+
+	row := fmt.Sprintf("%-2s %-*s %-*s %-*s %-*s", "", nameWidth, truncateText(acct.Name, nameWidth), currencyWidth, truncateText(acct.Currency, currencyWidth), amountWidth, renderMoneyWithCurrency(acct.Currency, acct.BalanceCents), descWidth, truncateText(acct.Description, descWidth))
+	return rowStyle.Render(row)
 }
 
 func (m model) renderAddAccount(width int) string {
