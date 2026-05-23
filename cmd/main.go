@@ -163,6 +163,7 @@ func newModel(db *gorm.DB, dbPath string, created bool, accounts []account) mode
 
 func appMenuGroups() []menuGroup {
 	return []menuGroup{
+		{title: "Incomes and Expences", items: []string{"New Expence", "New Income", "History"}},
 		{title: "Accounts", items: []string{"add account", "list accounts"}},
 		{title: "Subscriptions", items: []string{"new", "active", "all"}},
 		{title: "Invoices", items: []string{"new", "outgoing", "incoming"}},
@@ -301,11 +302,11 @@ func (m model) updateMenu(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "enter":
 		return m.activateMenuSelection()
 	case "a":
-		m.menuGroup = 0
+		m.menuGroup = 1
 		m.menuItem = 0
 		return m.activateMenuSelection()
 	case "e":
-		m.menuGroup = 0
+		m.menuGroup = 1
 		m.menuItem = 1
 		return m.activateMenuSelection()
 	case "q":
@@ -317,14 +318,14 @@ func (m model) updateMenu(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) activateMenuSelection() (tea.Model, tea.Cmd) {
-	if m.menuGroup == 0 && m.menuItem == 0 {
+	if m.menuGroup == 1 && m.menuItem == 0 {
 		m.screen = screenAddAccount
 		m.addForm = newAddAccountForm()
 		m.status = "add a new account"
 		return m, nil
 	}
 
-	if m.menuGroup == 0 && m.menuItem == 1 {
+	if m.menuGroup == 1 && m.menuItem == 1 {
 		if len(m.accounts) == 0 {
 			m.status = "no accounts to list"
 			return m, nil
@@ -608,7 +609,7 @@ func (m model) renderMenu(width int) string {
 		"",
 		mutedStyle.Render("Use up/down to change groups, left/right (or Tab/Shift+Tab) to change buttons, Enter to open."),
 		"",
-		mutedStyle.Render("Main page shows only top 5 by amount. Open list accounts to see all accounts and manage them. Press q to quit."),
+		mutedStyle.Render("Press q to quit."),
 	)
 
 	return panelStyle.Width(width).Render(content)
