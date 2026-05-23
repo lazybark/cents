@@ -37,17 +37,17 @@ const (
 )
 
 type model struct {
-	db       *gorm.DB
-	dbPath   string
-	created  bool
-	screen   screen
-	accounts []account
-	status   string
-	width    int
-	height   int
-	quitting bool
-	cursor   int
-	addForm  addAccountForm
+	db        *gorm.DB
+	dbPath    string
+	created   bool
+	screen    screen
+	accounts  []account
+	status    string
+	width     int
+	height    int
+	quitting  bool
+	cursor    int
+	addForm   addAccountForm
 	editInput textinput.Model
 }
 
@@ -139,13 +139,13 @@ func newModel(db *gorm.DB, dbPath string, created bool, accounts []account) mode
 	}
 
 	return model{
-		db:       db,
-		dbPath:   dbPath,
-		created:  created,
-		screen:   screenMenu,
-		accounts: accounts,
-		status:   status,
-		addForm:  addForm,
+		db:        db,
+		dbPath:    dbPath,
+		created:   created,
+		screen:    screenMenu,
+		accounts:  accounts,
+		status:    status,
+		addForm:   addForm,
 		editInput: editInput,
 	}
 }
