@@ -122,7 +122,7 @@ func openDatabase() (*gorm.DB, string, bool, error) {
 
 func loadAccounts(db *gorm.DB) ([]account, error) {
 	var accounts []account
-	if err := db.Order("created_at desc, id desc").Find(&accounts).Error; err != nil {
+	if err := db.Order("balance_cents desc, created_at desc, id desc").Find(&accounts).Error; err != nil {
 		return nil, err
 	}
 
@@ -398,12 +398,15 @@ func (m model) saveAccountFromForm() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	now := time.Now()
+
 	newAccount := account{
 		Name:          name,
 		Description:   description,
 		Currency:      currency,
 		BalanceCents:  amount,
 		LeftoverCents: amount,
+		LastUpdatedAt: now,
 	}
 
 	if err := m.db.Create(&newAccount).Error; err != nil {
@@ -412,6 +415,7 @@ func (m model) saveAccountFromForm() (tea.Model, tea.Cmd) {
 	}
 
 	m.accounts = append([]account{newAccount}, m.accounts...)
+	m.accounts = sortAccountsByAmount(m.accounts)
 	m.addForm = newAddAccountForm()
 	m.screen = screenMenu
 	m.status = "saved account " + name
@@ -459,6 +463,11 @@ func (m model) saveAmount() (tea.Model, tea.Cmd) {
 	selected.LeftoverCents = amount
 	selected.LastUpdatedAt = now
 	m.accounts[m.cursor] = selected
+	m.accounts = sortAccountsByAmount(m.accounts)
+	m.cursor = findAccountIndex(m.accounts, selected.ID)
+	if m.cursor < 0 {
+		m.cursor = 0
+	}
 	m.screen = screenAccountTable
 	m.status = "updated amount for " + selected.Name
 	return m, nil
@@ -604,6 +613,36 @@ func topAccountsByAmount(accounts []account, maxCount int) []account {
 	}
 
 	return cloned
+}
+
+func sortAccountsByAmount(accounts []account) []account {
+	if len(accounts) < 2 {
+		return accounts
+	}
+
+	cloned := make([]account, len(accounts))
+	copy(cloned, accounts)
+	sort.SliceStable(cloned, func(i, j int) bool {
+		if cloned[i].BalanceCents == cloned[j].BalanceCents {
+			if cloned[i].CreatedAt.Equal(cloned[j].CreatedAt) {
+				return cloned[i].ID > cloned[j].ID
+			}
+			return cloned[i].CreatedAt.After(cloned[j].CreatedAt)
+		}
+		return cloned[i].BalanceCents > cloned[j].BalanceCents
+	})
+
+	return cloned
+}
+
+func findAccountIndex(accounts []account, id uint) int {
+	for i := range accounts {
+		if accounts[i].ID == id {
+			return i
+		}
+	}
+
+	return -1
 }
 
 func (m model) renderReadOnlyAccountRow(width int, acct account) string {
