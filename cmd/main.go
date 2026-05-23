@@ -20,6 +20,7 @@ import (
 type account struct {
 	ID            uint `gorm:"primaryKey"`
 	CreatedAt     time.Time
+	LastUpdatedAt time.Time `gorm:"not null;default:1970-01-01 00:00:00"`
 	Name          string
 	Description   string
 	Currency      string
@@ -37,18 +38,19 @@ const (
 )
 
 type model struct {
-	db        *gorm.DB
-	dbPath    string
-	created   bool
-	screen    screen
-	accounts  []account
-	status    string
-	width     int
-	height    int
-	quitting  bool
-	cursor    int
-	addForm   addAccountForm
-	editInput textinput.Model
+	db         *gorm.DB
+	dbPath     string
+	created    bool
+	screen     screen
+	accounts   []account
+	status     string
+	width      int
+	height     int
+	quitting   bool
+	menuCursor int
+	cursor     int
+	addForm    addAccountForm
+	editInput  textinput.Model
 }
 
 type addAccountForm struct {
@@ -139,14 +141,15 @@ func newModel(db *gorm.DB, dbPath string, created bool, accounts []account) mode
 	}
 
 	return model{
-		db:        db,
-		dbPath:    dbPath,
-		created:   created,
-		screen:    screenMenu,
-		accounts:  accounts,
-		status:    status,
-		addForm:   addForm,
-		editInput: editInput,
+		db:         db,
+		dbPath:     dbPath,
+		created:    created,
+		screen:     screenMenu,
+		accounts:   accounts,
+		status:     status,
+		menuCursor: 0,
+		addForm:    addForm,
+		editInput:  editInput,
 	}
 }
 
@@ -248,12 +251,40 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m model) updateMenu(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
-	case "enter", "a":
+	case "left", "h", "shift+tab":
+		if m.menuCursor > 0 {
+			m.menuCursor--
+		}
+		return m, nil
+	case "right", "l", "tab":
+		if m.menuCursor < 2 {
+			m.menuCursor++
+		}
+		return m, nil
+	case "enter":
+		return m.activateMenuSelection()
+	case "a":
+		m.menuCursor = 0
+		return m.activateMenuSelection()
+	case "e":
+		m.menuCursor = 1
+		return m.activateMenuSelection()
+	case "q":
+		m.menuCursor = 2
+		return m.activateMenuSelection()
+	default:
+		return m, nil
+	}
+}
+
+func (m model) activateMenuSelection() (tea.Model, tea.Cmd) {
+	switch m.menuCursor {
+	case 0:
 		m.screen = screenAddAccount
 		m.addForm = newAddAccountForm()
 		m.status = "add a new account"
 		return m, nil
-	case "e":
+	case 1:
 		if len(m.accounts) == 0 {
 			m.status = "no accounts to edit"
 			return m, nil
@@ -262,7 +293,7 @@ func (m model) updateMenu(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.cursor = 0
 		m.status = "use arrows to pick an account, enter to edit amount, d to delete"
 		return m, nil
-	case "q":
+	case 2:
 		m.quitting = true
 		return m, tea.Quit
 	default:
@@ -417,13 +448,15 @@ func (m model) saveAmount() (tea.Model, tea.Cmd) {
 	}
 
 	selected := m.accounts[m.cursor]
-	if err := m.db.Model(&account{}).Where("id = ?", selected.ID).Updates(map[string]any{"balance_cents": amount, "leftover_cents": amount}).Error; err != nil {
+	now := time.Now()
+	if err := m.db.Model(&account{}).Where("id = ?", selected.ID).Updates(map[string]any{"balance_cents": amount, "leftover_cents": amount, "last_updated_at": now}).Error; err != nil {
 		m.status = "update failed: " + err.Error()
 		return m, nil
 	}
 
 	selected.BalanceCents = amount
 	selected.LeftoverCents = amount
+	selected.LastUpdatedAt = now
 	m.accounts[m.cursor] = selected
 	m.screen = screenAccountTable
 	m.status = "updated amount for " + selected.Name
@@ -501,22 +534,37 @@ func (m model) renderBody(width int) string {
 
 func (m model) renderMenu(width int) string {
 	overview := m.renderReadOnlyAccountOverview(width)
+	addButtonStyle := buttonStyle
+	editButtonStyle := buttonStyle
+	quitButtonStyle := buttonStyle
+	if m.menuCursor == 0 {
+		addButtonStyle = buttonActiveStyle
+	}
+	if m.menuCursor == 1 {
+		editButtonStyle = buttonActiveStyle
+	}
+	if m.menuCursor == 2 {
+		quitButtonStyle = buttonActiveStyle
+	}
+
 	buttons := lipgloss.JoinHorizontal(
 		lipgloss.Top,
-		buttonActiveStyle.Render("a  add account"),
+		addButtonStyle.Render("a  add account"),
 		" ",
-		buttonStyle.Render("e  edit accounts"),
+		editButtonStyle.Render("e  edit accounts"),
 		" ",
-		buttonStyle.Render("q  quit"),
+		quitButtonStyle.Render("q  quit"),
 	)
 
 	content := lipgloss.JoinVertical(
 		lipgloss.Left,
 		overview,
 		"",
-		headlineStyle.Render("Choose a flow"),
+		headlineStyle.Render("Menu"),
 		"",
 		buttons,
+		"",
+		mutedStyle.Render("Use left/right arrows (or Tab/Shift+Tab) to move selection, then Enter to open."),
 		"",
 		mutedStyle.Render("Add new accounts from scratch, or open the account table to edit the amount and delete records."),
 	)
@@ -543,12 +591,13 @@ func (m model) renderReadOnlyAccountRow(width int, acct account) string {
 	nameWidth := 18
 	currencyWidth := 10
 	amountWidth := 14
-	descWidth := width - 14 - nameWidth - currencyWidth - amountWidth - 8
+	updatedWidth := 16
+	descWidth := width - 14 - nameWidth - currencyWidth - amountWidth - updatedWidth - 10
 	if descWidth < 16 {
 		descWidth = 16
 	}
 
-	row := fmt.Sprintf("%-2s %-*s %-*s %-*s %-*s", "", nameWidth, truncateText(acct.Name, nameWidth), currencyWidth, truncateText(acct.Currency, currencyWidth), amountWidth, renderMoneyWithCurrency(acct.Currency, acct.BalanceCents), descWidth, truncateText(acct.Description, descWidth))
+	row := fmt.Sprintf("%-2s %-*s %-*s %-*s %-*s %-*s", "", nameWidth, truncateText(acct.Name, nameWidth), currencyWidth, truncateText(acct.Currency, currencyWidth), amountWidth, renderMoneyWithCurrency(acct.Currency, acct.BalanceCents), updatedWidth, formatUpdatedAt(acct.LastUpdatedAt), descWidth, truncateText(acct.Description, descWidth))
 	return rowStyle.Render(row)
 }
 
@@ -593,12 +642,13 @@ func (m model) renderAccountTableHeader(width int) string {
 	nameWidth := 18
 	currencyWidth := 10
 	amountWidth := 14
-	descWidth := width - 14 - nameWidth - currencyWidth - amountWidth - 8
+	updatedWidth := 16
+	descWidth := width - 14 - nameWidth - currencyWidth - amountWidth - updatedWidth - 10
 	if descWidth < 16 {
 		descWidth = 16
 	}
 
-	header := fmt.Sprintf("%-2s %-*s %-*s %-*s %-*s", "#", nameWidth, "Name", currencyWidth, "Currency", amountWidth, "Amount", descWidth, "Description")
+	header := fmt.Sprintf("%-2s %-*s %-*s %-*s %-*s %-*s", "#", nameWidth, "Name", currencyWidth, "Currency", amountWidth, "Amount", updatedWidth, "Updated", descWidth, "Description")
 	return mutedStyle.Render(header)
 }
 
@@ -606,7 +656,8 @@ func (m model) renderAccountRow(width int, index int, acct account) string {
 	nameWidth := 18
 	currencyWidth := 10
 	amountWidth := 14
-	descWidth := width - 14 - nameWidth - currencyWidth - amountWidth - 8
+	updatedWidth := 16
+	descWidth := width - 14 - nameWidth - currencyWidth - amountWidth - updatedWidth - 10
 	if descWidth < 16 {
 		descWidth = 16
 	}
@@ -618,7 +669,7 @@ func (m model) renderAccountRow(width int, index int, acct account) string {
 		style = selectedRowStyle
 	}
 
-	row := fmt.Sprintf("%s %-*s %-*s %-*s %-*s", prefix, nameWidth, truncateText(acct.Name, nameWidth), currencyWidth, truncateText(acct.Currency, currencyWidth), amountWidth, renderMoneyWithCurrency(acct.Currency, acct.BalanceCents), descWidth, truncateText(acct.Description, descWidth))
+	row := fmt.Sprintf("%s %-*s %-*s %-*s %-*s %-*s", prefix, nameWidth, truncateText(acct.Name, nameWidth), currencyWidth, truncateText(acct.Currency, currencyWidth), amountWidth, renderMoneyWithCurrency(acct.Currency, acct.BalanceCents), updatedWidth, formatUpdatedAt(acct.LastUpdatedAt), descWidth, truncateText(acct.Description, descWidth))
 	return style.Render(row)
 }
 
@@ -664,6 +715,14 @@ func renderMoneyWithCurrency(currency string, cents int64) string {
 	}
 
 	return currency + " " + formatAmount(cents)
+}
+
+func formatUpdatedAt(value time.Time) string {
+	if value.IsZero() || value.Year() < 1971 {
+		return "1970-01-01"
+	}
+
+	return value.Local().Format("2006-01-02 15:04")
 }
 
 func truncateText(value string, limit int) string {
