@@ -167,6 +167,9 @@ func appMenuGroups() []menuGroup {
 		{title: "Subscriptions", items: []string{"new", "active", "all"}},
 		{title: "Invoices", items: []string{"new", "outgoing", "incoming"}},
 		{title: "Debts", items: []string{"new", "outgoing", "incoming"}},
+		{title: "Goals", items: []string{"new", "all"}},
+		{title: "Taxes", items: []string{"new", "unpaid", "history"}},
+		{title: "Settings", items: []string{"edit"}},
 	}
 }
 
