@@ -6,6 +6,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -291,7 +292,7 @@ func (m model) activateMenuSelection() (tea.Model, tea.Cmd) {
 		}
 		m.screen = screenAccountTable
 		m.cursor = 0
-		m.status = "use arrows to pick an account, enter to edit amount, d to delete"
+		m.status = "accounts page: all accounts shown. use arrows to pick, enter to edit amount, d to delete"
 		return m, nil
 	case 2:
 		m.quitting = true
@@ -566,25 +567,43 @@ func (m model) renderMenu(width int) string {
 		"",
 		mutedStyle.Render("Use left/right arrows (or Tab/Shift+Tab) to move selection, then Enter to open."),
 		"",
-		mutedStyle.Render("Add new accounts from scratch, or open the account table to edit the amount and delete records."),
+		mutedStyle.Render("Main page shows only top 5 by amount. Open edit accounts to see all accounts and manage them."),
 	)
 
 	return panelStyle.Width(width).Render(content)
 }
 
 func (m model) renderReadOnlyAccountOverview(width int) string {
-	lines := []string{headlineStyle.Render("Accounts at a glance")}
+	lines := []string{headlineStyle.Render("Top 5 accounts by amount")}
 	if len(m.accounts) == 0 {
 		lines = append(lines, mutedStyle.Render("No accounts yet. Add one to get started."))
 		return panelStyle.Width(width).Render(strings.Join(lines, "\n"))
 	}
 
 	lines = append(lines, m.renderAccountTableHeader(width))
-	for _, acct := range m.accounts {
+	for _, acct := range topAccountsByAmount(m.accounts, 5) {
 		lines = append(lines, m.renderReadOnlyAccountRow(width, acct))
 	}
 
 	return panelStyle.Width(width).Render(strings.Join(lines, "\n"))
+}
+
+func topAccountsByAmount(accounts []account, maxCount int) []account {
+	if maxCount <= 0 || len(accounts) == 0 {
+		return nil
+	}
+
+	cloned := make([]account, len(accounts))
+	copy(cloned, accounts)
+	sort.Slice(cloned, func(i, j int) bool {
+		return cloned[i].BalanceCents > cloned[j].BalanceCents
+	})
+
+	if len(cloned) > maxCount {
+		cloned = cloned[:maxCount]
+	}
+
+	return cloned
 }
 
 func (m model) renderReadOnlyAccountRow(width int, acct account) string {
