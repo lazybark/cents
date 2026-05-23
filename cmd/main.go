@@ -39,19 +39,25 @@ const (
 )
 
 type model struct {
-	db         *gorm.DB
-	dbPath     string
-	created    bool
-	screen     screen
-	accounts   []account
-	status     string
-	width      int
-	height     int
-	quitting   bool
-	menuCursor int
-	cursor     int
-	addForm    addAccountForm
-	editInput  textinput.Model
+	db        *gorm.DB
+	dbPath    string
+	created   bool
+	screen    screen
+	accounts  []account
+	status    string
+	width     int
+	height    int
+	quitting  bool
+	menuGroup int
+	menuItem  int
+	cursor    int
+	addForm   addAccountForm
+	editInput textinput.Model
+}
+
+type menuGroup struct {
+	title string
+	items []string
 }
 
 type addAccountForm struct {
@@ -142,15 +148,25 @@ func newModel(db *gorm.DB, dbPath string, created bool, accounts []account) mode
 	}
 
 	return model{
-		db:         db,
-		dbPath:     dbPath,
-		created:    created,
-		screen:     screenMenu,
-		accounts:   accounts,
-		status:     status,
-		menuCursor: 0,
-		addForm:    addForm,
-		editInput:  editInput,
+		db:        db,
+		dbPath:    dbPath,
+		created:   created,
+		screen:    screenMenu,
+		accounts:  accounts,
+		status:    status,
+		menuGroup: 0,
+		menuItem:  0,
+		addForm:   addForm,
+		editInput: editInput,
+	}
+}
+
+func appMenuGroups() []menuGroup {
+	return []menuGroup{
+		{title: "Accounts", items: []string{"add account", "list accounts"}},
+		{title: "Subscriptions", items: []string{"new", "active", "all"}},
+		{title: "Invoices", items: []string{"new", "outgoing", "incoming"}},
+		{title: "Debts", items: []string{"new", "outgoing", "incoming"}},
 	}
 }
 
@@ -251,55 +267,74 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) updateMenu(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	groups := appMenuGroups()
 	switch msg.String() {
 	case "left", "h", "shift+tab":
-		if m.menuCursor > 0 {
-			m.menuCursor--
+		if m.menuItem > 0 {
+			m.menuItem--
 		}
 		return m, nil
 	case "right", "l", "tab":
-		if m.menuCursor < 2 {
-			m.menuCursor++
+		if m.menuItem < len(groups[m.menuGroup].items)-1 {
+			m.menuItem++
+		}
+		return m, nil
+	case "up", "k":
+		if m.menuGroup > 0 {
+			m.menuGroup--
+			if m.menuItem >= len(groups[m.menuGroup].items) {
+				m.menuItem = len(groups[m.menuGroup].items) - 1
+			}
+		}
+		return m, nil
+	case "down", "j":
+		if m.menuGroup < len(groups)-1 {
+			m.menuGroup++
+			if m.menuItem >= len(groups[m.menuGroup].items) {
+				m.menuItem = len(groups[m.menuGroup].items) - 1
+			}
 		}
 		return m, nil
 	case "enter":
 		return m.activateMenuSelection()
 	case "a":
-		m.menuCursor = 0
+		m.menuGroup = 0
+		m.menuItem = 0
 		return m.activateMenuSelection()
 	case "e":
-		m.menuCursor = 1
+		m.menuGroup = 0
+		m.menuItem = 1
 		return m.activateMenuSelection()
 	case "q":
-		m.menuCursor = 2
-		return m.activateMenuSelection()
+		m.quitting = true
+		return m, tea.Quit
 	default:
 		return m, nil
 	}
 }
 
 func (m model) activateMenuSelection() (tea.Model, tea.Cmd) {
-	switch m.menuCursor {
-	case 0:
+	if m.menuGroup == 0 && m.menuItem == 0 {
 		m.screen = screenAddAccount
 		m.addForm = newAddAccountForm()
 		m.status = "add a new account"
 		return m, nil
-	case 1:
+	}
+
+	if m.menuGroup == 0 && m.menuItem == 1 {
 		if len(m.accounts) == 0 {
-			m.status = "no accounts to edit"
+			m.status = "no accounts to list"
 			return m, nil
 		}
 		m.screen = screenAccountTable
 		m.cursor = 0
 		m.status = "accounts page: all accounts shown. use arrows to pick, enter to edit amount, d to delete"
 		return m, nil
-	case 2:
-		m.quitting = true
-		return m, tea.Quit
-	default:
-		return m, nil
 	}
+
+	groups := appMenuGroups()
+	m.status = strings.ToLower(groups[m.menuGroup].title) + " / " + groups[m.menuGroup].items[m.menuItem] + " is a template action (coming next)"
+	return m, nil
 }
 
 func (m model) updateAddAccount(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -544,27 +579,21 @@ func (m model) renderBody(width int) string {
 
 func (m model) renderMenu(width int) string {
 	overview := m.renderReadOnlyAccountOverview(width)
-	addButtonStyle := buttonStyle
-	editButtonStyle := buttonStyle
-	quitButtonStyle := buttonStyle
-	if m.menuCursor == 0 {
-		addButtonStyle = buttonActiveStyle
+	groups := appMenuGroups()
+	groupLines := make([]string, 0, len(groups)*2)
+	for gi, group := range groups {
+		groupLines = append(groupLines, fieldLabelStyle.Render(group.title))
+		buttons := make([]string, 0, len(group.items))
+		for ii, label := range group.items {
+			style := buttonStyle
+			if gi == m.menuGroup && ii == m.menuItem {
+				style = buttonActiveStyle
+			}
+			buttons = append(buttons, style.Render(label))
+		}
+		groupLines = append(groupLines, lipgloss.JoinHorizontal(lipgloss.Top, strings.Join(buttons, " ")))
+		groupLines = append(groupLines, "")
 	}
-	if m.menuCursor == 1 {
-		editButtonStyle = buttonActiveStyle
-	}
-	if m.menuCursor == 2 {
-		quitButtonStyle = buttonActiveStyle
-	}
-
-	buttons := lipgloss.JoinHorizontal(
-		lipgloss.Top,
-		addButtonStyle.Render("a  add account"),
-		" ",
-		editButtonStyle.Render("e  edit accounts"),
-		" ",
-		quitButtonStyle.Render("q  quit"),
-	)
 
 	content := lipgloss.JoinVertical(
 		lipgloss.Left,
@@ -572,11 +601,11 @@ func (m model) renderMenu(width int) string {
 		"",
 		headlineStyle.Render("Menu"),
 		"",
-		buttons,
+		strings.TrimSpace(strings.Join(groupLines, "\n")),
 		"",
-		mutedStyle.Render("Use left/right arrows (or Tab/Shift+Tab) to move selection, then Enter to open."),
+		mutedStyle.Render("Use up/down to change groups, left/right (or Tab/Shift+Tab) to change buttons, Enter to open."),
 		"",
-		mutedStyle.Render("Main page shows only top 5 by amount. Open edit accounts to see all accounts and manage them."),
+		mutedStyle.Render("Main page shows only top 5 by amount. Open list accounts to see all accounts and manage them. Press q to quit."),
 	)
 
 	return panelStyle.Width(width).Render(content)
