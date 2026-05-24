@@ -668,20 +668,21 @@ func (m model) renderBody(width int) string {
 func (m model) renderMenu(width int) string {
 	overview := m.renderReadOnlyAccountOverview(width)
 	groups := appMenuGroups()
-	groupLines := make([]string, 0, len(groups)*2)
+	leftColumn := make([]string, 0, len(groups)/2+1)
+	rightColumn := make([]string, 0, len(groups)/2+1)
 	for gi, group := range groups {
-		groupLines = append(groupLines, fieldLabelStyle.Render(group.title))
-		buttons := make([]string, 0, len(group.items))
-		for ii, label := range group.items {
-			style := buttonStyle
-			if gi == m.menuGroup && ii == m.menuItem {
-				style = buttonActiveStyle
-			}
-			buttons = append(buttons, style.Render(label))
+		block := m.renderMenuGroupBlock(gi, group)
+		if gi%2 == 0 {
+			leftColumn = append(leftColumn, block)
+		} else {
+			rightColumn = append(rightColumn, block)
 		}
-		groupLines = append(groupLines, lipgloss.JoinHorizontal(lipgloss.Top, strings.Join(buttons, " ")))
-		groupLines = append(groupLines, "")
 	}
+
+	columnWidth := (width - 5) / 2
+	leftView := lipgloss.NewStyle().Width(columnWidth).Render(strings.Join(leftColumn, "\n\n"))
+	rightView := lipgloss.NewStyle().Width(columnWidth).Render(strings.Join(rightColumn, "\n\n"))
+	twoColumnMenu := lipgloss.JoinHorizontal(lipgloss.Top, leftView, "  ", rightView)
 
 	content := lipgloss.JoinVertical(
 		lipgloss.Left,
@@ -689,7 +690,7 @@ func (m model) renderMenu(width int) string {
 		"",
 		headlineStyle.Render("Menu"),
 		"",
-		strings.TrimSpace(strings.Join(groupLines, "\n")),
+		twoColumnMenu,
 		"",
 		mutedStyle.Render("Use up/down to change groups, left/right (or Tab/Shift+Tab) to change buttons, Enter to open, ? for full help."),
 		"",
@@ -699,6 +700,19 @@ func (m model) renderMenu(width int) string {
 	)
 
 	return panelStyle.Width(width).Render(content)
+}
+
+func (m model) renderMenuGroupBlock(groupIndex int, group menuGroup) string {
+	buttons := make([]string, 0, len(group.items))
+	for itemIndex, label := range group.items {
+		style := buttonStyle
+		if groupIndex == m.menuGroup && itemIndex == m.menuItem {
+			style = buttonActiveStyle
+		}
+		buttons = append(buttons, style.Render(label))
+	}
+
+	return fieldLabelStyle.Render(group.title) + "\n" + strings.Join(buttons, " ")
 }
 
 func (m model) renderReadOnlyAccountOverview(width int) string {
