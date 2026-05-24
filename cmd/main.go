@@ -250,7 +250,7 @@ func appMenuGroups() []menuGroup {
 		{title: "Debts", items: []string{"new", "outgoing", "incoming"}},
 		{title: "Goals", items: []string{"new", "all"}},
 		{title: "Taxes", items: []string{"new", "unpaid", "history"}},
-		{title: "Settings", items: []string{"edit"}},
+		{title: "Settings", items: []string{"edit", "backup"}},
 	}
 }
 
