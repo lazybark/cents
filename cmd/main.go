@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/bubbles/help"
+	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -53,6 +55,34 @@ type model struct {
 	cursor    int
 	addForm   addAccountForm
 	editInput textinput.Model
+	help      help.Model
+	keys      keyMap
+}
+
+type keyMap struct {
+	Up       key.Binding
+	Down     key.Binding
+	Left     key.Binding
+	Right    key.Binding
+	Enter    key.Binding
+	Back     key.Binding
+	Quit     key.Binding
+	Add      key.Binding
+	List     key.Binding
+	Help     key.Binding
+	MoveLeft key.Binding
+	MoveRght key.Binding
+}
+
+func (k keyMap) ShortHelp() []key.Binding {
+	return []key.Binding{k.Help, k.Quit}
+}
+
+func (k keyMap) FullHelp() [][]key.Binding {
+	return [][]key.Binding{
+		{k.Up, k.Down, k.Left, k.Right},
+		{k.Enter, k.Back, k.Add, k.List, k.Quit},
+	}
 }
 
 type menuGroup struct {
@@ -141,6 +171,9 @@ func newModel(db *gorm.DB, dbPath string, created bool, accounts []account) mode
 	editInput.Placeholder = "1234.56"
 	editInput.CharLimit = 24
 	editInput.Width = 20
+	helpModel := help.New()
+	helpModel.ShowAll = false
+	helpModel.Width = 0
 
 	status := databaseStatus(created, len(accounts), dbPath)
 	if len(accounts) == 0 {
@@ -158,6 +191,53 @@ func newModel(db *gorm.DB, dbPath string, created bool, accounts []account) mode
 		menuItem:  0,
 		addForm:   addForm,
 		editInput: editInput,
+		help:      helpModel,
+		keys:      newKeyMap(),
+	}
+}
+
+func newKeyMap() keyMap {
+	return keyMap{
+		Up: key.NewBinding(
+			key.WithKeys("up", "k"),
+			key.WithHelp("↑/k", "prev group"),
+		),
+		Down: key.NewBinding(
+			key.WithKeys("down", "j"),
+			key.WithHelp("↓/j", "next group"),
+		),
+		Left: key.NewBinding(
+			key.WithKeys("left"),
+			key.WithHelp("←", "prev item"),
+		),
+		Right: key.NewBinding(
+			key.WithKeys("right"),
+			key.WithHelp("→", "next item"),
+		),
+		Enter: key.NewBinding(
+			key.WithKeys("enter"),
+			key.WithHelp("enter", "open"),
+		),
+		Back: key.NewBinding(
+			key.WithKeys("esc", "b"),
+			key.WithHelp("esc/b", "back"),
+		),
+		Quit: key.NewBinding(
+			key.WithKeys("q", "ctrl+c"),
+			key.WithHelp("q", "quit"),
+		),
+		Add: key.NewBinding(
+			key.WithKeys("a"),
+			key.WithHelp("a", "add account"),
+		),
+		List: key.NewBinding(
+			key.WithKeys("e"),
+			key.WithHelp("e", "list accounts"),
+		),
+		Help: key.NewBinding(
+			key.WithKeys("?"),
+			key.WithHelp("?", "help"),
+		),
 	}
 }
 
@@ -232,11 +312,14 @@ func (m model) Init() tea.Cmd {
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var cmd tea.Cmd
+	m.help, cmd = m.help.Update(msg)
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		return m, nil
+		m.help.Width = clamp(msg.Width-6, 60, 120)
+		return m, cmd
 	case tea.KeyMsg:
 		if msg.String() == "ctrl+c" {
 			m.quitting = true
@@ -256,23 +339,24 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	if m.screen == screenAddAccount {
-		var cmd tea.Cmd
 		m.addForm.fields[m.addForm.active], cmd = m.addForm.fields[m.addForm.active].Update(msg)
 		return m, cmd
 	}
 
 	if m.screen == screenEditAmount {
-		var cmd tea.Cmd
 		m.editInput, cmd = m.editInput.Update(msg)
 		return m, cmd
 	}
 
-	return m, nil
+	return m, cmd
 }
 
 func (m model) updateMenu(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	groups := appMenuGroups()
 	switch msg.String() {
+	case "?":
+		m.help.ShowAll = !m.help.ShowAll
+		return m, nil
 	case "left", "h", "shift+tab":
 		if m.menuItem > 0 {
 			m.menuItem--
@@ -607,9 +691,11 @@ func (m model) renderMenu(width int) string {
 		"",
 		strings.TrimSpace(strings.Join(groupLines, "\n")),
 		"",
-		mutedStyle.Render("Use up/down to change groups, left/right (or Tab/Shift+Tab) to change buttons, Enter to open."),
+		mutedStyle.Render("Use up/down to change groups, left/right (or Tab/Shift+Tab) to change buttons, Enter to open, ? for full help."),
 		"",
 		mutedStyle.Render("Press q to quit."),
+		"",
+		m.help.View(m.keys),
 	)
 
 	return panelStyle.Width(width).Render(content)
