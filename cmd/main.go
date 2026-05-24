@@ -361,8 +361,8 @@ func newKeyMap() keyMap {
 			key.WithHelp("enter", "open"),
 		),
 		Back: key.NewBinding(
-			key.WithKeys("esc", "b"),
-			key.WithHelp("esc/b", "back"),
+			key.WithKeys("esc"),
+			key.WithHelp("esc", "back"),
 		),
 		Quit: key.NewBinding(
 			key.WithKeys("q", "ctrl+c"),
@@ -520,7 +520,7 @@ func (m model) updateMenu(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.menuItem = 0
 		}
 		return m, nil
-	case "right", "l", "tab":
+	case "right", "tab":
 		if m.menuItem < len(groups[m.menuGroup].items)-1 {
 			m.menuItem++
 			return m, nil
@@ -530,7 +530,7 @@ func (m model) updateMenu(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.menuItem = 0
 		}
 		return m, nil
-	case "up", "k":
+	case "up":
 		if targetGroup, ok := menuMoveWithinColumn(m.menuGroup, -1); ok {
 			m.menuGroup = targetGroup
 			m.menuItem = minInt(m.menuItem, len(groups[m.menuGroup].items)-1)
@@ -575,7 +575,7 @@ func (m model) activateMenuSelection() (tea.Model, tea.Cmd) {
 		}
 		m.screen = screenAccountTable
 		m.cursor = 0
-		m.status = "accounts page: all accounts shown. use arrows to pick, enter to edit amount, d to delete"
+		m.status = "accounts page: all accounts shown. use arrows to pick, enter to edit amount, delete/backspace to delete"
 		return m, nil
 	}
 
@@ -609,7 +609,7 @@ func (m model) activateMenuSelection() (tea.Model, tea.Cmd) {
 
 func (m model) updateAddAccount(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
-	case "esc", "b":
+	case "esc":
 		m.screen = screenMenu
 		m.status = databaseStatus(m.created, len(m.accounts), m.dbPath)
 		return m, nil
@@ -637,26 +637,23 @@ func (m model) updateAccountTable(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	switch msg.String() {
-	case "esc", "b":
+	case "esc":
 		m.screen = screenMenu
 		m.status = databaseStatus(m.created, len(m.accounts), m.dbPath)
 		return m, nil
-	case "q":
-		m.quitting = true
-		return m, tea.Quit
-	case "up", "k":
+	case "up":
 		if m.cursor > 0 {
 			m.cursor--
 		}
 		return m, nil
-	case "down", "j":
+	case "down":
 		if m.cursor < len(m.accounts)-1 {
 			m.cursor++
 		}
 		return m, nil
-	case "enter", "l":
+	case "enter":
 		return m.beginEditAmount(), nil
-	case "d", "x":
+	case "backspace", "delete":
 		return m.deleteSelectedAccount()
 	default:
 		return m, nil
@@ -665,7 +662,7 @@ func (m model) updateAccountTable(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (m model) updateEditAmount(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
-	case "esc", "b":
+	case "esc":
 		m.screen = screenAccountTable
 		m.status = "amount edit cancelled"
 		return m, nil
@@ -680,17 +677,17 @@ func (m model) updateEditAmount(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (m model) updateSubscriptionNew(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
-	case "esc", "b":
+	case "esc":
 		m.screen = screenMenu
 		m.status = databaseStatus(m.created, len(m.accounts), m.dbPath)
 		return m, nil
-	case "up", "k", "shift+tab":
+	case "up", "shift+tab":
 		m.addSubscriptionForm = m.addSubscriptionForm.prev()
 		return m, nil
-	case "down", "j", "tab":
+	case "down", "tab":
 		m.addSubscriptionForm = m.addSubscriptionForm.next()
 		return m, nil
-	case "left", "h":
+	case "left":
 		switch m.addSubscriptionForm.active {
 		case subFieldPeriod:
 			if m.addSubscriptionForm.periodIndex > 0 {
@@ -702,7 +699,7 @@ func (m model) updateSubscriptionNew(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 		return m, nil
-	case "right", "l":
+	case "right":
 		switch m.addSubscriptionForm.active {
 		case subFieldPeriod:
 			if m.addSubscriptionForm.periodIndex < len(m.addSubscriptionForm.periodOptions)-1 {
@@ -740,7 +737,7 @@ func (m model) updateSubscriptionNew(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m model) updateSubscriptionList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	filtered := m.filteredSubscriptions()
 	if len(filtered) == 0 {
-		if msg.String() == "esc" || msg.String() == "b" {
+		if msg.String() == "esc" {
 			m.screen = screenMenu
 			m.status = databaseStatus(m.created, len(m.accounts), m.dbPath)
 		}
@@ -748,7 +745,7 @@ func (m model) updateSubscriptionList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	switch msg.String() {
-	case "esc", "b":
+	case "esc":
 		m.screen = screenMenu
 		m.status = databaseStatus(m.created, len(m.accounts), m.dbPath)
 		return m, nil
@@ -762,6 +759,8 @@ func (m model) updateSubscriptionList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.subscriptionCursor++
 		}
 		return m, nil
+	case "backspace", "delete":
+		return m.deleteSelectedSubscription(filtered)
 	default:
 		return m, nil
 	}
@@ -957,6 +956,41 @@ func (m model) deleteSelectedAccount() (tea.Model, tea.Cmd) {
 		m.screen = screenMenu
 	}
 
+	return m, nil
+}
+
+func (m model) deleteSelectedSubscription(filtered []subscription) (tea.Model, tea.Cmd) {
+	if m.subscriptionCursor < 0 || m.subscriptionCursor >= len(filtered) {
+		m.status = "no subscription selected"
+		return m, nil
+	}
+
+	selected := filtered[m.subscriptionCursor]
+	if err := m.db.Delete(&subscription{}, selected.ID).Error; err != nil {
+		m.status = "delete failed: " + err.Error()
+		return m, nil
+	}
+
+	index := -1
+	for i := range m.subscriptions {
+		if m.subscriptions[i].ID == selected.ID {
+			index = i
+			break
+		}
+	}
+
+	if index >= 0 {
+		m.subscriptions = append(m.subscriptions[:index], m.subscriptions[index+1:]...)
+	}
+
+	filteredAfter := m.filteredSubscriptions()
+	if len(filteredAfter) == 0 {
+		m.subscriptionCursor = 0
+	} else if m.subscriptionCursor >= len(filteredAfter) {
+		m.subscriptionCursor = len(filteredAfter) - 1
+	}
+
+	m.status = "deleted subscription " + selected.Name
 	return m, nil
 }
 
@@ -1219,7 +1253,7 @@ func (m model) renderAddAccount(width int) string {
 
 func (m model) renderAccountTable(width int) string {
 	lines := []string{headlineStyle.Render("Accounts")}
-	lines = append(lines, mutedStyle.Render("Use up/down to move, Enter to edit amount, d to delete, b or Esc to go back."))
+	lines = append(lines, mutedStyle.Render("Use up/down to move, Enter to edit amount, Delete/Backspace to delete, Esc to go back."))
 	lines = append(lines, "")
 
 	if len(m.accounts) == 0 {
@@ -1309,7 +1343,7 @@ func (m model) renderSubscriptionNew(width int) string {
 		m.renderSubscriptionTextFieldRow(subFieldDayYearly, "Payment date (yearly)", m.addSubscriptionForm.inputs[4].View()),
 		m.renderSubscriptionTextFieldRow(subFieldDayMonthly, "Payment day (monthly)", m.addSubscriptionForm.inputs[5].View()),
 		"",
-		mutedStyle.Render("Esc/B goes back to menu. Day fields are optional."),
+		mutedStyle.Render("Esc goes back to menu. Day fields are optional."),
 	}
 
 	return panelStyle.Width(width).Render(strings.Join(lines, "\n"))
@@ -1348,7 +1382,7 @@ func (m model) renderSubscriptionList(width int) string {
 		modeTitle = "Active subscriptions"
 	}
 
-	lines := []string{headlineStyle.Render(modeTitle), mutedStyle.Render("Use up/down to browse. Esc/B to return to menu."), ""}
+	lines := []string{headlineStyle.Render(modeTitle), mutedStyle.Render("Use up/down to browse. Delete/Backspace removes selected item. Esc returns to menu."), ""}
 	filtered := m.filteredSubscriptions()
 	if len(filtered) == 0 {
 		lines = append(lines, mutedStyle.Render("No subscriptions found."))
