@@ -9,3 +9,4 @@
 - [ ] Add a base currency setting (to convert all transactions to a single currency for easier tracking and reporting) (update of the rate may be manual or automatic (using an API))
 - [ ] Invoice tracker (sent) (to track invoices with recepient, date, number, also optional link to the invoice file, and payment status)
 - [ ] Taxes (track tax payments and deductions)
+- [ ] Payment methods (Like cards, Apple Pay, etc.) - can be attached to subscriptions and transactions

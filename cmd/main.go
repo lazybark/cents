@@ -31,6 +31,21 @@ type account struct {
 	LeftoverCents int64
 }
 
+type subscription struct {
+	ID                uint `gorm:"primaryKey"`
+	CreatedAt         time.Time
+	LastUpdatedAt     time.Time `gorm:"not null;default:1970-01-01 00:00:00"`
+	Name              string
+	Currency          string
+	AmountCents       int64
+	Period            string
+	PaymentMethod     string
+	Type              string
+	IsActive          bool
+	PaymentDateYearly string
+	PaymentDayMonthly *int
+}
+
 type screen int
 
 const (
@@ -38,25 +53,38 @@ const (
 	screenAddAccount
 	screenAccountTable
 	screenEditAmount
+	screenSubscriptionNew
+	screenSubscriptionList
+)
+
+type subscriptionListMode int
+
+const (
+	subscriptionListActive subscriptionListMode = iota
+	subscriptionListAll
 )
 
 type model struct {
-	db        *gorm.DB
-	dbPath    string
-	created   bool
-	screen    screen
-	accounts  []account
-	status    string
-	width     int
-	height    int
-	quitting  bool
-	menuGroup int
-	menuItem  int
-	cursor    int
-	addForm   addAccountForm
-	editInput textinput.Model
-	help      help.Model
-	keys      keyMap
+	db                  *gorm.DB
+	dbPath              string
+	created             bool
+	screen              screen
+	accounts            []account
+	subscriptions       []subscription
+	subscriptionMode    subscriptionListMode
+	subscriptionCursor  int
+	status              string
+	width               int
+	height              int
+	quitting            bool
+	menuGroup           int
+	menuItem            int
+	cursor              int
+	addForm             addAccountForm
+	addSubscriptionForm addSubscriptionForm
+	editInput           textinput.Model
+	help                help.Model
+	keys                keyMap
 }
 
 type keyMap struct {
@@ -96,6 +124,29 @@ type addAccountForm struct {
 	active int
 }
 
+type addSubscriptionForm struct {
+	inputs        []textinput.Model
+	active        int
+	periodOptions []string
+	periodIndex   int
+	typeOptions   []string
+	typeIndex     int
+	isActive      bool
+}
+
+const (
+	subFieldName = iota
+	subFieldCurrency
+	subFieldAmount
+	subFieldPeriod
+	subFieldPaymentMethod
+	subFieldType
+	subFieldIsActive
+	subFieldDayYearly
+	subFieldDayMonthly
+	subFieldCount
+)
+
 var (
 	appTitleStyle     = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#F4E9D8"))
 	mutedStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color("#9C927F"))
@@ -123,7 +174,13 @@ func main() {
 		os.Exit(1)
 	}
 
-	m := newModel(db, dbPath, created, accounts)
+	subscriptions, err := loadSubscriptions(db)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "subscriptions read failed:", err)
+		os.Exit(1)
+	}
+
+	m := newModel(db, dbPath, created, accounts, subscriptions)
 	program := tea.NewProgram(m, tea.WithAltScreen())
 	if _, err := program.Run(); err != nil {
 		fmt.Fprintln(os.Stderr, "program failed:", err)
@@ -149,7 +206,7 @@ func openDatabase() (*gorm.DB, string, bool, error) {
 		return nil, "", false, err
 	}
 
-	if err := db.AutoMigrate(&account{}); err != nil {
+	if err := db.AutoMigrate(&account{}, &subscription{}); err != nil {
 		return nil, "", false, err
 	}
 
@@ -165,8 +222,18 @@ func loadAccounts(db *gorm.DB) ([]account, error) {
 	return accounts, nil
 }
 
-func newModel(db *gorm.DB, dbPath string, created bool, accounts []account) model {
+func loadSubscriptions(db *gorm.DB) ([]subscription, error) {
+	var subscriptions []subscription
+	if err := db.Order("amount_cents desc, created_at desc, id desc").Find(&subscriptions).Error; err != nil {
+		return nil, err
+	}
+
+	return subscriptions, nil
+}
+
+func newModel(db *gorm.DB, dbPath string, created bool, accounts []account, subscriptions []subscription) model {
 	addForm := newAddAccountForm()
+	addSubForm := newAddSubscriptionForm()
 	editInput := textinput.New()
 	editInput.Placeholder = "1234.56"
 	editInput.CharLimit = 24
@@ -181,19 +248,94 @@ func newModel(db *gorm.DB, dbPath string, created bool, accounts []account) mode
 	}
 
 	return model{
-		db:        db,
-		dbPath:    dbPath,
-		created:   created,
-		screen:    screenMenu,
-		accounts:  accounts,
-		status:    status,
-		menuGroup: 0,
-		menuItem:  0,
-		addForm:   addForm,
-		editInput: editInput,
-		help:      helpModel,
-		keys:      newKeyMap(),
+		db:                  db,
+		dbPath:              dbPath,
+		created:             created,
+		screen:              screenMenu,
+		accounts:            accounts,
+		subscriptions:       subscriptions,
+		subscriptionMode:    subscriptionListActive,
+		subscriptionCursor:  0,
+		status:              status,
+		menuGroup:           0,
+		menuItem:            0,
+		addForm:             addForm,
+		addSubscriptionForm: addSubForm,
+		editInput:           editInput,
+		help:                helpModel,
+		keys:                newKeyMap(),
 	}
+}
+
+func newAddSubscriptionForm() addSubscriptionForm {
+	inputs := make([]textinput.Model, 6)
+	placeholders := []string{"GitHub", "USD", "9.99", "Card **** 1234", "12.12.2012", "18"}
+	for i := range inputs {
+		field := textinput.New()
+		field.Placeholder = placeholders[i]
+		field.CharLimit = 80
+		field.Width = 28
+		inputs[i] = field
+	}
+
+	form := addSubscriptionForm{
+		inputs:        inputs,
+		active:        0,
+		periodOptions: []string{"month", "year"},
+		periodIndex:   0,
+		typeOptions:   []string{"Software", "Domain", "Service", "Multimedia", "Other"},
+		typeIndex:     0,
+		isActive:      true,
+	}
+
+	return form.focusActive()
+}
+
+func (f addSubscriptionForm) inputIndexForField(field int) int {
+	switch field {
+	case subFieldName:
+		return 0
+	case subFieldCurrency:
+		return 1
+	case subFieldAmount:
+		return 2
+	case subFieldPaymentMethod:
+		return 3
+	case subFieldDayYearly:
+		return 4
+	case subFieldDayMonthly:
+		return 5
+	default:
+		return -1
+	}
+}
+
+func (f addSubscriptionForm) focusActive() addSubscriptionForm {
+	for i := range f.inputs {
+		f.inputs[i].Blur()
+	}
+
+	if inputIndex := f.inputIndexForField(f.active); inputIndex >= 0 {
+		f.inputs[inputIndex].Focus()
+	}
+
+	return f
+}
+
+func (f addSubscriptionForm) next() addSubscriptionForm {
+	if f.active < subFieldCount-1 {
+		f.active++
+	}
+
+	return f.focusActive()
+}
+
+func (f addSubscriptionForm) prev() addSubscriptionForm {
+	if f.active > 0 {
+		f.active--
+	}
+
+	return f.focusActive()
 }
 
 func newKeyMap() keyMap {
@@ -335,6 +477,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateAccountTable(msg)
 		case screenEditAmount:
 			return m.updateEditAmount(msg)
+		case screenSubscriptionNew:
+			return m.updateSubscriptionNew(msg)
+		case screenSubscriptionList:
+			return m.updateSubscriptionList(msg)
 		}
 	}
 
@@ -346,6 +492,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if m.screen == screenEditAmount {
 		m.editInput, cmd = m.editInput.Update(msg)
 		return m, cmd
+	}
+
+	if m.screen == screenSubscriptionNew {
+		if inputIndex := m.addSubscriptionForm.inputIndexForField(m.addSubscriptionForm.active); inputIndex >= 0 {
+			m.addSubscriptionForm.inputs[inputIndex], cmd = m.addSubscriptionForm.inputs[inputIndex].Update(msg)
+			return m, cmd
+		}
 	}
 
 	return m, cmd
@@ -426,6 +579,29 @@ func (m model) activateMenuSelection() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	if m.menuGroup == 2 && m.menuItem == 0 {
+		m.screen = screenSubscriptionNew
+		m.addSubscriptionForm = newAddSubscriptionForm()
+		m.status = "new subscription"
+		return m, nil
+	}
+
+	if m.menuGroup == 2 && m.menuItem == 1 {
+		m.screen = screenSubscriptionList
+		m.subscriptionMode = subscriptionListActive
+		m.subscriptionCursor = 0
+		m.status = "active subscriptions"
+		return m, nil
+	}
+
+	if m.menuGroup == 2 && m.menuItem == 2 {
+		m.screen = screenSubscriptionList
+		m.subscriptionMode = subscriptionListAll
+		m.subscriptionCursor = 0
+		m.status = "all subscriptions"
+		return m, nil
+	}
+
 	groups := appMenuGroups()
 	m.status = strings.ToLower(groups[m.menuGroup].title) + " / " + groups[m.menuGroup].items[m.menuItem] + " is a template action (coming next)"
 	return m, nil
@@ -502,6 +678,95 @@ func (m model) updateEditAmount(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
+func (m model) updateSubscriptionNew(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc", "b":
+		m.screen = screenMenu
+		m.status = databaseStatus(m.created, len(m.accounts), m.dbPath)
+		return m, nil
+	case "up", "k", "shift+tab":
+		m.addSubscriptionForm = m.addSubscriptionForm.prev()
+		return m, nil
+	case "down", "j", "tab":
+		m.addSubscriptionForm = m.addSubscriptionForm.next()
+		return m, nil
+	case "left", "h":
+		switch m.addSubscriptionForm.active {
+		case subFieldPeriod:
+			if m.addSubscriptionForm.periodIndex > 0 {
+				m.addSubscriptionForm.periodIndex--
+			}
+		case subFieldType:
+			if m.addSubscriptionForm.typeIndex > 0 {
+				m.addSubscriptionForm.typeIndex--
+			}
+		}
+		return m, nil
+	case "right", "l":
+		switch m.addSubscriptionForm.active {
+		case subFieldPeriod:
+			if m.addSubscriptionForm.periodIndex < len(m.addSubscriptionForm.periodOptions)-1 {
+				m.addSubscriptionForm.periodIndex++
+			}
+		case subFieldType:
+			if m.addSubscriptionForm.typeIndex < len(m.addSubscriptionForm.typeOptions)-1 {
+				m.addSubscriptionForm.typeIndex++
+			}
+		}
+		return m, nil
+	case " ":
+		if m.addSubscriptionForm.active == subFieldIsActive {
+			m.addSubscriptionForm.isActive = !m.addSubscriptionForm.isActive
+			return m, nil
+		}
+		// Let text inputs receive spaces when a text field is active.
+	case "enter":
+		if m.addSubscriptionForm.active == subFieldCount-1 {
+			return m.saveSubscriptionFromForm()
+		}
+		m.addSubscriptionForm = m.addSubscriptionForm.next()
+		return m, nil
+	}
+
+	if inputIndex := m.addSubscriptionForm.inputIndexForField(m.addSubscriptionForm.active); inputIndex >= 0 {
+		var cmd tea.Cmd
+		m.addSubscriptionForm.inputs[inputIndex], cmd = m.addSubscriptionForm.inputs[inputIndex].Update(msg)
+		return m, cmd
+	}
+
+	return m, nil
+}
+
+func (m model) updateSubscriptionList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	filtered := m.filteredSubscriptions()
+	if len(filtered) == 0 {
+		if msg.String() == "esc" || msg.String() == "b" {
+			m.screen = screenMenu
+			m.status = databaseStatus(m.created, len(m.accounts), m.dbPath)
+		}
+		return m, nil
+	}
+
+	switch msg.String() {
+	case "esc", "b":
+		m.screen = screenMenu
+		m.status = databaseStatus(m.created, len(m.accounts), m.dbPath)
+		return m, nil
+	case "up", "k":
+		if m.subscriptionCursor > 0 {
+			m.subscriptionCursor--
+		}
+		return m, nil
+	case "down", "j":
+		if m.subscriptionCursor < len(filtered)-1 {
+			m.subscriptionCursor++
+		}
+		return m, nil
+	default:
+		return m, nil
+	}
+}
+
 func (m model) saveAccountFromForm() (tea.Model, tea.Cmd) {
 	name := strings.TrimSpace(m.addForm.fields[0].Value())
 	description := strings.TrimSpace(m.addForm.fields[1].Value())
@@ -548,6 +813,74 @@ func (m model) saveAccountFromForm() (tea.Model, tea.Cmd) {
 	m.addForm = newAddAccountForm()
 	m.screen = screenMenu
 	m.status = "saved account " + name
+	return m, nil
+}
+
+func (m model) saveSubscriptionFromForm() (tea.Model, tea.Cmd) {
+	name := strings.TrimSpace(m.addSubscriptionForm.inputs[0].Value())
+	currency := strings.TrimSpace(m.addSubscriptionForm.inputs[1].Value())
+	amountRaw := strings.TrimSpace(m.addSubscriptionForm.inputs[2].Value())
+	paymentMethod := strings.TrimSpace(m.addSubscriptionForm.inputs[3].Value())
+	dayYearRaw := strings.TrimSpace(m.addSubscriptionForm.inputs[4].Value())
+	dayMonthRaw := strings.TrimSpace(m.addSubscriptionForm.inputs[5].Value())
+
+	if name == "" {
+		m.status = "subscription name is required"
+		return m, nil
+	}
+	if currency == "" {
+		m.status = "currency is required"
+		return m, nil
+	}
+	if paymentMethod == "" {
+		m.status = "payment method is required"
+		return m, nil
+	}
+
+	amount, err := parseAmountCents(amountRaw)
+	if err != nil {
+		m.status = "amount error: " + err.Error()
+		return m, nil
+	}
+
+	dateYearly, err := parseOptionalDate(dayYearRaw)
+	if err != nil {
+		m.status = err.Error()
+		return m, nil
+	}
+
+	dayMonthly, err := parseOptionalDay(dayMonthRaw, 1, 31, "monthly")
+	if err != nil {
+		m.status = err.Error()
+		return m, nil
+	}
+
+	now := time.Now()
+	newSubscription := subscription{
+		Name:              name,
+		Currency:          currency,
+		AmountCents:       amount,
+		Period:            m.addSubscriptionForm.periodOptions[m.addSubscriptionForm.periodIndex],
+		PaymentMethod:     paymentMethod,
+		Type:              m.addSubscriptionForm.typeOptions[m.addSubscriptionForm.typeIndex],
+		IsActive:          m.addSubscriptionForm.isActive,
+		PaymentDateYearly: dateYearly,
+		PaymentDayMonthly: dayMonthly,
+		LastUpdatedAt:     now,
+	}
+
+	if err := m.db.Create(&newSubscription).Error; err != nil {
+		m.status = "save failed: " + err.Error()
+		return m, nil
+	}
+
+	m.subscriptions = append([]subscription{newSubscription}, m.subscriptions...)
+	m.subscriptions = sortSubscriptionsByAmount(m.subscriptions)
+	m.addSubscriptionForm = newAddSubscriptionForm()
+	m.screen = screenSubscriptionList
+	m.subscriptionMode = subscriptionListAll
+	m.subscriptionCursor = 0
+	m.status = "saved subscription " + name
 	return m, nil
 }
 
@@ -666,6 +999,10 @@ func (m model) renderBody(width int) string {
 		return m.renderAccountTable(width)
 	case screenEditAmount:
 		return m.renderEditAmount(width)
+	case screenSubscriptionNew:
+		return m.renderSubscriptionNew(width)
+	case screenSubscriptionList:
+		return m.renderSubscriptionList(width)
 	default:
 		return m.renderMenu(width)
 	}
@@ -783,7 +1120,6 @@ func minInt(left int, right int) int {
 
 	return right
 }
-
 
 func (m model) renderReadOnlyAccountOverview(width int) string {
 	lines := []string{headlineStyle.Render("Top 5 accounts by amount")}
@@ -953,6 +1289,156 @@ func (m model) renderEditAmount(width int) string {
 	return panelStyle.Width(width).Render(strings.Join(lines, "\n"))
 }
 
+func (m model) renderSubscriptionNew(width int) string {
+	activeMarker := "[ ]"
+	if m.addSubscriptionForm.isActive {
+		activeMarker = "[x]"
+	}
+
+	lines := []string{
+		headlineStyle.Render("New subscription"),
+		mutedStyle.Render("Use up/down to move fields. Left/right changes Period/Type. Space toggles Is Active. Enter on last field saves."),
+		"",
+		m.renderSubscriptionTextFieldRow(subFieldName, "Name", m.addSubscriptionForm.inputs[0].View()),
+		m.renderSubscriptionTextFieldRow(subFieldCurrency, "Currency", m.addSubscriptionForm.inputs[1].View()),
+		m.renderSubscriptionTextFieldRow(subFieldAmount, "Amount", m.addSubscriptionForm.inputs[2].View()),
+		m.renderSubscriptionOptionRow(subFieldPeriod, "Period", m.addSubscriptionForm.periodOptions, m.addSubscriptionForm.periodIndex),
+		m.renderSubscriptionTextFieldRow(subFieldPaymentMethod, "Payment method", m.addSubscriptionForm.inputs[3].View()),
+		m.renderSubscriptionOptionRow(subFieldType, "Type", m.addSubscriptionForm.typeOptions, m.addSubscriptionForm.typeIndex),
+		m.renderSubscriptionTextFieldRow(subFieldIsActive, "Is Active", activeMarker),
+		m.renderSubscriptionTextFieldRow(subFieldDayYearly, "Payment date (yearly)", m.addSubscriptionForm.inputs[4].View()),
+		m.renderSubscriptionTextFieldRow(subFieldDayMonthly, "Payment day (monthly)", m.addSubscriptionForm.inputs[5].View()),
+		"",
+		mutedStyle.Render("Esc/B goes back to menu. Day fields are optional."),
+	}
+
+	return panelStyle.Width(width).Render(strings.Join(lines, "\n"))
+}
+
+func (m model) renderSubscriptionTextFieldRow(field int, label string, value string) string {
+	prefix := "  "
+	if m.addSubscriptionForm.active == field {
+		prefix = "> "
+	}
+
+	return prefix + fieldLabelStyle.Render(label) + "  " + value
+}
+
+func (m model) renderSubscriptionOptionRow(field int, label string, options []string, selected int) string {
+	prefix := "  "
+	if m.addSubscriptionForm.active == field {
+		prefix = "> "
+	}
+
+	chips := make([]string, 0, len(options))
+	for idx, option := range options {
+		style := buttonStyle
+		if idx == selected {
+			style = buttonActiveStyle
+		}
+		chips = append(chips, style.Render(option))
+	}
+
+	return prefix + fieldLabelStyle.Render(label) + "  " + strings.Join(chips, " ")
+}
+
+func (m model) renderSubscriptionList(width int) string {
+	modeTitle := "All subscriptions"
+	if m.subscriptionMode == subscriptionListActive {
+		modeTitle = "Active subscriptions"
+	}
+
+	lines := []string{headlineStyle.Render(modeTitle), mutedStyle.Render("Use up/down to browse. Esc/B to return to menu."), ""}
+	filtered := m.filteredSubscriptions()
+	if len(filtered) == 0 {
+		lines = append(lines, mutedStyle.Render("No subscriptions found."))
+		return panelStyle.Width(width).Render(strings.Join(lines, "\n"))
+	}
+
+	lines = append(lines, m.renderSubscriptionTableHeader(width))
+	for idx, sub := range filtered {
+		lines = append(lines, m.renderSubscriptionRow(width, idx, sub))
+	}
+
+	return panelStyle.Width(width).Render(strings.Join(lines, "\n"))
+}
+
+func (m model) renderSubscriptionTableHeader(width int) string {
+	nameWidth := 16
+	currencyWidth := 8
+	amountWidth := 12
+	periodWidth := 7
+	typeWidth := 12
+	activeWidth := 7
+	descWidth := width - 12 - nameWidth - currencyWidth - amountWidth - periodWidth - typeWidth - activeWidth - 12
+	if descWidth < 12 {
+		descWidth = 12
+	}
+
+	header := fmt.Sprintf("%-2s %-*s %-*s %-*s %-*s %-*s %-*s %-*s", "#", nameWidth, "Name", currencyWidth, "Curr", amountWidth, "Amount", periodWidth, "Period", typeWidth, "Type", activeWidth, "Active", descWidth, "Payment method")
+	return mutedStyle.Render(header)
+}
+
+func (m model) renderSubscriptionRow(width int, index int, sub subscription) string {
+	nameWidth := 16
+	currencyWidth := 8
+	amountWidth := 12
+	periodWidth := 7
+	typeWidth := 12
+	activeWidth := 7
+	descWidth := width - 12 - nameWidth - currencyWidth - amountWidth - periodWidth - typeWidth - activeWidth - 12
+	if descWidth < 12 {
+		descWidth = 12
+	}
+
+	prefix := " "
+	style := rowStyle
+	if index == m.subscriptionCursor {
+		prefix = ">"
+		style = selectedRowStyle
+	}
+
+	active := "no"
+	if sub.IsActive {
+		active = "yes"
+	}
+
+	row := fmt.Sprintf("%s %-*s %-*s %-*s %-*s %-*s %-*s %-*s", prefix, nameWidth, truncateText(sub.Name, nameWidth), currencyWidth, truncateText(sub.Currency, currencyWidth), amountWidth, renderMoneyWithCurrency(sub.Currency, sub.AmountCents), periodWidth, truncateText(sub.Period, periodWidth), typeWidth, truncateText(sub.Type, typeWidth), activeWidth, active, descWidth, truncateText(sub.PaymentMethod, descWidth))
+	return style.Render(row)
+}
+
+func (m model) filteredSubscriptions() []subscription {
+	if m.subscriptionMode == subscriptionListAll {
+		return m.subscriptions
+	}
+
+	filtered := make([]subscription, 0, len(m.subscriptions))
+	for _, sub := range m.subscriptions {
+		if sub.IsActive {
+			filtered = append(filtered, sub)
+		}
+	}
+
+	return filtered
+}
+
+func sortSubscriptionsByAmount(values []subscription) []subscription {
+	if len(values) < 2 {
+		return values
+	}
+
+	cloned := make([]subscription, len(values))
+	copy(cloned, values)
+	sort.SliceStable(cloned, func(i, j int) bool {
+		if cloned[i].AmountCents == cloned[j].AmountCents {
+			return cloned[i].CreatedAt.After(cloned[j].CreatedAt)
+		}
+		return cloned[i].AmountCents > cloned[j].AmountCents
+	})
+
+	return cloned
+}
+
 func parseAmountCents(raw string) (int64, error) {
 	amount, err := strconv.ParseFloat(strings.TrimSpace(raw), 64)
 	if err != nil {
@@ -964,6 +1450,36 @@ func parseAmountCents(raw string) (int64, error) {
 	}
 
 	return int64(math.Round(amount * 100)), nil
+}
+
+func parseOptionalDay(raw string, minValue int, maxValue int, label string) (*int, error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return nil, nil
+	}
+
+	value, err := strconv.Atoi(trimmed)
+	if err != nil {
+		return nil, errors.New(label + " day must be an integer")
+	}
+	if value < minValue || value > maxValue {
+		return nil, fmt.Errorf("%s day must be between %d and %d", label, minValue, maxValue)
+	}
+
+	return &value, nil
+}
+
+func parseOptionalDate(raw string) (string, error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return "", nil
+	}
+
+	if _, err := time.Parse("02.01.2006", trimmed); err != nil {
+		return "", errors.New("yearly date must use DD.MM.YYYY format")
+	}
+
+	return trimmed, nil
 }
 
 func formatAmount(cents int64) string {
