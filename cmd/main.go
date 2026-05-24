@@ -360,27 +360,33 @@ func (m model) updateMenu(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "left", "h", "shift+tab":
 		if m.menuItem > 0 {
 			m.menuItem--
+			return m, nil
+		}
+		if targetGroup, ok := menuMoveAcrossColumns(m.menuGroup, -1); ok {
+			m.menuGroup = targetGroup
+			m.menuItem = 0
 		}
 		return m, nil
 	case "right", "l", "tab":
 		if m.menuItem < len(groups[m.menuGroup].items)-1 {
 			m.menuItem++
+			return m, nil
+		}
+		if targetGroup, ok := menuMoveAcrossColumns(m.menuGroup, 1); ok {
+			m.menuGroup = targetGroup
+			m.menuItem = 0
 		}
 		return m, nil
 	case "up", "k":
-		if m.menuGroup > 0 {
-			m.menuGroup--
-			if m.menuItem >= len(groups[m.menuGroup].items) {
-				m.menuItem = len(groups[m.menuGroup].items) - 1
-			}
+		if targetGroup, ok := menuMoveWithinColumn(m.menuGroup, -1); ok {
+			m.menuGroup = targetGroup
+			m.menuItem = minInt(m.menuItem, len(groups[m.menuGroup].items)-1)
 		}
 		return m, nil
 	case "down", "j":
-		if m.menuGroup < len(groups)-1 {
-			m.menuGroup++
-			if m.menuItem >= len(groups[m.menuGroup].items) {
-				m.menuItem = len(groups[m.menuGroup].items) - 1
-			}
+		if targetGroup, ok := menuMoveWithinColumn(m.menuGroup, 1); ok {
+			m.menuGroup = targetGroup
+			m.menuItem = minInt(m.menuItem, len(groups[m.menuGroup].items)-1)
 		}
 		return m, nil
 	case "enter":
@@ -714,6 +720,70 @@ func (m model) renderMenuGroupBlock(groupIndex int, group menuGroup) string {
 
 	return fieldLabelStyle.Render(group.title) + "\n" + strings.Join(buttons, " ")
 }
+
+func menuColumnLayout(groups []menuGroup) ([]int, []int) {
+	leftColumn := make([]int, 0, len(groups)/2+1)
+	rightColumn := make([]int, 0, len(groups)/2+1)
+	for index := range groups {
+		if index%2 == 0 {
+			leftColumn = append(leftColumn, index)
+		} else {
+			rightColumn = append(rightColumn, index)
+		}
+	}
+
+	return leftColumn, rightColumn
+}
+
+func menuColumnPosition(groupIndex int) (column int, row int) {
+	if groupIndex%2 == 0 {
+		return 0, groupIndex / 2
+	}
+
+	return 1, groupIndex / 2
+}
+
+func menuMoveWithinColumn(currentGroup int, direction int) (int, bool) {
+	leftColumn, rightColumn := menuColumnLayout(appMenuGroups())
+	column, row := menuColumnPosition(currentGroup)
+	currentColumn := leftColumn
+	if column == 1 {
+		currentColumn = rightColumn
+	}
+
+	targetRow := row + direction
+	if targetRow < 0 || targetRow >= len(currentColumn) {
+		return 0, false
+	}
+
+	return currentColumn[targetRow], true
+}
+
+func menuMoveAcrossColumns(currentGroup int, direction int) (int, bool) {
+	leftColumn, rightColumn := menuColumnLayout(appMenuGroups())
+	column, row := menuColumnPosition(currentGroup)
+	if direction < 0 {
+		if column == 1 && row < len(leftColumn) {
+			return leftColumn[row], true
+		}
+		return 0, false
+	}
+
+	if column == 0 && row < len(rightColumn) {
+		return rightColumn[row], true
+	}
+
+	return 0, false
+}
+
+func minInt(left int, right int) int {
+	if left < right {
+		return left
+	}
+
+	return right
+}
+
 
 func (m model) renderReadOnlyAccountOverview(width int) string {
 	lines := []string{headlineStyle.Render("Top 5 accounts by amount")}
