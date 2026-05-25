@@ -1853,7 +1853,8 @@ func (m model) renderAccountTable(width int) string {
 	}
 
 	accountBaseTotal := m.sumAccountsInBaseCents()
-	lines = append(lines, fieldLabelStyle.Render("Total in base currency:"), "  "+renderMoneyWithCurrency(m.baseCurrencyLabel(), accountBaseTotal), "")
+	baseLabel := m.baseCurrencyLabel()
+	lines = append(lines, fieldLabelStyle.Render("Total in "+baseLabel+":"), "  "+renderMoneyWithCurrency(baseLabel, accountBaseTotal), "")
 
 	lines = append(lines, m.renderAccountTableHeader(width))
 	for i, acct := range m.accounts {
@@ -2019,13 +2020,31 @@ func (m model) renderSubscriptionList(width int) string {
 		return panelStyle.Width(width).Render(strings.Join(lines, "\n"))
 	}
 
-	monthlyBase, yearlyProjectionBase := m.subscriptionTotalsInBaseCents(filtered)
-	lines = append(lines,
-		fieldLabelStyle.Render("Subscription totals in base currency:"),
-		"  monthly: "+renderMoneyWithCurrency(m.baseCurrencyLabel(), monthlyBase),
-		"  yearly:  "+renderMoneyWithCurrency(m.baseCurrencyLabel(), yearlyProjectionBase),
-		"",
-	)
+	if m.subscriptionMode == subscriptionListAll {
+		activeSubs, inactiveSubs := splitSubscriptionsByActivity(filtered)
+		activeMonthlyBase, activeYearlyProjectionBase := m.subscriptionTotalsInBaseCents(activeSubs)
+		inactiveMonthlyBase, inactiveYearlyProjectionBase := m.subscriptionTotalsInBaseCents(inactiveSubs)
+		baseLabel := m.baseCurrencyLabel()
+		lines = append(lines,
+			fieldLabelStyle.Render("Active totals in "+baseLabel+":"),
+			"  monthly: "+renderMoneyWithCurrency(baseLabel, activeMonthlyBase),
+			"  yearly:  "+renderMoneyWithCurrency(baseLabel, activeYearlyProjectionBase),
+			"",
+			fieldLabelStyle.Render("Inactive totals in "+baseLabel+":"),
+			"  monthly: "+renderMoneyWithCurrency(baseLabel, inactiveMonthlyBase),
+			"  yearly:  "+renderMoneyWithCurrency(baseLabel, inactiveYearlyProjectionBase),
+			"",
+		)
+	} else {
+		monthlyBase, yearlyProjectionBase := m.subscriptionTotalsInBaseCents(filtered)
+		baseLabel := m.baseCurrencyLabel()
+		lines = append(lines,
+			fieldLabelStyle.Render("Active totals in "+baseLabel+":"),
+			"  monthly: "+renderMoneyWithCurrency(baseLabel, monthlyBase),
+			"  yearly:  "+renderMoneyWithCurrency(baseLabel, yearlyProjectionBase),
+			"",
+		)
+	}
 
 	lines = append(lines, m.renderSubscriptionTableHeader(width))
 	for idx, sub := range filtered {
@@ -2244,6 +2263,19 @@ func (m model) subscriptionTotalsInBaseCents(subs []subscription) (monthlyTotal 
 
 	yearlyProjection = yearlyOnly + monthlyTotal*12
 	return monthlyTotal, yearlyProjection
+}
+
+func splitSubscriptionsByActivity(subs []subscription) (active []subscription, inactive []subscription) {
+	active = make([]subscription, 0, len(subs))
+	inactive = make([]subscription, 0, len(subs))
+	for _, sub := range subs {
+		if sub.IsActive {
+			active = append(active, sub)
+			continue
+		}
+		inactive = append(inactive, sub)
+	}
+	return active, inactive
 }
 
 func (m model) rateToBase(currency string) (float64, bool) {
