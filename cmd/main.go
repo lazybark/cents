@@ -1832,6 +1832,9 @@ func (m model) renderAccountTable(width int) string {
 		return panelStyle.Width(width).Render(strings.Join(lines, "\n"))
 	}
 
+	accountBaseTotal := m.sumAccountsInBaseCents()
+	lines = append(lines, fieldLabelStyle.Render("Total in base currency:"), "  "+renderMoneyWithCurrency(m.baseCurrencyLabel(), accountBaseTotal), "")
+
 	lines = append(lines, m.renderAccountTableHeader(width))
 	for i, acct := range m.accounts {
 		lines = append(lines, m.renderAccountRow(width, i, acct))
@@ -1996,6 +1999,14 @@ func (m model) renderSubscriptionList(width int) string {
 		return panelStyle.Width(width).Render(strings.Join(lines, "\n"))
 	}
 
+	monthlyBase, yearlyProjectionBase := m.subscriptionTotalsInBaseCents(filtered)
+	lines = append(lines,
+		fieldLabelStyle.Render("Subscription totals in base currency:"),
+		"  monthly: "+renderMoneyWithCurrency(m.baseCurrencyLabel(), monthlyBase),
+		"  yearly:  "+renderMoneyWithCurrency(m.baseCurrencyLabel(), yearlyProjectionBase),
+		"",
+	)
+
 	lines = append(lines, m.renderSubscriptionTableHeader(width))
 	for idx, sub := range filtered {
 		lines = append(lines, m.renderSubscriptionRow(width, idx, sub))
@@ -2145,22 +2156,74 @@ func selectedCurrencyOption(options []string, index int) string {
 }
 
 func (m model) convertedAmountForBase(currency string, cents int64) string {
-	base := strings.TrimSpace(m.settings.BaseCurrency)
-	if base == "" {
-		base = "$"
-	}
+	base := m.baseCurrencyLabel()
 
 	if strings.EqualFold(strings.TrimSpace(currency), base) {
 		return ""
 	}
 
-	rate, ok := m.rateToBase(currency)
+	convertedCents, ok := m.convertToBaseCents(currency, cents)
 	if !ok {
 		return ""
 	}
 
-	convertedCents := int64(math.Round(float64(cents) * rate))
 	return renderMoneyWithCurrency(base, convertedCents)
+}
+
+func (m model) baseCurrencyLabel() string {
+	base := strings.TrimSpace(m.settings.BaseCurrency)
+	if base == "" {
+		return "$"
+	}
+	return base
+}
+
+func (m model) convertToBaseCents(currency string, cents int64) (int64, bool) {
+	base := m.baseCurrencyLabel()
+	if strings.EqualFold(strings.TrimSpace(currency), base) {
+		return cents, true
+	}
+
+	rate, ok := m.rateToBase(currency)
+	if !ok {
+		return 0, false
+	}
+
+	return int64(math.Round(float64(cents) * rate)), true
+}
+
+func (m model) sumAccountsInBaseCents() int64 {
+	var total int64
+	for _, acct := range m.accounts {
+		converted, ok := m.convertToBaseCents(acct.Currency, acct.BalanceCents)
+		if !ok {
+			continue
+		}
+		total += converted
+	}
+	return total
+}
+
+func (m model) subscriptionTotalsInBaseCents(subs []subscription) (monthlyTotal int64, yearlyProjection int64) {
+	var yearlyOnly int64
+	for _, sub := range subs {
+		converted, ok := m.convertToBaseCents(sub.Currency, sub.AmountCents)
+		if !ok {
+			continue
+		}
+
+		if strings.EqualFold(strings.TrimSpace(sub.Period), "month") {
+			monthlyTotal += converted
+			continue
+		}
+
+		if strings.EqualFold(strings.TrimSpace(sub.Period), "year") {
+			yearlyOnly += converted
+		}
+	}
+
+	yearlyProjection = yearlyOnly + monthlyTotal*12
+	return monthlyTotal, yearlyProjection
 }
 
 func (m model) rateToBase(currency string) (float64, bool) {
