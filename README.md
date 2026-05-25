@@ -12,3 +12,4 @@
 - [ ] Store DB schema by versions once we have 0.0.1 release, to be able to track changes and update the DB schema on app updates without losing data.
 - [ ] Backup and restore DB.
 - [ ] When user opens app, it tries to fetch DB. If no DB or it's empty (lacks settings table) - suggest user to create new DB or open existing. Then this setting is saved in some config file.
+- [ ] CSV exports for everything (accounts, transactions, budgets, goals, debts, invoices, etc.)

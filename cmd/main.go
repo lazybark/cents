@@ -264,6 +264,8 @@ type editDebtForm struct {
 	dueDateInput     textinput.Model
 	commentInput     textinput.Model
 	logDeltaInput    textinput.Model
+	logDateInput     textinput.Model
+	logCommentInput  textinput.Model
 	activeField      int
 	peerLabel        string
 	currencyLabel    string
@@ -284,6 +286,8 @@ const (
 	editDebtFieldDueDate
 	editDebtFieldComment
 	editDebtFieldLogDelta
+	editDebtFieldLogDate
+	editDebtFieldLogComment
 	editDebtFieldCount
 )
 
@@ -777,6 +781,16 @@ func newEditDebtForm() editDebtForm {
 	logDeltaInput.CharLimit = 24
 	logDeltaInput.Width = 24
 
+	logDateInput := textinput.New()
+	logDateInput.Placeholder = "DD.MM.YYYY (optional)"
+	logDateInput.CharLimit = 24
+	logDateInput.Width = 24
+
+	logCommentInput := textinput.New()
+	logCommentInput.Placeholder = "transaction note (optional)"
+	logCommentInput.CharLimit = 120
+	logCommentInput.Width = 36
+
 	form := editDebtForm{
 		amountInput:      amountInput,
 		amountPaidInput:  amountPaidInput,
@@ -784,6 +798,8 @@ func newEditDebtForm() editDebtForm {
 		dueDateInput:     dueDateInput,
 		commentInput:     commentInput,
 		logDeltaInput:    logDeltaInput,
+		logDateInput:     logDateInput,
+		logCommentInput:  logCommentInput,
 		activeField:      0,
 	}
 
@@ -797,6 +813,8 @@ func (f editDebtForm) focusActive() editDebtForm {
 	f.dueDateInput.Blur()
 	f.commentInput.Blur()
 	f.logDeltaInput.Blur()
+	f.logDateInput.Blur()
+	f.logCommentInput.Blur()
 
 	switch f.activeField {
 	case editDebtFieldAmount:
@@ -811,6 +829,10 @@ func (f editDebtForm) focusActive() editDebtForm {
 		f.commentInput.Focus()
 	case editDebtFieldLogDelta:
 		f.logDeltaInput.Focus()
+	case editDebtFieldLogDate:
+		f.logDateInput.Focus()
+	case editDebtFieldLogComment:
+		f.logCommentInput.Focus()
 	}
 	return f
 }
@@ -2174,6 +2196,8 @@ func (m model) openDebtEditor(selected debt) tea.Model {
 		m.editDebtForm.dueDateInput.SetValue(selected.DueDate.Local().Format("02.01.2006"))
 	}
 	m.editDebtForm.commentInput.SetValue(selected.Comment)
+	m.editDebtForm.logDateInput.SetValue(time.Now().Format("02.01.2006"))
+	m.editDebtForm.logCommentInput.SetValue("")
 	m.editDebtForm.peerLabel = selected.Peer
 	m.editDebtForm.currencyLabel = selected.Currency
 	m.editDebtForm.directionLabel = debtDirectionLabel(selected.IsOwedToUser)
@@ -2203,7 +2227,7 @@ func (m model) updateDebtEdit(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.editDebtForm = m.editDebtForm.next()
 		return m, nil
 	case "enter":
-		if m.editDebtForm.activeField == editDebtFieldLogDelta {
+		if m.editDebtForm.activeField == editDebtFieldLogComment {
 			return m.applyDebtLogDelta()
 		}
 		if m.editDebtForm.activeField == editDebtFieldComment {
@@ -2227,6 +2251,10 @@ func (m model) updateDebtEdit(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.editDebtForm.commentInput, cmd = m.editDebtForm.commentInput.Update(msg)
 	case editDebtFieldLogDelta:
 		m.editDebtForm.logDeltaInput, cmd = m.editDebtForm.logDeltaInput.Update(msg)
+	case editDebtFieldLogDate:
+		m.editDebtForm.logDateInput, cmd = m.editDebtForm.logDateInput.Update(msg)
+	case editDebtFieldLogComment:
+		m.editDebtForm.logCommentInput, cmd = m.editDebtForm.logCommentInput.Update(msg)
 	}
 	return m, cmd
 }
@@ -2380,6 +2408,11 @@ func (m model) applyDebtLogDelta() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	entryTime, err := parseLogDateOrToday(strings.TrimSpace(m.editDebtForm.logDateInput.Value()))
+	if err != nil {
+		m.status = err.Error()
+		return m, nil
+	}
 	now := time.Now()
 	selected.AmountPaidCents = nextPaid
 	selected.LastUpdatedAt = now
@@ -2388,10 +2421,15 @@ func (m model) applyDebtLogDelta() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	note := strings.TrimSpace(m.editDebtForm.logCommentInput.Value())
+	if note == "" {
+		note = "manual paid adjustment"
+	}
 	entry := debtLog{
 		DebtID:         selected.ID,
 		DeltaPaidCents: delta,
-		Note:           "manual paid adjustment",
+		Note:           note,
+		CreatedAt:      entryTime,
 	}
 	if err := m.db.Create(&entry).Error; err != nil {
 		m.status = "log save failed: " + err.Error()
@@ -2402,6 +2440,8 @@ func (m model) applyDebtLogDelta() (tea.Model, tea.Cmd) {
 	m.debtLogs = append([]debtLog{entry}, m.debtLogs...)
 	m.editDebtForm.amountPaidInput.SetValue(formatAmount(selected.AmountPaidCents))
 	m.editDebtForm.logDeltaInput.SetValue("")
+	m.editDebtForm.logDateInput.SetValue(time.Now().Format("02.01.2006"))
+	m.editDebtForm.logCommentInput.SetValue("")
 	m.status = "applied log delta"
 	return m, nil
 }
@@ -3151,7 +3191,7 @@ func (m model) renderDebtTableRow(width int, index int, item debt) string {
 func (m model) renderDebtEdit(width int) string {
 	lines := []string{
 		headlineStyle.Render("Edit debt"),
-		mutedStyle.Render("Edit fields and press Enter on Comment to save. In Log delta, enter +/- and press Enter to apply."),
+		mutedStyle.Render("Edit fields and press Enter on Comment to save. For log: set delta/date/comment and press Enter on Log comment to apply."),
 		"",
 		mutedStyle.Render("Peer: " + m.editDebtForm.peerLabel + " | Direction: " + m.editDebtForm.directionLabel + " | Currency: " + m.editDebtForm.currencyLabel),
 		"",
@@ -3161,6 +3201,8 @@ func (m model) renderDebtEdit(width int) string {
 		m.renderEditDebtField(editDebtFieldDueDate, "Due date", m.editDebtForm.dueDateInput.View()),
 		m.renderEditDebtField(editDebtFieldComment, "Comment", m.editDebtForm.commentInput.View()),
 		m.renderEditDebtField(editDebtFieldLogDelta, "Log delta", m.editDebtForm.logDeltaInput.View()),
+		m.renderEditDebtField(editDebtFieldLogDate, "Log date", m.editDebtForm.logDateInput.View()),
+		m.renderEditDebtField(editDebtFieldLogComment, "Log comment", m.editDebtForm.logCommentInput.View()),
 		"",
 		fieldLabelStyle.Render("Logs"),
 	}
@@ -3173,7 +3215,12 @@ func (m model) renderDebtEdit(width int) string {
 			if entry.DeltaPaidCents < 0 {
 				sign = ""
 			}
-			lines = append(lines, fmt.Sprintf("%s%s at %s", sign, formatAmount(entry.DeltaPaidCents), entry.CreatedAt.Local().Format("2006-01-02 15:04")))
+			note := strings.TrimSpace(entry.Note)
+			if note != "" {
+				lines = append(lines, fmt.Sprintf("%s%s at %s | %s", sign, formatAmount(entry.DeltaPaidCents), entry.CreatedAt.Local().Format("2006-01-02 15:04"), note))
+			} else {
+				lines = append(lines, fmt.Sprintf("%s%s at %s", sign, formatAmount(entry.DeltaPaidCents), entry.CreatedAt.Local().Format("2006-01-02 15:04")))
+			}
 		}
 	}
 
@@ -3584,6 +3631,19 @@ func parseSignedAmountCents(raw string) (int64, error) {
 		return 0, err
 	}
 	return sign * amount, nil
+}
+
+func parseLogDateOrToday(raw string) (time.Time, error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return time.Now(), nil
+	}
+	value, err := time.Parse("02.01.2006", trimmed)
+	if err != nil {
+		return time.Time{}, errors.New("log date must use DD.MM.YYYY format")
+	}
+	now := time.Now()
+	return time.Date(value.Year(), value.Month(), value.Day(), now.Hour(), now.Minute(), now.Second(), 0, now.Location()), nil
 }
 
 func formatAmount(cents int64) string {
