@@ -2093,11 +2093,17 @@ func (m model) updateDebtNew(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.addDebtForm = m.addDebtForm.next()
 		return m, nil
 	case "left":
+		if m.addDebtForm.active == debtFieldDirection {
+			m.addDebtForm.isOwedToUser = false
+		}
 		if m.addDebtForm.active == debtFieldCurrency && m.addDebtForm.currencyIndex > 0 {
 			m.addDebtForm.currencyIndex--
 		}
 		return m, nil
 	case "right":
+		if m.addDebtForm.active == debtFieldDirection {
+			m.addDebtForm.isOwedToUser = true
+		}
 		if m.addDebtForm.active == debtFieldCurrency && m.addDebtForm.currencyIndex < len(m.addDebtForm.currencyOptions)-1 {
 			m.addDebtForm.currencyIndex++
 		}
@@ -3010,14 +3016,17 @@ func (m model) renderSubscriptionRow(width int, index int, sub subscription) str
 }
 
 func (m model) renderDebtNew(width int) string {
-	direction := debtDirectionLabel(m.addDebtForm.isOwedToUser)
+	directionIndex := 0
+	if m.addDebtForm.isOwedToUser {
+		directionIndex = 1
+	}
 	lines := []string{
 		headlineStyle.Render("New debt"),
-		mutedStyle.Render("Use up/down to move fields. Left/right changes currency. Space toggles direction. Enter on last field saves."),
+		mutedStyle.Render("Use up/down to move fields. Left/right changes direction and currency. Space also toggles direction. Enter on last field saves."),
 		"",
-		m.renderDebtRowOption(debtFieldDirection, "Direction", direction),
+		m.renderDebtChoiceRow(debtFieldDirection, "Direction", []string{"outgoing (i owe)", "incoming (owed to me)"}, directionIndex),
 		m.renderDebtRowText(debtFieldPeer, "Peer", m.addDebtForm.inputs[0].View()),
-		m.renderDebtRowOption(debtFieldCurrency, "Currency", selectedCurrencyOption(m.addDebtForm.currencyOptions, m.addDebtForm.currencyIndex)),
+		m.renderDebtChoiceRow(debtFieldCurrency, "Currency", m.addDebtForm.currencyOptions, m.addDebtForm.currencyIndex),
 		m.renderDebtRowText(debtFieldAmount, "Amount", m.addDebtForm.inputs[1].View()),
 		m.renderDebtRowText(debtFieldAmountPaid, "Amount paid", m.addDebtForm.inputs[2].View()),
 		m.renderDebtRowText(debtFieldDebtCreated, "Debt created", m.addDebtForm.inputs[3].View()),
@@ -3042,6 +3051,24 @@ func (m model) renderDebtRowOption(field int, label string, value string) string
 		prefix = "> "
 	}
 	return prefix + fieldLabelStyle.Render(label) + "  " + value
+}
+
+func (m model) renderDebtChoiceRow(field int, label string, options []string, selected int) string {
+	prefix := "  "
+	if m.addDebtForm.active == field {
+		prefix = "> "
+	}
+
+	chips := make([]string, 0, len(options))
+	for i, option := range options {
+		style := buttonStyle
+		if i == selected {
+			style = buttonActiveStyle
+		}
+		chips = append(chips, style.Render(option))
+	}
+
+	return prefix + fieldLabelStyle.Render(label) + "  " + strings.Join(chips, " ")
 }
 
 func (m model) renderDebtList(width int) string {
