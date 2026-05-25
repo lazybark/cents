@@ -59,9 +59,19 @@ type settingCurrency struct {
 	RateToBase    float64 `gorm:"not null"`
 }
 
+type settingPaymentMethod struct {
+	ID                uint `gorm:"primaryKey"`
+	CreatedAt         time.Time
+	LastUpdatedAt     time.Time
+	PaymentMethodName string `gorm:"not null;uniqueIndex"`
+	PaymentMethodType string `gorm:"not null"`
+	IsDefault         bool   `gorm:"not null;default:false"`
+}
+
 type appSettings struct {
-	BaseCurrency string
-	Currencies   []settingCurrency
+	BaseCurrency   string
+	Currencies     []settingCurrency
+	PaymentMethods []settingPaymentMethod
 }
 
 type settingsEditMode int
@@ -70,6 +80,7 @@ const (
 	settingsEditNone settingsEditMode = iota
 	settingsEditBaseCurrency
 	settingsEditCurrency
+	settingsEditPaymentMethod
 )
 
 type screen int
@@ -93,37 +104,43 @@ const (
 )
 
 type model struct {
-	db                        *gorm.DB
-	dbPath                    string
-	created                   bool
-	screen                    screen
-	accounts                  []account
-	subscriptions             []subscription
-	subscriptionMode          subscriptionListMode
-	subscriptionCursor        int
-	settings                  appSettings
-	settingsCursor            int
-	settingsEditMode          settingsEditMode
-	settingsEditInput         textinput.Model
-	settingsCurrencyNameInput textinput.Model
-	settingsCurrencyRateInput textinput.Model
-	settingsCurrencyField     int
-	settingsCurrencyEditingID uint
-	status                    string
-	width                     int
-	height                    int
-	quitting                  bool
-	menuGroup                 int
-	menuItem                  int
-	cursor                    int
-	addForm                   addAccountForm
-	addSubscriptionForm       addSubscriptionForm
-	editSubscriptionForm      editSubscriptionForm
-	editingSubscriptionID     uint
-	editingSubscriptionMode   subscriptionListMode
-	editInput                 textinput.Model
-	help                      help.Model
-	keys                      keyMap
+	db                               *gorm.DB
+	dbPath                           string
+	created                          bool
+	screen                           screen
+	accounts                         []account
+	subscriptions                    []subscription
+	subscriptionMode                 subscriptionListMode
+	subscriptionCursor               int
+	settings                         appSettings
+	settingsCursor                   int
+	settingsEditMode                 settingsEditMode
+	settingsEditInput                textinput.Model
+	settingsCurrencyNameInput        textinput.Model
+	settingsCurrencyRateInput        textinput.Model
+	settingsCurrencyField            int
+	settingsCurrencyEditingID        uint
+	settingsPaymentMethodNameInput   textinput.Model
+	settingsPaymentMethodField       int
+	settingsPaymentMethodEditingID   uint
+	settingsPaymentMethodTypeOptions []string
+	settingsPaymentMethodTypeIndex   int
+	settingsPaymentMethodIsDefault   bool
+	status                           string
+	width                            int
+	height                           int
+	quitting                         bool
+	menuGroup                        int
+	menuItem                         int
+	cursor                           int
+	addForm                          addAccountForm
+	addSubscriptionForm              addSubscriptionForm
+	editSubscriptionForm             editSubscriptionForm
+	editingSubscriptionID            uint
+	editingSubscriptionMode          subscriptionListMode
+	editInput                        textinput.Model
+	help                             help.Model
+	keys                             keyMap
 }
 
 type keyMap struct {
@@ -166,15 +183,17 @@ type addAccountForm struct {
 }
 
 type addSubscriptionForm struct {
-	inputs          []textinput.Model
-	active          int
-	currencyOptions []string
-	currencyIndex   int
-	periodOptions   []string
-	periodIndex     int
-	typeOptions     []string
-	typeIndex       int
-	isActive        bool
+	inputs               []textinput.Model
+	active               int
+	currencyOptions      []string
+	currencyIndex        int
+	paymentMethodOptions []string
+	paymentMethodIndex   int
+	periodOptions        []string
+	periodIndex          int
+	typeOptions          []string
+	typeIndex            int
+	isActive             bool
 }
 
 type editSubscriptionForm struct {
@@ -202,6 +221,7 @@ const (
 	subFieldCurrency
 	subFieldAmount
 	subFieldPeriod
+	subFieldPaymentMethodChoice
 	subFieldPaymentMethod
 	subFieldType
 	subFieldIsActive
@@ -275,7 +295,7 @@ func openDatabase() (*gorm.DB, string, bool, error) {
 		return nil, "", false, err
 	}
 
-	if err := db.AutoMigrate(&account{}, &subscription{}, &settingRecord{}, &settingCurrency{}); err != nil {
+	if err := db.AutoMigrate(&account{}, &subscription{}, &settingRecord{}, &settingCurrency{}, &settingPaymentMethod{}); err != nil {
 		return nil, "", false, err
 	}
 
@@ -316,6 +336,16 @@ func ensureSettingsDefaults(db *gorm.DB) error {
 		}
 	}
 
+	count = 0
+	if err := db.Model(&settingPaymentMethod{}).Where("is_default = ?", true).Count(&count).Error; err != nil {
+		return err
+	}
+	if count == 0 {
+		if err := db.Create(&settingPaymentMethod{PaymentMethodName: "Other", PaymentMethodType: "Other", IsDefault: true}).Error; err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 
@@ -341,14 +371,21 @@ func loadAppSettings(db *gorm.DB) (appSettings, error) {
 	}
 	settings.Currencies = currencies
 
+	var paymentMethods []settingPaymentMethod
+	if err := db.Order("is_default desc, payment_method_name asc, id asc").Find(&paymentMethods).Error; err != nil {
+		return appSettings{}, err
+	}
+	settings.PaymentMethods = paymentMethods
+
 	return settings, nil
 }
 
 func newModel(db *gorm.DB, dbPath string, created bool, accounts []account, subscriptions []subscription, settings appSettings) model {
 	accounts = sortAccountsByBaseAmount(accounts, settings)
 	currencyOptions := currencySelectionOptions(settings)
+	paymentMethodOptions := paymentMethodSelectionOptions(settings)
 	addForm := newAddAccountForm(currencyOptions)
-	addSubForm := newAddSubscriptionForm(currencyOptions)
+	addSubForm := newAddSubscriptionForm(currencyOptions, paymentMethodOptions)
 	editInput := textinput.New()
 	editInput.Placeholder = "1234.56"
 	editInput.CharLimit = 24
@@ -365,6 +402,10 @@ func newModel(db *gorm.DB, dbPath string, created bool, accounts []account, subs
 	settingsCurrencyRateInput.Placeholder = "1.23"
 	settingsCurrencyRateInput.CharLimit = 24
 	settingsCurrencyRateInput.Width = 20
+	settingsPaymentMethodNameInput := textinput.New()
+	settingsPaymentMethodNameInput.Placeholder = "Personal Visa"
+	settingsPaymentMethodNameInput.CharLimit = 40
+	settingsPaymentMethodNameInput.Width = 28
 	helpModel := help.New()
 	helpModel.ShowAll = false
 	helpModel.Width = 0
@@ -375,31 +416,37 @@ func newModel(db *gorm.DB, dbPath string, created bool, accounts []account, subs
 	}
 
 	return model{
-		db:                        db,
-		dbPath:                    dbPath,
-		created:                   created,
-		screen:                    screenMenu,
-		accounts:                  accounts,
-		subscriptions:             subscriptions,
-		settings:                  settings,
-		settingsCursor:            0,
-		settingsEditMode:          settingsEditNone,
-		settingsEditInput:         settingsInput,
-		settingsCurrencyNameInput: settingsCurrencyNameInput,
-		settingsCurrencyRateInput: settingsCurrencyRateInput,
-		settingsCurrencyField:     0,
-		settingsCurrencyEditingID: 0,
-		subscriptionMode:          subscriptionListActive,
-		subscriptionCursor:        0,
-		status:                    status,
-		menuGroup:                 0,
-		menuItem:                  0,
-		addForm:                   addForm,
-		addSubscriptionForm:       addSubForm,
-		editSubscriptionForm:      newEditSubscriptionForm(),
-		editInput:                 editInput,
-		help:                      helpModel,
-		keys:                      newKeyMap(),
+		db:                               db,
+		dbPath:                           dbPath,
+		created:                          created,
+		screen:                           screenMenu,
+		accounts:                         accounts,
+		subscriptions:                    subscriptions,
+		settings:                         settings,
+		settingsCursor:                   0,
+		settingsEditMode:                 settingsEditNone,
+		settingsEditInput:                settingsInput,
+		settingsCurrencyNameInput:        settingsCurrencyNameInput,
+		settingsCurrencyRateInput:        settingsCurrencyRateInput,
+		settingsCurrencyField:            0,
+		settingsCurrencyEditingID:        0,
+		settingsPaymentMethodNameInput:   settingsPaymentMethodNameInput,
+		settingsPaymentMethodField:       0,
+		settingsPaymentMethodEditingID:   0,
+		settingsPaymentMethodTypeOptions: []string{"Card", "Crypto", "E-Wallet", "Other"},
+		settingsPaymentMethodTypeIndex:   0,
+		settingsPaymentMethodIsDefault:   false,
+		subscriptionMode:                 subscriptionListActive,
+		subscriptionCursor:               0,
+		status:                           status,
+		menuGroup:                        0,
+		menuItem:                         0,
+		addForm:                          addForm,
+		addSubscriptionForm:              addSubForm,
+		editSubscriptionForm:             newEditSubscriptionForm(),
+		editInput:                        editInput,
+		help:                             helpModel,
+		keys:                             newKeyMap(),
 	}
 }
 
@@ -448,7 +495,7 @@ func (f editSubscriptionForm) prev() editSubscriptionForm {
 	return f.focusActive()
 }
 
-func newAddSubscriptionForm(currencyOptions []string) addSubscriptionForm {
+func newAddSubscriptionForm(currencyOptions []string, paymentMethodOptions []string) addSubscriptionForm {
 	inputs := make([]textinput.Model, 6)
 	placeholders := []string{"GitHub", "", "9.99", "Card **** 1234", "12.12.2012", "18"}
 	for i := range inputs {
@@ -460,15 +507,17 @@ func newAddSubscriptionForm(currencyOptions []string) addSubscriptionForm {
 	}
 
 	form := addSubscriptionForm{
-		inputs:          inputs,
-		active:          0,
-		currencyOptions: append([]string(nil), currencyOptions...),
-		currencyIndex:   0,
-		periodOptions:   []string{"month", "year"},
-		periodIndex:     0,
-		typeOptions:     []string{"Software", "Domain", "Service", "Multimedia", "Other"},
-		typeIndex:       0,
-		isActive:        true,
+		inputs:               inputs,
+		active:               0,
+		currencyOptions:      append([]string(nil), currencyOptions...),
+		currencyIndex:        0,
+		paymentMethodOptions: append([]string(nil), paymentMethodOptions...),
+		paymentMethodIndex:   0,
+		periodOptions:        []string{"month", "year"},
+		periodIndex:          0,
+		typeOptions:          []string{"Software", "Domain", "Service", "Multimedia", "Other"},
+		typeIndex:            0,
+		isActive:             true,
 	}
 
 	return form.focusActive()
@@ -482,6 +531,8 @@ func (f addSubscriptionForm) inputIndexForField(field int) int {
 		return -1
 	case subFieldAmount:
 		return 2
+	case subFieldPaymentMethodChoice:
+		return -1
 	case subFieldPaymentMethod:
 		return 3
 	case subFieldDayYearly:
@@ -779,7 +830,7 @@ func (m model) activateMenuSelection() (tea.Model, tea.Cmd) {
 
 	if m.menuGroup == 2 && m.menuItem == 0 {
 		m.screen = screenSubscriptionNew
-		m.addSubscriptionForm = newAddSubscriptionForm(currencySelectionOptions(m.settings))
+		m.addSubscriptionForm = newAddSubscriptionForm(currencySelectionOptions(m.settings), paymentMethodSelectionOptions(m.settings))
 		m.status = "new subscription"
 		return m, nil
 	}
@@ -913,6 +964,10 @@ func (m model) updateSubscriptionNew(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if m.addSubscriptionForm.currencyIndex > 0 {
 				m.addSubscriptionForm.currencyIndex--
 			}
+		case subFieldPaymentMethodChoice:
+			if m.addSubscriptionForm.paymentMethodIndex > 0 {
+				m.addSubscriptionForm.paymentMethodIndex--
+			}
 		case subFieldPeriod:
 			if m.addSubscriptionForm.periodIndex > 0 {
 				m.addSubscriptionForm.periodIndex--
@@ -928,6 +983,10 @@ func (m model) updateSubscriptionNew(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case subFieldCurrency:
 			if m.addSubscriptionForm.currencyIndex < len(m.addSubscriptionForm.currencyOptions)-1 {
 				m.addSubscriptionForm.currencyIndex++
+			}
+		case subFieldPaymentMethodChoice:
+			if m.addSubscriptionForm.paymentMethodIndex < len(m.addSubscriptionForm.paymentMethodOptions)-1 {
+				m.addSubscriptionForm.paymentMethodIndex++
 			}
 		case subFieldPeriod:
 			if m.addSubscriptionForm.periodIndex < len(m.addSubscriptionForm.periodOptions)-1 {
@@ -1182,6 +1241,112 @@ func (m model) updateSettings(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 
+	if m.settingsEditMode == settingsEditPaymentMethod {
+		switch msg.String() {
+		case "esc":
+			m.settingsEditMode = settingsEditNone
+			m.settingsPaymentMethodNameInput.Blur()
+			m.screen = screenMenu
+			m.status = databaseStatus(m.created, len(m.accounts), m.dbPath)
+			return m, nil
+		case "tab", "down":
+			if m.settingsPaymentMethodField < 2 {
+				m.settingsPaymentMethodField++
+			}
+			m = m.focusPaymentMethodFormField()
+			return m, nil
+		case "shift+tab", "up":
+			if m.settingsPaymentMethodField > 0 {
+				m.settingsPaymentMethodField--
+			}
+			m = m.focusPaymentMethodFormField()
+			return m, nil
+		case "left":
+			if m.settingsPaymentMethodField == 1 && m.settingsPaymentMethodTypeIndex > 0 {
+				m.settingsPaymentMethodTypeIndex--
+			}
+			return m, nil
+		case "right":
+			if m.settingsPaymentMethodField == 1 && m.settingsPaymentMethodTypeIndex < len(m.settingsPaymentMethodTypeOptions)-1 {
+				m.settingsPaymentMethodTypeIndex++
+			}
+			return m, nil
+		case " ":
+			if m.settingsPaymentMethodField == 2 {
+				m.settingsPaymentMethodIsDefault = !m.settingsPaymentMethodIsDefault
+			}
+			return m, nil
+		case "enter":
+			if m.settingsPaymentMethodField < 2 {
+				m.settingsPaymentMethodField++
+				m = m.focusPaymentMethodFormField()
+				return m, nil
+			}
+
+			name := strings.TrimSpace(m.settingsPaymentMethodNameInput.Value())
+			if name == "" {
+				m.status = "payment method name is required"
+				return m, nil
+			}
+			methodType := selectedPaymentMethodType(m.settingsPaymentMethodTypeOptions, m.settingsPaymentMethodTypeIndex)
+			isDefault := m.settingsPaymentMethodIsDefault
+			if len(m.settings.PaymentMethods) == 0 && m.settingsPaymentMethodEditingID == 0 {
+				isDefault = true
+			}
+
+			now := time.Now()
+			record := settingPaymentMethod{
+				ID:                m.settingsPaymentMethodEditingID,
+				PaymentMethodName: name,
+				PaymentMethodType: methodType,
+				IsDefault:         isDefault,
+				LastUpdatedAt:     now,
+			}
+			if record.ID == 0 {
+				record.CreatedAt = now
+			}
+
+			if record.IsDefault {
+				if err := m.db.Model(&settingPaymentMethod{}).Where("id <> ?", record.ID).Update("is_default", false).Error; err != nil {
+					m.status = "payment method save failed: " + err.Error()
+					return m, nil
+				}
+			}
+
+			if err := m.db.Save(&record).Error; err != nil {
+				m.status = "payment method save failed: " + err.Error()
+				return m, nil
+			}
+
+			var defaultCount int64
+			if err := m.db.Model(&settingPaymentMethod{}).Where("is_default = ?", true).Count(&defaultCount).Error; err == nil && defaultCount == 0 {
+				_ = m.db.Model(&settingPaymentMethod{}).Where("id = ?", record.ID).Update("is_default", true).Error
+			}
+
+			updated, err := loadAppSettings(m.db)
+			if err != nil {
+				m.status = "settings reload failed: " + err.Error()
+				return m, nil
+			}
+
+			m.settings = updated
+			m.settingsEditMode = settingsEditNone
+			m.settingsPaymentMethodNameInput.Blur()
+			m.settingsPaymentMethodEditingID = 0
+			m.settingsPaymentMethodField = 0
+			m.settingsCursor = settingsCursorByPaymentMethodName(m.settings, name)
+			m.status = "saved payment method " + name
+			return m, nil
+		}
+
+		var cmd tea.Cmd
+		if m.settingsPaymentMethodField == 0 {
+			m.settingsPaymentMethodNameInput, cmd = m.settingsPaymentMethodNameInput.Update(msg)
+			return m, cmd
+		}
+		return m, nil
+	}
+
 	switch msg.String() {
 	case "esc":
 		m.screen = screenMenu
@@ -1193,12 +1358,15 @@ func (m model) updateSettings(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case "down":
-		maxCursor := len(m.settings.Currencies) + 1
+		maxCursor := settingsPaymentMethodAddCursor(m.settings)
 		if m.settingsCursor < maxCursor {
 			m.settingsCursor++
 		}
 		return m, nil
 	case "enter":
+		paymentStart := settingsPaymentMethodStartCursor(m.settings)
+		paymentAdd := settingsPaymentMethodAddCursor(m.settings)
+
 		if m.settingsCursor == 0 {
 			m.settingsEditMode = settingsEditBaseCurrency
 			m.settingsEditInput.SetValue(m.settings.BaseCurrency)
@@ -1218,6 +1386,18 @@ func (m model) updateSettings(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
+		if m.settingsCursor == paymentAdd {
+			m.settingsEditMode = settingsEditPaymentMethod
+			m.settingsPaymentMethodEditingID = 0
+			m.settingsPaymentMethodField = 0
+			m.settingsPaymentMethodTypeIndex = 0
+			m.settingsPaymentMethodIsDefault = len(m.settings.PaymentMethods) == 0
+			m.settingsPaymentMethodNameInput.SetValue("")
+			m = m.focusPaymentMethodFormField()
+			m.status = "adding new payment method"
+			return m, nil
+		}
+
 		index := m.settingsCursor - 1
 		if index >= 0 && index < len(m.settings.Currencies) {
 			selected := m.settings.Currencies[index]
@@ -1228,7 +1408,23 @@ func (m model) updateSettings(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.settingsCurrencyRateInput.SetValue(formatRate(selected.RateToBase))
 			m = m.focusCurrencyFormField()
 			m.status = "editing currency " + selected.CurrencyName
+			return m, nil
 		}
+
+		if m.settingsCursor >= paymentStart && m.settingsCursor < paymentAdd {
+			methodIndex := m.settingsCursor - paymentStart
+			selected := m.settings.PaymentMethods[methodIndex]
+			m.settingsEditMode = settingsEditPaymentMethod
+			m.settingsPaymentMethodEditingID = selected.ID
+			m.settingsPaymentMethodField = 0
+			m.settingsPaymentMethodNameInput.SetValue(selected.PaymentMethodName)
+			m.settingsPaymentMethodTypeIndex = paymentMethodTypeIndex(m.settingsPaymentMethodTypeOptions, selected.PaymentMethodType)
+			m.settingsPaymentMethodIsDefault = selected.IsDefault
+			m = m.focusPaymentMethodFormField()
+			m.status = "editing payment method " + selected.PaymentMethodName
+			return m, nil
+		}
+
 		return m, nil
 	default:
 		return m, nil
@@ -1246,6 +1442,14 @@ func (m model) focusCurrencyFormField() model {
 	return m
 }
 
+func (m model) focusPaymentMethodFormField() model {
+	m.settingsPaymentMethodNameInput.Blur()
+	if m.settingsPaymentMethodField == 0 {
+		m.settingsPaymentMethodNameInput.Focus()
+	}
+	return m
+}
+
 func settingsCursorByName(currencies []settingCurrency, name string) int {
 	for index := range currencies {
 		if strings.EqualFold(currencies[index].CurrencyName, name) {
@@ -1253,6 +1457,43 @@ func settingsCursorByName(currencies []settingCurrency, name string) int {
 		}
 	}
 	return 0
+}
+
+func settingsPaymentMethodStartCursor(settings appSettings) int {
+	return len(settings.Currencies) + 2
+}
+
+func settingsPaymentMethodAddCursor(settings appSettings) int {
+	return settingsPaymentMethodStartCursor(settings) + len(settings.PaymentMethods)
+}
+
+func settingsCursorByPaymentMethodName(settings appSettings, name string) int {
+	start := settingsPaymentMethodStartCursor(settings)
+	for index := range settings.PaymentMethods {
+		if strings.EqualFold(strings.TrimSpace(settings.PaymentMethods[index].PaymentMethodName), strings.TrimSpace(name)) {
+			return start + index
+		}
+	}
+	return settingsPaymentMethodAddCursor(settings)
+}
+
+func paymentMethodTypeIndex(options []string, value string) int {
+	for i := range options {
+		if strings.EqualFold(strings.TrimSpace(options[i]), strings.TrimSpace(value)) {
+			return i
+		}
+	}
+	return 0
+}
+
+func selectedPaymentMethodType(options []string, index int) string {
+	if len(options) == 0 {
+		return "Other"
+	}
+	if index < 0 || index >= len(options) {
+		return options[0]
+	}
+	return options[index]
 }
 
 func (m model) saveAccountFromForm() (tea.Model, tea.Cmd) {
@@ -1308,7 +1549,12 @@ func (m model) saveSubscriptionFromForm() (tea.Model, tea.Cmd) {
 	name := strings.TrimSpace(m.addSubscriptionForm.inputs[0].Value())
 	currency := selectedCurrencyOption(m.addSubscriptionForm.currencyOptions, m.addSubscriptionForm.currencyIndex)
 	amountRaw := strings.TrimSpace(m.addSubscriptionForm.inputs[2].Value())
-	paymentMethod := strings.TrimSpace(m.addSubscriptionForm.inputs[3].Value())
+	paymentMethodSelection := selectedPaymentMethodOption(m.addSubscriptionForm.paymentMethodOptions, m.addSubscriptionForm.paymentMethodIndex)
+	paymentMethodCustom := strings.TrimSpace(m.addSubscriptionForm.inputs[3].Value())
+	paymentMethod := paymentMethodSelection
+	if paymentMethodCustom != "" {
+		paymentMethod = paymentMethodCustom
+	}
 	dayYearRaw := strings.TrimSpace(m.addSubscriptionForm.inputs[4].Value())
 	dayMonthRaw := strings.TrimSpace(m.addSubscriptionForm.inputs[5].Value())
 
@@ -1364,7 +1610,7 @@ func (m model) saveSubscriptionFromForm() (tea.Model, tea.Cmd) {
 
 	m.subscriptions = append([]subscription{newSubscription}, m.subscriptions...)
 	m.subscriptions = sortSubscriptionsByAmount(m.subscriptions)
-	m.addSubscriptionForm = newAddSubscriptionForm(currencySelectionOptions(m.settings))
+	m.addSubscriptionForm = newAddSubscriptionForm(currencySelectionOptions(m.settings), paymentMethodSelectionOptions(m.settings))
 	m.screen = screenSubscriptionList
 	m.subscriptionMode = subscriptionListAll
 	m.subscriptionCursor = 0
@@ -1932,13 +2178,14 @@ func (m model) renderSubscriptionNew(width int) string {
 
 	lines := []string{
 		headlineStyle.Render("New subscription"),
-		mutedStyle.Render("Use up/down to move fields. Left/right changes Currency/Period/Type. Space toggles Is Active. Enter on last field saves."),
+		mutedStyle.Render("Use up/down to move fields. Left/right changes Currency/Method/Period/Type. Space toggles Is Active. Enter on last field saves."),
 		"",
 		m.renderSubscriptionTextFieldRow(subFieldName, "Name", m.addSubscriptionForm.inputs[0].View()),
 		m.renderSubscriptionOptionRow(subFieldCurrency, "Currency", m.addSubscriptionForm.currencyOptions, m.addSubscriptionForm.currencyIndex),
 		m.renderSubscriptionTextFieldRow(subFieldAmount, "Amount", m.addSubscriptionForm.inputs[2].View()),
+		m.renderSubscriptionOptionRow(subFieldPaymentMethodChoice, "Payment method", m.addSubscriptionForm.paymentMethodOptions, m.addSubscriptionForm.paymentMethodIndex),
+		m.renderSubscriptionTextFieldRow(subFieldPaymentMethod, "Payment method (custom)", m.addSubscriptionForm.inputs[3].View()),
 		m.renderSubscriptionOptionRow(subFieldPeriod, "Period", m.addSubscriptionForm.periodOptions, m.addSubscriptionForm.periodIndex),
-		m.renderSubscriptionTextFieldRow(subFieldPaymentMethod, "Payment method", m.addSubscriptionForm.inputs[3].View()),
 		m.renderSubscriptionOptionRow(subFieldType, "Type", m.addSubscriptionForm.typeOptions, m.addSubscriptionForm.typeIndex),
 		m.renderSubscriptionTextFieldRow(subFieldIsActive, "Is Active", activeMarker),
 		m.renderSubscriptionTextFieldRow(subFieldDayYearly, "Payment date (yearly)", m.addSubscriptionForm.inputs[4].View()),
@@ -2133,6 +2380,27 @@ func (m model) renderSettings(width int) string {
 	}
 	rows = append(rows, fmt.Sprintf("%s + add currency", addPrefix))
 
+	rows = append(rows, "", mutedStyle.Render("Payment methods"))
+	paymentStart := settingsPaymentMethodStartCursor(m.settings)
+	for index, method := range m.settings.PaymentMethods {
+		prefix := " "
+		cursor := paymentStart + index
+		if m.settingsCursor == cursor {
+			prefix = ">"
+		}
+		defaultTag := ""
+		if method.IsDefault {
+			defaultTag = " [default]"
+		}
+		rows = append(rows, fmt.Sprintf("%s %-16s %-10s%s", prefix, truncateText(method.PaymentMethodName, 16), truncateText(method.PaymentMethodType, 10), defaultTag))
+	}
+
+	methodAddPrefix := " "
+	if m.settingsCursor == settingsPaymentMethodAddCursor(m.settings) {
+		methodAddPrefix = ">"
+	}
+	rows = append(rows, fmt.Sprintf("%s + add payment method", methodAddPrefix))
+
 	if m.settingsEditMode == settingsEditBaseCurrency {
 		rows = append(rows, "", mutedStyle.Render("Editing base currency: Enter saves, Esc exits settings."))
 	}
@@ -2150,6 +2418,42 @@ func (m model) renderSettings(width int) string {
 		rows = append(rows, fmt.Sprintf("%s Name  %s", namePrefix, m.settingsCurrencyNameInput.View()))
 		rows = append(rows, fmt.Sprintf("%s Rate  %s", ratePrefix, m.settingsCurrencyRateInput.View()))
 		rows = append(rows, mutedStyle.Render("Enter on Name moves to Rate. Enter on Rate saves. Esc exits settings."))
+	}
+
+	if m.settingsEditMode == settingsEditPaymentMethod {
+		namePrefix := " "
+		typePrefix := " "
+		defaultPrefix := " "
+		if m.settingsPaymentMethodField == 0 {
+			namePrefix = ">"
+		}
+		if m.settingsPaymentMethodField == 1 {
+			typePrefix = ">"
+		}
+		if m.settingsPaymentMethodField == 2 {
+			defaultPrefix = ">"
+		}
+
+		typeOptions := make([]string, 0, len(m.settingsPaymentMethodTypeOptions))
+		for i, option := range m.settingsPaymentMethodTypeOptions {
+			style := buttonStyle
+			if i == m.settingsPaymentMethodTypeIndex {
+				style = buttonActiveStyle
+			}
+			typeOptions = append(typeOptions, style.Render(option))
+		}
+
+		defaultMarker := "[ ]"
+		if m.settingsPaymentMethodIsDefault {
+			defaultMarker = "[x]"
+		}
+
+		rows = append(rows, "")
+		rows = append(rows, fieldLabelStyle.Render("Payment method form"))
+		rows = append(rows, fmt.Sprintf("%s Name     %s", namePrefix, m.settingsPaymentMethodNameInput.View()))
+		rows = append(rows, fmt.Sprintf("%s Type     %s", typePrefix, strings.Join(typeOptions, " ")))
+		rows = append(rows, fmt.Sprintf("%s Default  %s", defaultPrefix, defaultMarker))
+		rows = append(rows, mutedStyle.Render("Enter/Tab moves fields. Left/right changes type. Space toggles default. Enter on Default saves. Esc exits settings."))
 	}
 
 	content := append(header, rows...)
@@ -2184,9 +2488,42 @@ func currencySelectionOptions(settings appSettings) []string {
 	return options
 }
 
+func paymentMethodSelectionOptions(settings appSettings) []string {
+	if len(settings.PaymentMethods) == 0 {
+		return []string{"Other"}
+	}
+
+	options := make([]string, 0, len(settings.PaymentMethods))
+	for _, method := range settings.PaymentMethods {
+		name := strings.TrimSpace(method.PaymentMethodName)
+		if name == "" {
+			continue
+		}
+		if method.IsDefault {
+			options = append([]string{name}, options...)
+			continue
+		}
+		options = append(options, name)
+	}
+	if len(options) == 0 {
+		return []string{"Other"}
+	}
+	return options
+}
+
 func selectedCurrencyOption(options []string, index int) string {
 	if len(options) == 0 {
 		return "$"
+	}
+	if index < 0 || index >= len(options) {
+		return options[0]
+	}
+	return options[index]
+}
+
+func selectedPaymentMethodOption(options []string, index int) string {
+	if len(options) == 0 {
+		return "Other"
 	}
 	if index < 0 || index >= len(options) {
 		return options[0]
