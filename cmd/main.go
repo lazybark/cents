@@ -54,6 +54,7 @@ const (
 	screenAccountTable
 	screenEditAmount
 	screenSubscriptionNew
+	screenSubscriptionEdit
 	screenSubscriptionList
 )
 
@@ -82,6 +83,9 @@ type model struct {
 	cursor              int
 	addForm             addAccountForm
 	addSubscriptionForm addSubscriptionForm
+	editSubscriptionForm editSubscriptionForm
+	editingSubscriptionID uint
+	editingSubscriptionMode subscriptionListMode
 	editInput           textinput.Model
 	help                help.Model
 	keys                keyMap
@@ -133,6 +137,26 @@ type addSubscriptionForm struct {
 	typeIndex     int
 	isActive      bool
 }
+
+type editSubscriptionForm struct {
+	amountInput       textinput.Model
+	paymentMethodInput textinput.Model
+	isActive          bool
+	activeField       int
+	periodLabel       string
+	typeLabel         string
+	currencyLabel     string
+	nameLabel         string
+	paymentDateYearly string
+	paymentDayMonthly string
+}
+
+const (
+	editSubFieldAmount = iota
+	editSubFieldPaymentMethod
+	editSubFieldIsActive
+	editSubFieldCount
+)
 
 const (
 	subFieldName = iota
@@ -261,10 +285,56 @@ func newModel(db *gorm.DB, dbPath string, created bool, accounts []account, subs
 		menuItem:            0,
 		addForm:             addForm,
 		addSubscriptionForm: addSubForm,
+		editSubscriptionForm: newEditSubscriptionForm(),
 		editInput:           editInput,
 		help:                helpModel,
 		keys:                newKeyMap(),
 	}
+}
+
+func newEditSubscriptionForm() editSubscriptionForm {
+	amountInput := textinput.New()
+	amountInput.Placeholder = "9.99"
+	amountInput.CharLimit = 24
+	amountInput.Width = 20
+
+	paymentMethodInput := textinput.New()
+	paymentMethodInput.Placeholder = "Card **** 1234"
+	paymentMethodInput.CharLimit = 80
+	paymentMethodInput.Width = 28
+
+	return editSubscriptionForm{
+		amountInput:        amountInput,
+		paymentMethodInput: paymentMethodInput,
+		isActive:           true,
+		activeField:        0,
+	}
+}
+
+func (f editSubscriptionForm) focusActive() editSubscriptionForm {
+	f.amountInput.Blur()
+	f.paymentMethodInput.Blur()
+	if f.activeField == editSubFieldAmount {
+		f.amountInput.Focus()
+	}
+	if f.activeField == editSubFieldPaymentMethod {
+		f.paymentMethodInput.Focus()
+	}
+	return f
+}
+
+func (f editSubscriptionForm) next() editSubscriptionForm {
+	if f.activeField < editSubFieldCount-1 {
+		f.activeField++
+	}
+	return f.focusActive()
+}
+
+func (f editSubscriptionForm) prev() editSubscriptionForm {
+	if f.activeField > 0 {
+		f.activeField--
+	}
+	return f.focusActive()
 }
 
 func newAddSubscriptionForm() addSubscriptionForm {
@@ -479,6 +549,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateEditAmount(msg)
 		case screenSubscriptionNew:
 			return m.updateSubscriptionNew(msg)
+		case screenSubscriptionEdit:
+			return m.updateSubscriptionEdit(msg)
 		case screenSubscriptionList:
 			return m.updateSubscriptionList(msg)
 		}
@@ -497,6 +569,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if m.screen == screenSubscriptionNew {
 		if inputIndex := m.addSubscriptionForm.inputIndexForField(m.addSubscriptionForm.active); inputIndex >= 0 {
 			m.addSubscriptionForm.inputs[inputIndex], cmd = m.addSubscriptionForm.inputs[inputIndex].Update(msg)
+			return m, cmd
+		}
+	}
+
+	if m.screen == screenSubscriptionEdit {
+		switch m.editSubscriptionForm.activeField {
+		case editSubFieldAmount:
+			m.editSubscriptionForm.amountInput, cmd = m.editSubscriptionForm.amountInput.Update(msg)
+			return m, cmd
+		case editSubFieldPaymentMethod:
+			m.editSubscriptionForm.paymentMethodInput, cmd = m.editSubscriptionForm.paymentMethodInput.Update(msg)
 			return m, cmd
 		}
 	}
@@ -759,11 +842,74 @@ func (m model) updateSubscriptionList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.subscriptionCursor++
 		}
 		return m, nil
+	case "enter", "l":
+		m = m.openSubscriptionEditor(filtered[m.subscriptionCursor]).(model)
+		return m, nil
 	case "backspace", "delete":
 		return m.deleteSelectedSubscription(filtered)
 	default:
 		return m, nil
 	}
+}
+
+func (m model) openSubscriptionEditor(selected subscription) tea.Model {
+	m.screen = screenSubscriptionEdit
+	m.editingSubscriptionID = selected.ID
+	m.editingSubscriptionMode = m.subscriptionMode
+	m.editSubscriptionForm = newEditSubscriptionForm()
+	m.editSubscriptionForm.amountInput.SetValue(formatAmount(selected.AmountCents))
+	m.editSubscriptionForm.paymentMethodInput.SetValue(selected.PaymentMethod)
+	m.editSubscriptionForm.isActive = selected.IsActive
+	m.editSubscriptionForm.periodLabel = selected.Period
+	m.editSubscriptionForm.typeLabel = selected.Type
+	m.editSubscriptionForm.currencyLabel = selected.Currency
+	m.editSubscriptionForm.nameLabel = selected.Name
+	m.editSubscriptionForm.paymentDateYearly = selected.PaymentDateYearly
+	if selected.PaymentDayMonthly != nil {
+		m.editSubscriptionForm.paymentDayMonthly = strconv.Itoa(*selected.PaymentDayMonthly)
+	}
+	m.editSubscriptionForm = m.editSubscriptionForm.focusActive()
+	m.status = "editing subscription " + selected.Name
+	return m
+}
+
+func (m model) updateSubscriptionEdit(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.screen = screenSubscriptionList
+		m.status = "edit cancelled"
+		return m, nil
+	case "up", "shift+tab":
+		m.editSubscriptionForm = m.editSubscriptionForm.prev()
+		return m, nil
+	case "down", "tab":
+		m.editSubscriptionForm = m.editSubscriptionForm.next()
+		return m, nil
+	case " ":
+		if m.editSubscriptionForm.activeField == editSubFieldIsActive {
+			m.editSubscriptionForm.isActive = !m.editSubscriptionForm.isActive
+			return m, nil
+		}
+	case "enter":
+		if m.editSubscriptionForm.activeField == editSubFieldCount-1 {
+			return m.saveSubscriptionEdit()
+		}
+		m.editSubscriptionForm = m.editSubscriptionForm.next()
+		return m, nil
+	}
+
+	if m.editSubscriptionForm.activeField == editSubFieldAmount {
+		var cmd tea.Cmd
+		m.editSubscriptionForm.amountInput, cmd = m.editSubscriptionForm.amountInput.Update(msg)
+		return m, cmd
+	}
+	if m.editSubscriptionForm.activeField == editSubFieldPaymentMethod {
+		var cmd tea.Cmd
+		m.editSubscriptionForm.paymentMethodInput, cmd = m.editSubscriptionForm.paymentMethodInput.Update(msg)
+		return m, cmd
+	}
+
+	return m, nil
 }
 
 func (m model) saveAccountFromForm() (tea.Model, tea.Cmd) {
@@ -880,6 +1026,63 @@ func (m model) saveSubscriptionFromForm() (tea.Model, tea.Cmd) {
 	m.subscriptionMode = subscriptionListAll
 	m.subscriptionCursor = 0
 	m.status = "saved subscription " + name
+	return m, nil
+}
+
+func (m model) saveSubscriptionEdit() (tea.Model, tea.Cmd) {
+	if m.editingSubscriptionID == 0 {
+		m.status = "no subscription selected"
+		return m, nil
+	}
+
+	amountRaw := strings.TrimSpace(m.editSubscriptionForm.amountInput.Value())
+	paymentMethod := strings.TrimSpace(m.editSubscriptionForm.paymentMethodInput.Value())
+	if paymentMethod == "" {
+		m.status = "payment method is required"
+		return m, nil
+	}
+
+	amount, err := parseAmountCents(amountRaw)
+	if err != nil {
+		m.status = "amount error: " + err.Error()
+		return m, nil
+	}
+
+	selectedIndex := -1
+	for i := range m.subscriptions {
+		if m.subscriptions[i].ID == m.editingSubscriptionID {
+			selectedIndex = i
+			break
+		}
+	}
+	if selectedIndex < 0 {
+		m.status = "subscription not found"
+		return m, nil
+	}
+
+	selected := m.subscriptions[selectedIndex]
+	selected.AmountCents = amount
+	selected.PaymentMethod = paymentMethod
+	selected.IsActive = m.editSubscriptionForm.isActive
+	selected.LastUpdatedAt = time.Now()
+
+	if err := m.db.Save(&selected).Error; err != nil {
+		m.status = "save failed: " + err.Error()
+		return m, nil
+	}
+
+	m.subscriptions[selectedIndex] = selected
+	if m.subscriptionMode == subscriptionListAll {
+		m.subscriptions = sortSubscriptionsByAmount(m.subscriptions)
+	}
+	m.screen = screenSubscriptionList
+	filtered := m.filteredSubscriptions()
+	if len(filtered) == 0 {
+		m.subscriptionCursor = 0
+	} else if m.subscriptionCursor >= len(filtered) {
+		m.subscriptionCursor = len(filtered) - 1
+	}
+	m.status = "updated subscription " + selected.Name
 	return m, nil
 }
 
@@ -1035,6 +1238,8 @@ func (m model) renderBody(width int) string {
 		return m.renderEditAmount(width)
 	case screenSubscriptionNew:
 		return m.renderSubscriptionNew(width)
+	case screenSubscriptionEdit:
+		return m.renderSubscriptionEdit(width)
 	case screenSubscriptionList:
 		return m.renderSubscriptionList(width)
 	default:
@@ -1349,6 +1554,36 @@ func (m model) renderSubscriptionNew(width int) string {
 	return panelStyle.Width(width).Render(strings.Join(lines, "\n"))
 }
 
+func (m model) renderSubscriptionEdit(width int) string {
+	activeMarker := "[ ]"
+	if m.editSubscriptionForm.isActive {
+		activeMarker = "[x]"
+	}
+
+	lines := []string{
+		headlineStyle.Render("Edit subscription"),
+		mutedStyle.Render("Use up/down to move fields. Space toggles Is Active. Enter on Active saves. Esc cancels."),
+		"",
+		mutedStyle.Render("Name: " + m.editSubscriptionForm.nameLabel + " | Type: " + m.editSubscriptionForm.typeLabel + " | Period: " + m.editSubscriptionForm.periodLabel),
+		mutedStyle.Render("Currency: " + m.editSubscriptionForm.currencyLabel + " | Yearly date: " + m.editSubscriptionForm.paymentDateYearly + " | Monthly day: " + m.editSubscriptionForm.paymentDayMonthly),
+		"",
+		m.renderEditSubscriptionField(editSubFieldAmount, "Amount", m.editSubscriptionForm.amountInput.View()),
+		m.renderEditSubscriptionField(editSubFieldPaymentMethod, "Payment method", m.editSubscriptionForm.paymentMethodInput.View()),
+		m.renderEditSubscriptionField(editSubFieldIsActive, "Is Active", activeMarker),
+	}
+
+	return panelStyle.Width(width).Render(strings.Join(lines, "\n"))
+}
+
+func (m model) renderEditSubscriptionField(field int, label string, value string) string {
+	prefix := "  "
+	if m.editSubscriptionForm.activeField == field {
+		prefix = "> "
+	}
+
+	return prefix + fieldLabelStyle.Render(label) + "  " + value
+}
+
 func (m model) renderSubscriptionTextFieldRow(field int, label string, value string) string {
 	prefix := "  "
 	if m.addSubscriptionForm.active == field {
@@ -1382,7 +1617,7 @@ func (m model) renderSubscriptionList(width int) string {
 		modeTitle = "Active subscriptions"
 	}
 
-	lines := []string{headlineStyle.Render(modeTitle), mutedStyle.Render("Use up/down to browse. Delete/Backspace removes selected item. Esc returns to menu."), ""}
+	lines := []string{headlineStyle.Render(modeTitle), mutedStyle.Render("Use up/down to browse. Enter edits the selected subscription. Delete/Backspace removes it. Esc returns to menu."), ""}
 	filtered := m.filteredSubscriptions()
 	if len(filtered) == 0 {
 		lines = append(lines, mutedStyle.Render("No subscriptions found."))
