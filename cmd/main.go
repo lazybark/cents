@@ -3191,7 +3191,7 @@ func (m model) renderDebtTableRow(width int, index int, item debt) string {
 func (m model) renderDebtEdit(width int) string {
 	lines := []string{
 		headlineStyle.Render("Edit debt"),
-		mutedStyle.Render("Edit fields and press Enter on Comment to save. For log: set delta/date/comment and press Enter on Log comment to apply."),
+		mutedStyle.Render("Edit fields and press Enter on Comment to save."),
 		"",
 		mutedStyle.Render("Peer: " + m.editDebtForm.peerLabel + " | Direction: " + m.editDebtForm.directionLabel + " | Currency: " + m.editDebtForm.currencyLabel),
 		"",
@@ -3200,9 +3200,12 @@ func (m model) renderDebtEdit(width int) string {
 		m.renderEditDebtField(editDebtFieldDebtCreated, "Debt created", m.editDebtForm.debtCreatedInput.View()),
 		m.renderEditDebtField(editDebtFieldDueDate, "Due date", m.editDebtForm.dueDateInput.View()),
 		m.renderEditDebtField(editDebtFieldComment, "Comment", m.editDebtForm.commentInput.View()),
-		m.renderEditDebtField(editDebtFieldLogDelta, "Log delta", m.editDebtForm.logDeltaInput.View()),
-		m.renderEditDebtField(editDebtFieldLogDate, "Log date", m.editDebtForm.logDateInput.View()),
-		m.renderEditDebtField(editDebtFieldLogComment, "Log comment", m.editDebtForm.logCommentInput.View()),
+		"",
+		fieldLabelStyle.Render("Add transaction"),
+		mutedStyle.Render("Set delta/date/comment, then press Enter on Transaction comment to apply."),
+		m.renderEditDebtField(editDebtFieldLogDelta, "Transaction delta", m.editDebtForm.logDeltaInput.View()),
+		m.renderEditDebtField(editDebtFieldLogDate, "Transaction date", m.editDebtForm.logDateInput.View()),
+		m.renderEditDebtField(editDebtFieldLogComment, "Transaction comment", m.editDebtForm.logCommentInput.View()),
 		"",
 		fieldLabelStyle.Render("Logs"),
 	}
