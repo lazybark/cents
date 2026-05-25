@@ -1017,13 +1017,17 @@ func (f editDebtForm) prev() editDebtForm {
 }
 
 func newAddGoalForm(currencyOptions []string) addGoalForm {
+	today := time.Now().Format("02.01.2006")
 	inputs := make([]textinput.Model, 6)
-	placeholders := []string{"Emergency Fund", "10000.00", "0.00", "Optional description", time.Now().Format("02.01.2006"), "optional DD.MM.YYYY"}
+	placeholders := []string{"Emergency Fund", "10000.00", "0.00", "Optional description", today, "optional DD.MM.YYYY"}
 	for i := range inputs {
 		field := textinput.New()
 		field.Placeholder = placeholders[i]
 		field.CharLimit = 120
 		field.Width = 34
+		if i == 4 {
+			field.SetValue(today)
+		}
 		inputs[i] = field
 	}
 
