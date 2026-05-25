@@ -46,6 +46,28 @@ type subscription struct {
 	PaymentDayMonthly *int
 }
 
+type debt struct {
+	ID              uint `gorm:"primaryKey"`
+	CreatedAt       time.Time
+	LastUpdatedAt   time.Time `gorm:"not null;default:1970-01-01 00:00:00"`
+	Peer            string
+	Currency        string
+	AmountCents     int64
+	AmountPaidCents int64
+	IsOwedToUser    bool
+	DebtCreatedAt   time.Time
+	DueDate         *time.Time
+	Comment         string
+}
+
+type debtLog struct {
+	ID             uint `gorm:"primaryKey"`
+	CreatedAt      time.Time
+	DebtID         uint `gorm:"index;not null"`
+	DeltaPaidCents int64
+	Note           string
+}
+
 type settingRecord struct {
 	SettingID    string `gorm:"primaryKey"`
 	SettingValue string
@@ -94,6 +116,9 @@ const (
 	screenSubscriptionEdit
 	screenSubscriptionList
 	screenSettings
+	screenDebtNew
+	screenDebtList
+	screenDebtEdit
 )
 
 type subscriptionListMode int
@@ -103,6 +128,14 @@ const (
 	subscriptionListAll
 )
 
+type debtListMode int
+
+const (
+	debtListOutgoing debtListMode = iota
+	debtListIncoming
+	debtListHistory
+)
+
 type model struct {
 	db                               *gorm.DB
 	dbPath                           string
@@ -110,8 +143,13 @@ type model struct {
 	screen                           screen
 	accounts                         []account
 	subscriptions                    []subscription
+	debts                            []debt
 	subscriptionMode                 subscriptionListMode
 	subscriptionCursor               int
+	debtMode                         debtListMode
+	debtCursor                       int
+	debtLogs                         []debtLog
+	editingDebtID                    uint
 	settings                         appSettings
 	settingsCursor                   int
 	settingsEditMode                 settingsEditMode
@@ -135,7 +173,9 @@ type model struct {
 	cursor                           int
 	addForm                          addAccountForm
 	addSubscriptionForm              addSubscriptionForm
+	addDebtForm                      addDebtForm
 	editSubscriptionForm             editSubscriptionForm
+	editDebtForm                     editDebtForm
 	editingSubscriptionID            uint
 	editingSubscriptionMode          subscriptionListMode
 	editInput                        textinput.Model
@@ -209,11 +249,42 @@ type editSubscriptionForm struct {
 	paymentDayMonthly  string
 }
 
+type addDebtForm struct {
+	inputs          []textinput.Model
+	active          int
+	currencyOptions []string
+	currencyIndex   int
+	isOwedToUser    bool
+}
+
+type editDebtForm struct {
+	amountInput      textinput.Model
+	amountPaidInput  textinput.Model
+	debtCreatedInput textinput.Model
+	dueDateInput     textinput.Model
+	commentInput     textinput.Model
+	logDeltaInput    textinput.Model
+	activeField      int
+	peerLabel        string
+	currencyLabel    string
+	directionLabel   string
+}
+
 const (
 	editSubFieldAmount = iota
 	editSubFieldPaymentMethod
 	editSubFieldIsActive
 	editSubFieldCount
+)
+
+const (
+	editDebtFieldAmount = iota
+	editDebtFieldAmountPaid
+	editDebtFieldDebtCreated
+	editDebtFieldDueDate
+	editDebtFieldComment
+	editDebtFieldLogDelta
+	editDebtFieldCount
 )
 
 const (
@@ -228,6 +299,18 @@ const (
 	subFieldDayYearly
 	subFieldDayMonthly
 	subFieldCount
+)
+
+const (
+	debtFieldDirection = iota
+	debtFieldPeer
+	debtFieldCurrency
+	debtFieldAmount
+	debtFieldAmountPaid
+	debtFieldDebtCreated
+	debtFieldDueDate
+	debtFieldComment
+	debtFieldCount
 )
 
 var (
@@ -263,13 +346,19 @@ func main() {
 		os.Exit(1)
 	}
 
+	debts, err := loadDebts(db)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "debts read failed:", err)
+		os.Exit(1)
+	}
+
 	settings, err := loadAppSettings(db)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "settings read failed:", err)
 		os.Exit(1)
 	}
 
-	m := newModel(db, dbPath, created, accounts, subscriptions, settings)
+	m := newModel(db, dbPath, created, accounts, subscriptions, debts, settings)
 	program := tea.NewProgram(m, tea.WithAltScreen())
 	if _, err := program.Run(); err != nil {
 		fmt.Fprintln(os.Stderr, "program failed:", err)
@@ -295,7 +384,7 @@ func openDatabase() (*gorm.DB, string, bool, error) {
 		return nil, "", false, err
 	}
 
-	if err := db.AutoMigrate(&account{}, &subscription{}, &settingRecord{}, &settingCurrency{}, &settingPaymentMethod{}); err != nil {
+	if err := db.AutoMigrate(&account{}, &subscription{}, &debt{}, &debtLog{}, &settingRecord{}, &settingCurrency{}, &settingPaymentMethod{}); err != nil {
 		return nil, "", false, err
 	}
 
@@ -322,6 +411,14 @@ func loadSubscriptions(db *gorm.DB) ([]subscription, error) {
 	}
 
 	return subscriptions, nil
+}
+
+func loadDebts(db *gorm.DB) ([]debt, error) {
+	var debts []debt
+	if err := db.Order("amount_cents desc, created_at desc, id desc").Find(&debts).Error; err != nil {
+		return nil, err
+	}
+	return debts, nil
 }
 
 func ensureSettingsDefaults(db *gorm.DB) error {
@@ -380,12 +477,13 @@ func loadAppSettings(db *gorm.DB) (appSettings, error) {
 	return settings, nil
 }
 
-func newModel(db *gorm.DB, dbPath string, created bool, accounts []account, subscriptions []subscription, settings appSettings) model {
+func newModel(db *gorm.DB, dbPath string, created bool, accounts []account, subscriptions []subscription, debts []debt, settings appSettings) model {
 	accounts = sortAccountsByBaseAmount(accounts, settings)
 	currencyOptions := currencySelectionOptions(settings)
 	paymentMethodOptions := paymentMethodSelectionOptions(settings)
 	addForm := newAddAccountForm(currencyOptions)
 	addSubForm := newAddSubscriptionForm(currencyOptions, paymentMethodOptions)
+	addDebtForm := newAddDebtForm(currencyOptions)
 	editInput := textinput.New()
 	editInput.Placeholder = "1234.56"
 	editInput.CharLimit = 24
@@ -422,6 +520,11 @@ func newModel(db *gorm.DB, dbPath string, created bool, accounts []account, subs
 		screen:                           screenMenu,
 		accounts:                         accounts,
 		subscriptions:                    subscriptions,
+		debts:                            debts,
+		debtMode:                         debtListOutgoing,
+		debtCursor:                       0,
+		debtLogs:                         nil,
+		editingDebtID:                    0,
 		settings:                         settings,
 		settingsCursor:                   0,
 		settingsEditMode:                 settingsEditNone,
@@ -443,7 +546,9 @@ func newModel(db *gorm.DB, dbPath string, created bool, accounts []account, subs
 		menuItem:                         0,
 		addForm:                          addForm,
 		addSubscriptionForm:              addSubForm,
+		addDebtForm:                      addDebtForm,
 		editSubscriptionForm:             newEditSubscriptionForm(),
+		editDebtForm:                     newEditDebtForm(),
 		editInput:                        editInput,
 		help:                             helpModel,
 		keys:                             newKeyMap(),
@@ -572,6 +677,158 @@ func (f addSubscriptionForm) prev() addSubscriptionForm {
 	return f.focusActive()
 }
 
+func newAddDebtForm(currencyOptions []string) addDebtForm {
+	inputs := make([]textinput.Model, 6)
+	placeholders := []string{"John Doe", "1000.00", "0.00", time.Now().Format("02.01.2006"), "", "Optional comment"}
+	for i := range inputs {
+		field := textinput.New()
+		field.Placeholder = placeholders[i]
+		field.CharLimit = 120
+		field.Width = 34
+		inputs[i] = field
+	}
+
+	form := addDebtForm{
+		inputs:          inputs,
+		active:          0,
+		currencyOptions: append([]string(nil), currencyOptions...),
+		currencyIndex:   0,
+		isOwedToUser:    false,
+	}
+
+	return form.focusActive()
+}
+
+func (f addDebtForm) inputIndexForField(field int) int {
+	switch field {
+	case debtFieldDirection:
+		return -1
+	case debtFieldPeer:
+		return 0
+	case debtFieldCurrency:
+		return -1
+	case debtFieldAmount:
+		return 1
+	case debtFieldAmountPaid:
+		return 2
+	case debtFieldDebtCreated:
+		return 3
+	case debtFieldDueDate:
+		return 4
+	case debtFieldComment:
+		return 5
+	default:
+		return -1
+	}
+}
+
+func (f addDebtForm) focusActive() addDebtForm {
+	for i := range f.inputs {
+		f.inputs[i].Blur()
+	}
+	if inputIndex := f.inputIndexForField(f.active); inputIndex >= 0 {
+		f.inputs[inputIndex].Focus()
+	}
+	return f
+}
+
+func (f addDebtForm) next() addDebtForm {
+	if f.active < debtFieldCount-1 {
+		f.active++
+	}
+	return f.focusActive()
+}
+
+func (f addDebtForm) prev() addDebtForm {
+	if f.active > 0 {
+		f.active--
+	}
+	return f.focusActive()
+}
+
+func newEditDebtForm() editDebtForm {
+	amountInput := textinput.New()
+	amountInput.Placeholder = "1000.00"
+	amountInput.CharLimit = 24
+	amountInput.Width = 20
+
+	amountPaidInput := textinput.New()
+	amountPaidInput.Placeholder = "0.00"
+	amountPaidInput.CharLimit = 24
+	amountPaidInput.Width = 20
+
+	debtCreatedInput := textinput.New()
+	debtCreatedInput.Placeholder = "02.01.2006"
+	debtCreatedInput.CharLimit = 24
+	debtCreatedInput.Width = 20
+
+	dueDateInput := textinput.New()
+	dueDateInput.Placeholder = "optional DD.MM.YYYY"
+	dueDateInput.CharLimit = 24
+	dueDateInput.Width = 20
+
+	commentInput := textinput.New()
+	commentInput.Placeholder = "comment"
+	commentInput.CharLimit = 120
+	commentInput.Width = 36
+
+	logDeltaInput := textinput.New()
+	logDeltaInput.Placeholder = "+10.00 or -5.00"
+	logDeltaInput.CharLimit = 24
+	logDeltaInput.Width = 24
+
+	form := editDebtForm{
+		amountInput:      amountInput,
+		amountPaidInput:  amountPaidInput,
+		debtCreatedInput: debtCreatedInput,
+		dueDateInput:     dueDateInput,
+		commentInput:     commentInput,
+		logDeltaInput:    logDeltaInput,
+		activeField:      0,
+	}
+
+	return form.focusActive()
+}
+
+func (f editDebtForm) focusActive() editDebtForm {
+	f.amountInput.Blur()
+	f.amountPaidInput.Blur()
+	f.debtCreatedInput.Blur()
+	f.dueDateInput.Blur()
+	f.commentInput.Blur()
+	f.logDeltaInput.Blur()
+
+	switch f.activeField {
+	case editDebtFieldAmount:
+		f.amountInput.Focus()
+	case editDebtFieldAmountPaid:
+		f.amountPaidInput.Focus()
+	case editDebtFieldDebtCreated:
+		f.debtCreatedInput.Focus()
+	case editDebtFieldDueDate:
+		f.dueDateInput.Focus()
+	case editDebtFieldComment:
+		f.commentInput.Focus()
+	case editDebtFieldLogDelta:
+		f.logDeltaInput.Focus()
+	}
+	return f
+}
+
+func (f editDebtForm) next() editDebtForm {
+	if f.activeField < editDebtFieldCount-1 {
+		f.activeField++
+	}
+	return f.focusActive()
+}
+
+func (f editDebtForm) prev() editDebtForm {
+	if f.activeField > 0 {
+		f.activeField--
+	}
+	return f.focusActive()
+}
+
 func newKeyMap() keyMap {
 	return keyMap{
 		Up: key.NewBinding(
@@ -623,7 +880,7 @@ func appMenuGroups() []menuGroup {
 		{title: "Accounts", items: []string{"add account", "list accounts"}},
 		{title: "Subscriptions", items: []string{"new", "active", "all"}},
 		{title: "Invoices", items: []string{"new", "outgoing", "incoming"}},
-		{title: "Debts", items: []string{"new", "outgoing", "incoming"}},
+		{title: "Debts", items: []string{"new", "outgoing", "incoming", "history"}},
 		{title: "Goals", items: []string{"new", "all"}},
 		{title: "Taxes", items: []string{"new", "unpaid", "history"}},
 		{title: "Settings", items: []string{"edit", "backup"}},
@@ -719,6 +976,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateSubscriptionList(msg)
 		case screenSettings:
 			return m.updateSettings(msg)
+		case screenDebtNew:
+			return m.updateDebtNew(msg)
+		case screenDebtList:
+			return m.updateDebtList(msg)
+		case screenDebtEdit:
+			return m.updateDebtEdit(msg)
 		}
 	}
 
@@ -848,6 +1111,37 @@ func (m model) activateMenuSelection() (tea.Model, tea.Cmd) {
 		m.subscriptionMode = subscriptionListAll
 		m.subscriptionCursor = 0
 		m.status = "all subscriptions"
+		return m, nil
+	}
+
+	if m.menuGroup == 4 && m.menuItem == 0 {
+		m.screen = screenDebtNew
+		m.addDebtForm = newAddDebtForm(currencySelectionOptions(m.settings))
+		m.status = "new debt"
+		return m, nil
+	}
+
+	if m.menuGroup == 4 && m.menuItem == 1 {
+		m.screen = screenDebtList
+		m.debtMode = debtListOutgoing
+		m.debtCursor = 0
+		m.status = "outgoing debts"
+		return m, nil
+	}
+
+	if m.menuGroup == 4 && m.menuItem == 2 {
+		m.screen = screenDebtList
+		m.debtMode = debtListIncoming
+		m.debtCursor = 0
+		m.status = "incoming debts"
+		return m, nil
+	}
+
+	if m.menuGroup == 4 && m.menuItem == 3 {
+		m.screen = screenDebtList
+		m.debtMode = debtListHistory
+		m.debtCursor = 0
+		m.status = "paid debt history"
 		return m, nil
 	}
 
@@ -1786,6 +2080,364 @@ func (m model) deleteSelectedSubscription(filtered []subscription) (tea.Model, t
 	return m, nil
 }
 
+func (m model) updateDebtNew(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.screen = screenMenu
+		m.status = databaseStatus(m.created, len(m.accounts), m.dbPath)
+		return m, nil
+	case "up", "shift+tab":
+		m.addDebtForm = m.addDebtForm.prev()
+		return m, nil
+	case "down", "tab":
+		m.addDebtForm = m.addDebtForm.next()
+		return m, nil
+	case "left":
+		if m.addDebtForm.active == debtFieldCurrency && m.addDebtForm.currencyIndex > 0 {
+			m.addDebtForm.currencyIndex--
+		}
+		return m, nil
+	case "right":
+		if m.addDebtForm.active == debtFieldCurrency && m.addDebtForm.currencyIndex < len(m.addDebtForm.currencyOptions)-1 {
+			m.addDebtForm.currencyIndex++
+		}
+		return m, nil
+	case " ":
+		if m.addDebtForm.active == debtFieldDirection {
+			m.addDebtForm.isOwedToUser = !m.addDebtForm.isOwedToUser
+			return m, nil
+		}
+	case "enter":
+		if m.addDebtForm.active == debtFieldCount-1 {
+			return m.saveDebtFromForm()
+		}
+		m.addDebtForm = m.addDebtForm.next()
+		return m, nil
+	}
+
+	if inputIndex := m.addDebtForm.inputIndexForField(m.addDebtForm.active); inputIndex >= 0 {
+		var cmd tea.Cmd
+		m.addDebtForm.inputs[inputIndex], cmd = m.addDebtForm.inputs[inputIndex].Update(msg)
+		return m, cmd
+	}
+
+	return m, nil
+}
+
+func (m model) updateDebtList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	filtered := m.filteredDebts()
+	if len(filtered) == 0 {
+		if msg.String() == "esc" {
+			m.screen = screenMenu
+			m.status = databaseStatus(m.created, len(m.accounts), m.dbPath)
+		}
+		return m, nil
+	}
+
+	switch msg.String() {
+	case "esc":
+		m.screen = screenMenu
+		m.status = databaseStatus(m.created, len(m.accounts), m.dbPath)
+		return m, nil
+	case "up", "k":
+		if m.debtCursor > 0 {
+			m.debtCursor--
+		}
+		return m, nil
+	case "down", "j":
+		if m.debtCursor < len(filtered)-1 {
+			m.debtCursor++
+		}
+		return m, nil
+	case "enter", "l":
+		m = m.openDebtEditor(filtered[m.debtCursor]).(model)
+		return m, nil
+	default:
+		return m, nil
+	}
+}
+
+func (m model) openDebtEditor(selected debt) tea.Model {
+	m.screen = screenDebtEdit
+	m.editingDebtID = selected.ID
+	m.editDebtForm = newEditDebtForm()
+	m.editDebtForm.amountInput.SetValue(formatAmount(selected.AmountCents))
+	m.editDebtForm.amountPaidInput.SetValue(formatAmount(selected.AmountPaidCents))
+	m.editDebtForm.debtCreatedInput.SetValue(selected.DebtCreatedAt.Local().Format("02.01.2006"))
+	if selected.DueDate != nil {
+		m.editDebtForm.dueDateInput.SetValue(selected.DueDate.Local().Format("02.01.2006"))
+	}
+	m.editDebtForm.commentInput.SetValue(selected.Comment)
+	m.editDebtForm.peerLabel = selected.Peer
+	m.editDebtForm.currencyLabel = selected.Currency
+	m.editDebtForm.directionLabel = debtDirectionLabel(selected.IsOwedToUser)
+	m.editDebtForm = m.editDebtForm.focusActive()
+
+	var logs []debtLog
+	if err := m.db.Where("debt_id = ?", selected.ID).Order("created_at desc, id desc").Limit(20).Find(&logs).Error; err == nil {
+		m.debtLogs = logs
+	} else {
+		m.debtLogs = nil
+	}
+
+	m.status = "editing debt " + selected.Peer
+	return m
+}
+
+func (m model) updateDebtEdit(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.screen = screenDebtList
+		m.status = "debt edit cancelled"
+		return m, nil
+	case "up", "shift+tab":
+		m.editDebtForm = m.editDebtForm.prev()
+		return m, nil
+	case "down", "tab":
+		m.editDebtForm = m.editDebtForm.next()
+		return m, nil
+	case "enter":
+		if m.editDebtForm.activeField == editDebtFieldLogDelta {
+			return m.applyDebtLogDelta()
+		}
+		if m.editDebtForm.activeField == editDebtFieldComment {
+			return m.saveDebtEdit()
+		}
+		m.editDebtForm = m.editDebtForm.next()
+		return m, nil
+	}
+
+	var cmd tea.Cmd
+	switch m.editDebtForm.activeField {
+	case editDebtFieldAmount:
+		m.editDebtForm.amountInput, cmd = m.editDebtForm.amountInput.Update(msg)
+	case editDebtFieldAmountPaid:
+		m.editDebtForm.amountPaidInput, cmd = m.editDebtForm.amountPaidInput.Update(msg)
+	case editDebtFieldDebtCreated:
+		m.editDebtForm.debtCreatedInput, cmd = m.editDebtForm.debtCreatedInput.Update(msg)
+	case editDebtFieldDueDate:
+		m.editDebtForm.dueDateInput, cmd = m.editDebtForm.dueDateInput.Update(msg)
+	case editDebtFieldComment:
+		m.editDebtForm.commentInput, cmd = m.editDebtForm.commentInput.Update(msg)
+	case editDebtFieldLogDelta:
+		m.editDebtForm.logDeltaInput, cmd = m.editDebtForm.logDeltaInput.Update(msg)
+	}
+	return m, cmd
+}
+
+func (m model) saveDebtFromForm() (tea.Model, tea.Cmd) {
+	peer := strings.TrimSpace(m.addDebtForm.inputs[0].Value())
+	currency := selectedCurrencyOption(m.addDebtForm.currencyOptions, m.addDebtForm.currencyIndex)
+	amountRaw := strings.TrimSpace(m.addDebtForm.inputs[1].Value())
+	amountPaidRaw := strings.TrimSpace(m.addDebtForm.inputs[2].Value())
+	debtCreatedRaw := strings.TrimSpace(m.addDebtForm.inputs[3].Value())
+	dueRaw := strings.TrimSpace(m.addDebtForm.inputs[4].Value())
+	comment := strings.TrimSpace(m.addDebtForm.inputs[5].Value())
+
+	if peer == "" {
+		m.status = "peer is required"
+		return m, nil
+	}
+
+	amount, err := parseAmountCents(amountRaw)
+	if err != nil {
+		m.status = "amount error: " + err.Error()
+		return m, nil
+	}
+
+	amountPaid, err := parseAmountCents(amountPaidRaw)
+	if err != nil {
+		m.status = "amount paid error: " + err.Error()
+		return m, nil
+	}
+	if amountPaid > amount {
+		m.status = "amount paid cannot be more than amount"
+		return m, nil
+	}
+
+	debtCreatedAt, err := parseRequiredDate(debtCreatedRaw)
+	if err != nil {
+		m.status = err.Error()
+		return m, nil
+	}
+
+	dueDate, err := parseOptionalDatePointer(dueRaw)
+	if err != nil {
+		m.status = err.Error()
+		return m, nil
+	}
+
+	now := time.Now()
+	newDebt := debt{
+		Peer:            peer,
+		Currency:        currency,
+		AmountCents:     amount,
+		AmountPaidCents: amountPaid,
+		IsOwedToUser:    m.addDebtForm.isOwedToUser,
+		DebtCreatedAt:   debtCreatedAt,
+		DueDate:         dueDate,
+		Comment:         comment,
+		LastUpdatedAt:   now,
+	}
+
+	if err := m.db.Create(&newDebt).Error; err != nil {
+		m.status = "save failed: " + err.Error()
+		return m, nil
+	}
+
+	m.debts = append([]debt{newDebt}, m.debts...)
+	m.addDebtForm = newAddDebtForm(currencySelectionOptions(m.settings))
+	m.screen = screenDebtList
+	if newDebt.IsOwedToUser {
+		m.debtMode = debtListIncoming
+	} else {
+		m.debtMode = debtListOutgoing
+	}
+	m.debtCursor = 0
+	m.status = "saved debt for " + peer
+	return m, nil
+}
+
+func (m model) saveDebtEdit() (tea.Model, tea.Cmd) {
+	index := m.findDebtIndex(m.editingDebtID)
+	if index < 0 {
+		m.status = "debt not found"
+		return m, nil
+	}
+
+	amount, err := parseAmountCents(strings.TrimSpace(m.editDebtForm.amountInput.Value()))
+	if err != nil {
+		m.status = "amount error: " + err.Error()
+		return m, nil
+	}
+	amountPaid, err := parseAmountCents(strings.TrimSpace(m.editDebtForm.amountPaidInput.Value()))
+	if err != nil {
+		m.status = "amount paid error: " + err.Error()
+		return m, nil
+	}
+	if amountPaid > amount {
+		m.status = "amount paid cannot be more than amount"
+		return m, nil
+	}
+
+	debtCreatedAt, err := parseRequiredDate(strings.TrimSpace(m.editDebtForm.debtCreatedInput.Value()))
+	if err != nil {
+		m.status = err.Error()
+		return m, nil
+	}
+	dueDate, err := parseOptionalDatePointer(strings.TrimSpace(m.editDebtForm.dueDateInput.Value()))
+	if err != nil {
+		m.status = err.Error()
+		return m, nil
+	}
+
+	selected := m.debts[index]
+	selected.AmountCents = amount
+	selected.AmountPaidCents = amountPaid
+	selected.DebtCreatedAt = debtCreatedAt
+	selected.DueDate = dueDate
+	selected.Comment = strings.TrimSpace(m.editDebtForm.commentInput.Value())
+	selected.LastUpdatedAt = time.Now()
+
+	if err := m.db.Save(&selected).Error; err != nil {
+		m.status = "save failed: " + err.Error()
+		return m, nil
+	}
+
+	m.debts[index] = selected
+	m.screen = screenDebtList
+	m.status = "updated debt for " + selected.Peer
+	return m, nil
+}
+
+func (m model) applyDebtLogDelta() (tea.Model, tea.Cmd) {
+	index := m.findDebtIndex(m.editingDebtID)
+	if index < 0 {
+		m.status = "debt not found"
+		return m, nil
+	}
+
+	delta, err := parseSignedAmountCents(strings.TrimSpace(m.editDebtForm.logDeltaInput.Value()))
+	if err != nil {
+		m.status = "log delta error: " + err.Error()
+		return m, nil
+	}
+	if delta == 0 {
+		m.status = "delta cannot be zero"
+		return m, nil
+	}
+
+	selected := m.debts[index]
+	nextPaid := selected.AmountPaidCents + delta
+	if nextPaid < 0 || nextPaid > selected.AmountCents {
+		m.status = "delta makes amount paid out of range"
+		return m, nil
+	}
+
+	now := time.Now()
+	selected.AmountPaidCents = nextPaid
+	selected.LastUpdatedAt = now
+	if err := m.db.Save(&selected).Error; err != nil {
+		m.status = "debt update failed: " + err.Error()
+		return m, nil
+	}
+
+	entry := debtLog{
+		DebtID:         selected.ID,
+		DeltaPaidCents: delta,
+		Note:           "manual paid adjustment",
+	}
+	if err := m.db.Create(&entry).Error; err != nil {
+		m.status = "log save failed: " + err.Error()
+		return m, nil
+	}
+
+	m.debts[index] = selected
+	m.debtLogs = append([]debtLog{entry}, m.debtLogs...)
+	m.editDebtForm.amountPaidInput.SetValue(formatAmount(selected.AmountPaidCents))
+	m.editDebtForm.logDeltaInput.SetValue("")
+	m.status = "applied log delta"
+	return m, nil
+}
+
+func (m model) findDebtIndex(id uint) int {
+	for i := range m.debts {
+		if m.debts[i].ID == id {
+			return i
+		}
+	}
+	return -1
+}
+
+func (m model) filteredDebts() []debt {
+	filtered := make([]debt, 0, len(m.debts))
+	for _, item := range m.debts {
+		paid := item.AmountPaidCents >= item.AmountCents
+		switch m.debtMode {
+		case debtListOutgoing:
+			if !item.IsOwedToUser && !paid {
+				filtered = append(filtered, item)
+			}
+		case debtListIncoming:
+			if item.IsOwedToUser && !paid {
+				filtered = append(filtered, item)
+			}
+		case debtListHistory:
+			if paid {
+				filtered = append(filtered, item)
+			}
+		}
+	}
+	return filtered
+}
+
+func debtDirectionLabel(isOwedToUser bool) string {
+	if isOwedToUser {
+		return "incoming (someone owes me)"
+	}
+	return "outgoing (i owe someone)"
+}
+
 func (m model) View() string {
 	if m.quitting {
 		return ""
@@ -1833,6 +2485,12 @@ func (m model) renderBody(width int) string {
 		return m.renderSubscriptionList(width)
 	case screenSettings:
 		return m.renderSettings(width)
+	case screenDebtNew:
+		return m.renderDebtNew(width)
+	case screenDebtList:
+		return m.renderDebtList(width)
+	case screenDebtEdit:
+		return m.renderDebtEdit(width)
 	default:
 		return m.renderMenu(width)
 	}
@@ -2351,6 +3009,158 @@ func (m model) renderSubscriptionRow(width int, index int, sub subscription) str
 	return style.Render(row)
 }
 
+func (m model) renderDebtNew(width int) string {
+	direction := debtDirectionLabel(m.addDebtForm.isOwedToUser)
+	lines := []string{
+		headlineStyle.Render("New debt"),
+		mutedStyle.Render("Use up/down to move fields. Left/right changes currency. Space toggles direction. Enter on last field saves."),
+		"",
+		m.renderDebtRowOption(debtFieldDirection, "Direction", direction),
+		m.renderDebtRowText(debtFieldPeer, "Peer", m.addDebtForm.inputs[0].View()),
+		m.renderDebtRowOption(debtFieldCurrency, "Currency", selectedCurrencyOption(m.addDebtForm.currencyOptions, m.addDebtForm.currencyIndex)),
+		m.renderDebtRowText(debtFieldAmount, "Amount", m.addDebtForm.inputs[1].View()),
+		m.renderDebtRowText(debtFieldAmountPaid, "Amount paid", m.addDebtForm.inputs[2].View()),
+		m.renderDebtRowText(debtFieldDebtCreated, "Debt created", m.addDebtForm.inputs[3].View()),
+		m.renderDebtRowText(debtFieldDueDate, "Due date", m.addDebtForm.inputs[4].View()),
+		m.renderDebtRowText(debtFieldComment, "Comment", m.addDebtForm.inputs[5].View()),
+	}
+
+	return panelStyle.Width(width).Render(strings.Join(lines, "\n"))
+}
+
+func (m model) renderDebtRowText(field int, label string, value string) string {
+	prefix := "  "
+	if m.addDebtForm.active == field {
+		prefix = "> "
+	}
+	return prefix + fieldLabelStyle.Render(label) + "  " + value
+}
+
+func (m model) renderDebtRowOption(field int, label string, value string) string {
+	prefix := "  "
+	if m.addDebtForm.active == field {
+		prefix = "> "
+	}
+	return prefix + fieldLabelStyle.Render(label) + "  " + value
+}
+
+func (m model) renderDebtList(width int) string {
+	title := "Outgoing debts"
+	if m.debtMode == debtListIncoming {
+		title = "Incoming debts"
+	}
+	if m.debtMode == debtListHistory {
+		title = "Debt history (paid)"
+	}
+
+	lines := []string{headlineStyle.Render(title), mutedStyle.Render("Use up/down to browse. Enter to edit debt and logs. Esc returns to menu."), ""}
+	filtered := m.filteredDebts()
+	if len(filtered) == 0 {
+		lines = append(lines, mutedStyle.Render("No debts found."))
+		return panelStyle.Width(width).Render(strings.Join(lines, "\n"))
+	}
+
+	lines = append(lines, m.renderDebtTableHeader(width))
+	for i, item := range filtered {
+		lines = append(lines, m.renderDebtTableRow(width, i, item))
+	}
+
+	return panelStyle.Width(width).Render(strings.Join(lines, "\n"))
+}
+
+func (m model) renderDebtTableHeader(width int) string {
+	peerWidth := 14
+	currencyWidth := 8
+	amountWidth := 12
+	paidWidth := 12
+	leftWidth := 12
+	dueWidth := 12
+	dirWidth := 8
+	commentWidth := width - 14 - peerWidth - currencyWidth - amountWidth - paidWidth - leftWidth - dueWidth - dirWidth - 18
+	if commentWidth < 12 {
+		commentWidth = 12
+	}
+	header := fmt.Sprintf("%-2s %-*s %-*s %-*s %-*s %-*s %-*s %-*s %-*s", "#", peerWidth, "Peer", currencyWidth, "Curr", amountWidth, "Amount", paidWidth, "Paid", leftWidth, "Left", dueWidth, "Due", dirWidth, "Dir", commentWidth, "Comment")
+	return mutedStyle.Render(header)
+}
+
+func (m model) renderDebtTableRow(width int, index int, item debt) string {
+	peerWidth := 14
+	currencyWidth := 8
+	amountWidth := 12
+	paidWidth := 12
+	leftWidth := 12
+	dueWidth := 12
+	dirWidth := 8
+	commentWidth := width - 14 - peerWidth - currencyWidth - amountWidth - paidWidth - leftWidth - dueWidth - dirWidth - 18
+	if commentWidth < 12 {
+		commentWidth = 12
+	}
+
+	prefix := " "
+	style := rowStyle
+	if index == m.debtCursor {
+		prefix = ">"
+		style = selectedRowStyle
+	}
+
+	left := item.AmountCents - item.AmountPaidCents
+	if left < 0 {
+		left = 0
+	}
+	due := "-"
+	if item.DueDate != nil {
+		due = item.DueDate.Local().Format("2006-01-02")
+	}
+	dir := "out"
+	if item.IsOwedToUser {
+		dir = "in"
+	}
+
+	row := fmt.Sprintf("%s %-*s %-*s %-*s %-*s %-*s %-*s %-*s %-*s", prefix, peerWidth, truncateText(item.Peer, peerWidth), currencyWidth, truncateText(item.Currency, currencyWidth), amountWidth, renderMoneyWithCurrency(item.Currency, item.AmountCents), paidWidth, renderMoneyWithCurrency(item.Currency, item.AmountPaidCents), leftWidth, renderMoneyWithCurrency(item.Currency, left), dueWidth, due, dirWidth, dir, commentWidth, truncateText(item.Comment, commentWidth))
+	return style.Render(row)
+}
+
+func (m model) renderDebtEdit(width int) string {
+	lines := []string{
+		headlineStyle.Render("Edit debt"),
+		mutedStyle.Render("Edit fields and press Enter on Comment to save. In Log delta, enter +/- and press Enter to apply."),
+		"",
+		mutedStyle.Render("Peer: " + m.editDebtForm.peerLabel + " | Direction: " + m.editDebtForm.directionLabel + " | Currency: " + m.editDebtForm.currencyLabel),
+		"",
+		m.renderEditDebtField(editDebtFieldAmount, "Amount", m.editDebtForm.amountInput.View()),
+		m.renderEditDebtField(editDebtFieldAmountPaid, "Amount paid", m.editDebtForm.amountPaidInput.View()),
+		m.renderEditDebtField(editDebtFieldDebtCreated, "Debt created", m.editDebtForm.debtCreatedInput.View()),
+		m.renderEditDebtField(editDebtFieldDueDate, "Due date", m.editDebtForm.dueDateInput.View()),
+		m.renderEditDebtField(editDebtFieldComment, "Comment", m.editDebtForm.commentInput.View()),
+		m.renderEditDebtField(editDebtFieldLogDelta, "Log delta", m.editDebtForm.logDeltaInput.View()),
+		"",
+		fieldLabelStyle.Render("Logs"),
+	}
+
+	if len(m.debtLogs) == 0 {
+		lines = append(lines, mutedStyle.Render("No log entries yet."))
+	} else {
+		for _, entry := range m.debtLogs {
+			sign := "+"
+			if entry.DeltaPaidCents < 0 {
+				sign = ""
+			}
+			lines = append(lines, fmt.Sprintf("%s%s at %s", sign, formatAmount(entry.DeltaPaidCents), entry.CreatedAt.Local().Format("2006-01-02 15:04")))
+		}
+	}
+
+	return panelStyle.Width(width).Render(strings.Join(lines, "\n"))
+}
+
+func (m model) renderEditDebtField(field int, label string, value string) string {
+	prefix := "  "
+	if m.editDebtForm.activeField == field {
+		prefix = "> "
+	}
+	return prefix + fieldLabelStyle.Render(label) + "  " + value
+}
+
 func (m model) renderSettings(width int) string {
 	header := []string{headlineStyle.Render("Settings"), mutedStyle.Render("Use up/down to select rows. Enter edits selected row. Esc returns to menu."), ""}
 	header = append(header, mutedStyle.Render("General"))
@@ -2703,6 +3513,50 @@ func parseOptionalDate(raw string) (string, error) {
 	}
 
 	return trimmed, nil
+}
+
+func parseRequiredDate(raw string) (time.Time, error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return time.Time{}, errors.New("debt created date is required")
+	}
+	value, err := time.Parse("02.01.2006", trimmed)
+	if err != nil {
+		return time.Time{}, errors.New("debt created date must use DD.MM.YYYY format")
+	}
+	return value, nil
+}
+
+func parseOptionalDatePointer(raw string) (*time.Time, error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return nil, nil
+	}
+	value, err := time.Parse("02.01.2006", trimmed)
+	if err != nil {
+		return nil, errors.New("due date must use DD.MM.YYYY format")
+	}
+	return &value, nil
+}
+
+func parseSignedAmountCents(raw string) (int64, error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return 0, errors.New("delta is required")
+	}
+	sign := int64(1)
+	if strings.HasPrefix(trimmed, "+") {
+		trimmed = strings.TrimSpace(strings.TrimPrefix(trimmed, "+"))
+	}
+	if strings.HasPrefix(trimmed, "-") {
+		sign = -1
+		trimmed = strings.TrimSpace(strings.TrimPrefix(trimmed, "-"))
+	}
+	amount, err := parseAmountCents(trimmed)
+	if err != nil {
+		return 0, err
+	}
+	return sign * amount, nil
 }
 
 func formatAmount(cents int64) string {
