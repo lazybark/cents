@@ -158,19 +158,23 @@ type menuGroup struct {
 }
 
 type addAccountForm struct {
-	fields []textinput.Model
-	labels []string
-	active int
+	fields          []textinput.Model
+	labels          []string
+	currencyOptions []string
+	currencyIndex   int
+	active          int
 }
 
 type addSubscriptionForm struct {
-	inputs        []textinput.Model
-	active        int
-	periodOptions []string
-	periodIndex   int
-	typeOptions   []string
-	typeIndex     int
-	isActive      bool
+	inputs          []textinput.Model
+	active          int
+	currencyOptions []string
+	currencyIndex   int
+	periodOptions   []string
+	periodIndex     int
+	typeOptions     []string
+	typeIndex       int
+	isActive        bool
 }
 
 type editSubscriptionForm struct {
@@ -341,8 +345,9 @@ func loadAppSettings(db *gorm.DB) (appSettings, error) {
 }
 
 func newModel(db *gorm.DB, dbPath string, created bool, accounts []account, subscriptions []subscription, settings appSettings) model {
-	addForm := newAddAccountForm()
-	addSubForm := newAddSubscriptionForm()
+	currencyOptions := currencySelectionOptions(settings)
+	addForm := newAddAccountForm(currencyOptions)
+	addSubForm := newAddSubscriptionForm(currencyOptions)
 	editInput := textinput.New()
 	editInput.Placeholder = "1234.56"
 	editInput.CharLimit = 24
@@ -442,9 +447,9 @@ func (f editSubscriptionForm) prev() editSubscriptionForm {
 	return f.focusActive()
 }
 
-func newAddSubscriptionForm() addSubscriptionForm {
+func newAddSubscriptionForm(currencyOptions []string) addSubscriptionForm {
 	inputs := make([]textinput.Model, 6)
-	placeholders := []string{"GitHub", "USD", "9.99", "Card **** 1234", "12.12.2012", "18"}
+	placeholders := []string{"GitHub", "", "9.99", "Card **** 1234", "12.12.2012", "18"}
 	for i := range inputs {
 		field := textinput.New()
 		field.Placeholder = placeholders[i]
@@ -454,13 +459,15 @@ func newAddSubscriptionForm() addSubscriptionForm {
 	}
 
 	form := addSubscriptionForm{
-		inputs:        inputs,
-		active:        0,
-		periodOptions: []string{"month", "year"},
-		periodIndex:   0,
-		typeOptions:   []string{"Software", "Domain", "Service", "Multimedia", "Other"},
-		typeIndex:     0,
-		isActive:      true,
+		inputs:          inputs,
+		active:          0,
+		currencyOptions: append([]string(nil), currencyOptions...),
+		currencyIndex:   0,
+		periodOptions:   []string{"month", "year"},
+		periodIndex:     0,
+		typeOptions:     []string{"Software", "Domain", "Service", "Multimedia", "Other"},
+		typeIndex:       0,
+		isActive:        true,
 	}
 
 	return form.focusActive()
@@ -471,7 +478,7 @@ func (f addSubscriptionForm) inputIndexForField(field int) int {
 	case subFieldName:
 		return 0
 	case subFieldCurrency:
-		return 1
+		return -1
 	case subFieldAmount:
 		return 2
 	case subFieldPaymentMethod:
@@ -571,9 +578,9 @@ func appMenuGroups() []menuGroup {
 	}
 }
 
-func newAddAccountForm() addAccountForm {
+func newAddAccountForm(currencyOptions []string) addAccountForm {
 	labels := []string{"Name", "Description", "Currency", "Amount"}
-	placeholders := []string{"Emergency Fund", "Rainy day savings", "USD", "2500.00"}
+	placeholders := []string{"Emergency Fund", "Rainy day savings", "", "2500.00"}
 	fields := make([]textinput.Model, len(labels))
 
 	for i := range fields {
@@ -584,7 +591,7 @@ func newAddAccountForm() addAccountForm {
 		fields[i] = field
 	}
 
-	form := addAccountForm{fields: fields, labels: labels}
+	form := addAccountForm{fields: fields, labels: labels, currencyOptions: append([]string(nil), currencyOptions...), currencyIndex: 0}
 	return form.focusActive()
 }
 
@@ -753,7 +760,7 @@ func (m model) updateMenu(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m model) activateMenuSelection() (tea.Model, tea.Cmd) {
 	if m.menuGroup == 1 && m.menuItem == 0 {
 		m.screen = screenAddAccount
-		m.addForm = newAddAccountForm()
+		m.addForm = newAddAccountForm(currencySelectionOptions(m.settings))
 		m.status = "add a new account"
 		return m, nil
 	}
@@ -771,7 +778,7 @@ func (m model) activateMenuSelection() (tea.Model, tea.Cmd) {
 
 	if m.menuGroup == 2 && m.menuItem == 0 {
 		m.screen = screenSubscriptionNew
-		m.addSubscriptionForm = newAddSubscriptionForm()
+		m.addSubscriptionForm = newAddSubscriptionForm(currencySelectionOptions(m.settings))
 		m.status = "new subscription"
 		return m, nil
 	}
@@ -811,6 +818,16 @@ func (m model) updateAddAccount(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.screen = screenMenu
 		m.status = databaseStatus(m.created, len(m.accounts), m.dbPath)
 		return m, nil
+	case "left":
+		if m.addForm.active == 2 && m.addForm.currencyIndex > 0 {
+			m.addForm.currencyIndex--
+		}
+		return m, nil
+	case "right":
+		if m.addForm.active == 2 && m.addForm.currencyIndex < len(m.addForm.currencyOptions)-1 {
+			m.addForm.currencyIndex++
+		}
+		return m, nil
 	case "tab", "enter":
 		if m.addForm.active == len(m.addForm.fields)-1 && msg.String() == "enter" {
 			return m.saveAccountFromForm()
@@ -819,6 +836,10 @@ func (m model) updateAddAccount(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "shift+tab":
 		m.addForm = m.addForm.prev()
+		return m, nil
+	}
+
+	if m.addForm.active == 2 {
 		return m, nil
 	}
 
@@ -887,6 +908,10 @@ func (m model) updateSubscriptionNew(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "left":
 		switch m.addSubscriptionForm.active {
+		case subFieldCurrency:
+			if m.addSubscriptionForm.currencyIndex > 0 {
+				m.addSubscriptionForm.currencyIndex--
+			}
 		case subFieldPeriod:
 			if m.addSubscriptionForm.periodIndex > 0 {
 				m.addSubscriptionForm.periodIndex--
@@ -899,6 +924,10 @@ func (m model) updateSubscriptionNew(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "right":
 		switch m.addSubscriptionForm.active {
+		case subFieldCurrency:
+			if m.addSubscriptionForm.currencyIndex < len(m.addSubscriptionForm.currencyOptions)-1 {
+				m.addSubscriptionForm.currencyIndex++
+			}
 		case subFieldPeriod:
 			if m.addSubscriptionForm.periodIndex < len(m.addSubscriptionForm.periodOptions)-1 {
 				m.addSubscriptionForm.periodIndex++
@@ -1226,7 +1255,7 @@ func settingsCursorByName(currencies []settingCurrency, name string) int {
 func (m model) saveAccountFromForm() (tea.Model, tea.Cmd) {
 	name := strings.TrimSpace(m.addForm.fields[0].Value())
 	description := strings.TrimSpace(m.addForm.fields[1].Value())
-	currency := strings.TrimSpace(m.addForm.fields[2].Value())
+	currency := selectedCurrencyOption(m.addForm.currencyOptions, m.addForm.currencyIndex)
 	amountRaw := strings.TrimSpace(m.addForm.fields[3].Value())
 
 	if name == "" {
@@ -1266,7 +1295,7 @@ func (m model) saveAccountFromForm() (tea.Model, tea.Cmd) {
 
 	m.accounts = append([]account{newAccount}, m.accounts...)
 	m.accounts = sortAccountsByAmount(m.accounts)
-	m.addForm = newAddAccountForm()
+	m.addForm = newAddAccountForm(currencySelectionOptions(m.settings))
 	m.screen = screenMenu
 	m.status = "saved account " + name
 	return m, nil
@@ -1274,7 +1303,7 @@ func (m model) saveAccountFromForm() (tea.Model, tea.Cmd) {
 
 func (m model) saveSubscriptionFromForm() (tea.Model, tea.Cmd) {
 	name := strings.TrimSpace(m.addSubscriptionForm.inputs[0].Value())
-	currency := strings.TrimSpace(m.addSubscriptionForm.inputs[1].Value())
+	currency := selectedCurrencyOption(m.addSubscriptionForm.currencyOptions, m.addSubscriptionForm.currencyIndex)
 	amountRaw := strings.TrimSpace(m.addSubscriptionForm.inputs[2].Value())
 	paymentMethod := strings.TrimSpace(m.addSubscriptionForm.inputs[3].Value())
 	dayYearRaw := strings.TrimSpace(m.addSubscriptionForm.inputs[4].Value())
@@ -1332,7 +1361,7 @@ func (m model) saveSubscriptionFromForm() (tea.Model, tea.Cmd) {
 
 	m.subscriptions = append([]subscription{newSubscription}, m.subscriptions...)
 	m.subscriptions = sortSubscriptionsByAmount(m.subscriptions)
-	m.addSubscriptionForm = newAddSubscriptionForm()
+	m.addSubscriptionForm = newAddSubscriptionForm(currencySelectionOptions(m.settings))
 	m.screen = screenSubscriptionList
 	m.subscriptionMode = subscriptionListAll
 	m.subscriptionCursor = 0
@@ -1740,24 +1769,29 @@ func (m model) renderReadOnlyAccountRow(width int, acct account) string {
 	nameWidth := 18
 	currencyWidth := 10
 	amountWidth := 14
+	baseAmountWidth := 14
 	updatedWidth := 16
-	descWidth := width - 14 - nameWidth - currencyWidth - amountWidth - updatedWidth - 10
+	descWidth := width - 14 - nameWidth - currencyWidth - amountWidth - baseAmountWidth - updatedWidth - 12
 	if descWidth < 16 {
 		descWidth = 16
 	}
 
-	row := fmt.Sprintf("%-2s %-*s %-*s %-*s %-*s %-*s", "", nameWidth, truncateText(acct.Name, nameWidth), currencyWidth, truncateText(acct.Currency, currencyWidth), amountWidth, renderMoneyWithCurrency(acct.Currency, acct.BalanceCents), updatedWidth, formatUpdatedAt(acct.LastUpdatedAt), descWidth, truncateText(acct.Description, descWidth))
+	row := fmt.Sprintf("%-2s %-*s %-*s %-*s %-*s %-*s %-*s", "", nameWidth, truncateText(acct.Name, nameWidth), currencyWidth, truncateText(acct.Currency, currencyWidth), amountWidth, renderMoneyWithCurrency(acct.Currency, acct.BalanceCents), baseAmountWidth, m.convertedAmountForBase(acct.Currency, acct.BalanceCents), updatedWidth, formatUpdatedAt(acct.LastUpdatedAt), descWidth, truncateText(acct.Description, descWidth))
 	return rowStyle.Render(row)
 }
 
 func (m model) renderAddAccount(width int) string {
 	lines := []string{
 		headlineStyle.Render("Add account"),
-		mutedStyle.Render("Fill the fields, then press Enter on Amount to save."),
+		mutedStyle.Render("Fill the fields, choose currency with left/right, then press Enter on Amount to save."),
 		"",
 	}
 
 	for i := range m.addForm.fields {
+		if i == 2 {
+			lines = append(lines, m.renderAccountCurrencyFieldRow(width))
+			continue
+		}
 		label := fieldLabelStyle.Render(m.addForm.labels[i])
 		value := inputBoxStyle.Width(width - 18).Render(m.addForm.fields[i].View())
 		lines = append(lines, lipgloss.JoinHorizontal(lipgloss.Top, label, "  ", value))
@@ -1767,6 +1801,25 @@ func (m model) renderAddAccount(width int) string {
 	lines = append(lines, mutedStyle.Render("Tab moves forward, Shift+Tab moves back, Esc returns home."))
 
 	return panelStyle.Width(width).Render(strings.Join(lines, "\n"))
+}
+
+func (m model) renderAccountCurrencyFieldRow(width int) string {
+	options := make([]string, 0, len(m.addForm.currencyOptions))
+	for index, option := range m.addForm.currencyOptions {
+		style := buttonStyle
+		if index == m.addForm.currencyIndex {
+			style = buttonActiveStyle
+		}
+		options = append(options, style.Render(option))
+	}
+
+	prefix := " "
+	if m.addForm.active == 2 {
+		prefix = ">"
+	}
+	label := fieldLabelStyle.Render(prefix + " Currency")
+	value := inputBoxStyle.Width(width - 18).Render(strings.Join(options, " "))
+	return lipgloss.JoinHorizontal(lipgloss.Top, label, "  ", value)
 }
 
 func (m model) renderAccountTable(width int) string {
@@ -1791,13 +1844,18 @@ func (m model) renderAccountTableHeader(width int) string {
 	nameWidth := 18
 	currencyWidth := 10
 	amountWidth := 14
+	baseAmountWidth := 14
 	updatedWidth := 16
-	descWidth := width - 14 - nameWidth - currencyWidth - amountWidth - updatedWidth - 10
+	descWidth := width - 14 - nameWidth - currencyWidth - amountWidth - baseAmountWidth - updatedWidth - 12
 	if descWidth < 16 {
 		descWidth = 16
 	}
+	baseCurrencyTitle := strings.TrimSpace(m.settings.BaseCurrency)
+	if baseCurrencyTitle == "" {
+		baseCurrencyTitle = "$"
+	}
 
-	header := fmt.Sprintf("%-2s %-*s %-*s %-*s %-*s %-*s", "#", nameWidth, "Name", currencyWidth, "Currency", amountWidth, "Amount", updatedWidth, "Updated", descWidth, "Description")
+	header := fmt.Sprintf("%-2s %-*s %-*s %-*s %-*s %-*s %-*s", "#", nameWidth, "Name", currencyWidth, "Currency", amountWidth, "Amount", baseAmountWidth, truncateText(baseCurrencyTitle, baseAmountWidth), updatedWidth, "Updated", descWidth, "Description")
 	return mutedStyle.Render(header)
 }
 
@@ -1805,8 +1863,9 @@ func (m model) renderAccountRow(width int, index int, acct account) string {
 	nameWidth := 18
 	currencyWidth := 10
 	amountWidth := 14
+	baseAmountWidth := 14
 	updatedWidth := 16
-	descWidth := width - 14 - nameWidth - currencyWidth - amountWidth - updatedWidth - 10
+	descWidth := width - 14 - nameWidth - currencyWidth - amountWidth - baseAmountWidth - updatedWidth - 12
 	if descWidth < 16 {
 		descWidth = 16
 	}
@@ -1818,7 +1877,7 @@ func (m model) renderAccountRow(width int, index int, acct account) string {
 		style = selectedRowStyle
 	}
 
-	row := fmt.Sprintf("%s %-*s %-*s %-*s %-*s %-*s", prefix, nameWidth, truncateText(acct.Name, nameWidth), currencyWidth, truncateText(acct.Currency, currencyWidth), amountWidth, renderMoneyWithCurrency(acct.Currency, acct.BalanceCents), updatedWidth, formatUpdatedAt(acct.LastUpdatedAt), descWidth, truncateText(acct.Description, descWidth))
+	row := fmt.Sprintf("%s %-*s %-*s %-*s %-*s %-*s %-*s", prefix, nameWidth, truncateText(acct.Name, nameWidth), currencyWidth, truncateText(acct.Currency, currencyWidth), amountWidth, renderMoneyWithCurrency(acct.Currency, acct.BalanceCents), baseAmountWidth, m.convertedAmountForBase(acct.Currency, acct.BalanceCents), updatedWidth, formatUpdatedAt(acct.LastUpdatedAt), descWidth, truncateText(acct.Description, descWidth))
 	return style.Render(row)
 }
 
@@ -1849,10 +1908,10 @@ func (m model) renderSubscriptionNew(width int) string {
 
 	lines := []string{
 		headlineStyle.Render("New subscription"),
-		mutedStyle.Render("Use up/down to move fields. Left/right changes Period/Type. Space toggles Is Active. Enter on last field saves."),
+		mutedStyle.Render("Use up/down to move fields. Left/right changes Currency/Period/Type. Space toggles Is Active. Enter on last field saves."),
 		"",
 		m.renderSubscriptionTextFieldRow(subFieldName, "Name", m.addSubscriptionForm.inputs[0].View()),
-		m.renderSubscriptionTextFieldRow(subFieldCurrency, "Currency", m.addSubscriptionForm.inputs[1].View()),
+		m.renderSubscriptionOptionRow(subFieldCurrency, "Currency", m.addSubscriptionForm.currencyOptions, m.addSubscriptionForm.currencyIndex),
 		m.renderSubscriptionTextFieldRow(subFieldAmount, "Amount", m.addSubscriptionForm.inputs[2].View()),
 		m.renderSubscriptionOptionRow(subFieldPeriod, "Period", m.addSubscriptionForm.periodOptions, m.addSubscriptionForm.periodIndex),
 		m.renderSubscriptionTextFieldRow(subFieldPaymentMethod, "Payment method", m.addSubscriptionForm.inputs[3].View()),
@@ -1949,15 +2008,20 @@ func (m model) renderSubscriptionTableHeader(width int) string {
 	nameWidth := 16
 	currencyWidth := 8
 	amountWidth := 12
+	baseAmountWidth := 12
 	periodWidth := 7
 	typeWidth := 12
 	activeWidth := 7
-	descWidth := width - 12 - nameWidth - currencyWidth - amountWidth - periodWidth - typeWidth - activeWidth - 12
+	descWidth := width - 12 - nameWidth - currencyWidth - amountWidth - baseAmountWidth - periodWidth - typeWidth - activeWidth - 14
 	if descWidth < 12 {
 		descWidth = 12
 	}
+	baseCurrencyTitle := strings.TrimSpace(m.settings.BaseCurrency)
+	if baseCurrencyTitle == "" {
+		baseCurrencyTitle = "$"
+	}
 
-	header := fmt.Sprintf("%-2s %-*s %-*s %-*s %-*s %-*s %-*s %-*s", "#", nameWidth, "Name", currencyWidth, "Curr", amountWidth, "Amount", periodWidth, "Period", typeWidth, "Type", activeWidth, "Active", descWidth, "Payment method")
+	header := fmt.Sprintf("%-2s %-*s %-*s %-*s %-*s %-*s %-*s %-*s %-*s", "#", nameWidth, "Name", currencyWidth, "Curr", amountWidth, "Amount", baseAmountWidth, truncateText(baseCurrencyTitle, baseAmountWidth), periodWidth, "Period", typeWidth, "Type", activeWidth, "Active", descWidth, "Payment method")
 	return mutedStyle.Render(header)
 }
 
@@ -1965,10 +2029,11 @@ func (m model) renderSubscriptionRow(width int, index int, sub subscription) str
 	nameWidth := 16
 	currencyWidth := 8
 	amountWidth := 12
+	baseAmountWidth := 12
 	periodWidth := 7
 	typeWidth := 12
 	activeWidth := 7
-	descWidth := width - 12 - nameWidth - currencyWidth - amountWidth - periodWidth - typeWidth - activeWidth - 12
+	descWidth := width - 12 - nameWidth - currencyWidth - amountWidth - baseAmountWidth - periodWidth - typeWidth - activeWidth - 14
 	if descWidth < 12 {
 		descWidth = 12
 	}
@@ -1985,7 +2050,7 @@ func (m model) renderSubscriptionRow(width int, index int, sub subscription) str
 		active = "yes"
 	}
 
-	row := fmt.Sprintf("%s %-*s %-*s %-*s %-*s %-*s %-*s %-*s", prefix, nameWidth, truncateText(sub.Name, nameWidth), currencyWidth, truncateText(sub.Currency, currencyWidth), amountWidth, renderMoneyWithCurrency(sub.Currency, sub.AmountCents), periodWidth, truncateText(sub.Period, periodWidth), typeWidth, truncateText(sub.Type, typeWidth), activeWidth, active, descWidth, truncateText(sub.PaymentMethod, descWidth))
+	row := fmt.Sprintf("%s %-*s %-*s %-*s %-*s %-*s %-*s %-*s %-*s", prefix, nameWidth, truncateText(sub.Name, nameWidth), currencyWidth, truncateText(sub.Currency, currencyWidth), amountWidth, renderMoneyWithCurrency(sub.Currency, sub.AmountCents), baseAmountWidth, m.convertedAmountForBase(sub.Currency, sub.AmountCents), periodWidth, truncateText(sub.Period, periodWidth), typeWidth, truncateText(sub.Type, typeWidth), activeWidth, active, descWidth, truncateText(sub.PaymentMethod, descWidth))
 	return style.Render(row)
 }
 
@@ -2043,6 +2108,74 @@ func (m model) renderSettings(width int) string {
 
 func formatRate(value float64) string {
 	return strings.TrimRight(strings.TrimRight(fmt.Sprintf("%.6f", value), "0"), ".")
+}
+
+func currencySelectionOptions(settings appSettings) []string {
+	base := strings.TrimSpace(settings.BaseCurrency)
+	if base == "" {
+		base = "$"
+	}
+
+	options := []string{base}
+	seen := map[string]struct{}{strings.ToLower(base): {}}
+	for _, currency := range settings.Currencies {
+		name := strings.TrimSpace(currency.CurrencyName)
+		if name == "" {
+			continue
+		}
+		key := strings.ToLower(name)
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		options = append(options, name)
+	}
+
+	return options
+}
+
+func selectedCurrencyOption(options []string, index int) string {
+	if len(options) == 0 {
+		return "$"
+	}
+	if index < 0 || index >= len(options) {
+		return options[0]
+	}
+	return options[index]
+}
+
+func (m model) convertedAmountForBase(currency string, cents int64) string {
+	base := strings.TrimSpace(m.settings.BaseCurrency)
+	if base == "" {
+		base = "$"
+	}
+
+	if strings.EqualFold(strings.TrimSpace(currency), base) {
+		return ""
+	}
+
+	rate, ok := m.rateToBase(currency)
+	if !ok {
+		return ""
+	}
+
+	convertedCents := int64(math.Round(float64(cents) * rate))
+	return renderMoneyWithCurrency(base, convertedCents)
+}
+
+func (m model) rateToBase(currency string) (float64, bool) {
+	target := strings.TrimSpace(currency)
+	if target == "" {
+		return 0, false
+	}
+
+	for _, entry := range m.settings.Currencies {
+		if strings.EqualFold(strings.TrimSpace(entry.CurrencyName), target) && entry.RateToBase > 0 {
+			return entry.RateToBase, true
+		}
+	}
+
+	return 0, false
 }
 
 func (m model) filteredSubscriptions() []subscription {
