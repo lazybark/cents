@@ -46,6 +46,17 @@ type subscription struct {
 	PaymentDayMonthly *int
 }
 
+type settingRecord struct {
+	SettingID    string `gorm:"primaryKey"`
+	SettingValue string
+}
+
+type appSettings struct {
+	BaseCurrency string
+	SettingOne   int64
+	SettingTwo   string
+}
+
 type screen int
 
 const (
@@ -56,6 +67,7 @@ const (
 	screenSubscriptionNew
 	screenSubscriptionEdit
 	screenSubscriptionList
+	screenSettings
 )
 
 type subscriptionListMode int
@@ -74,6 +86,10 @@ type model struct {
 	subscriptions       []subscription
 	subscriptionMode    subscriptionListMode
 	subscriptionCursor  int
+	settings            appSettings
+	settingsCursor      int
+	settingsEditMode    bool
+	settingsEditInput   textinput.Model
 	status              string
 	width               int
 	height              int
@@ -204,7 +220,13 @@ func main() {
 		os.Exit(1)
 	}
 
-	m := newModel(db, dbPath, created, accounts, subscriptions)
+	settings, err := loadAppSettings(db)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "settings read failed:", err)
+		os.Exit(1)
+	}
+
+	m := newModel(db, dbPath, created, accounts, subscriptions, settings)
 	program := tea.NewProgram(m, tea.WithAltScreen())
 	if _, err := program.Run(); err != nil {
 		fmt.Fprintln(os.Stderr, "program failed:", err)
@@ -230,7 +252,11 @@ func openDatabase() (*gorm.DB, string, bool, error) {
 		return nil, "", false, err
 	}
 
-	if err := db.AutoMigrate(&account{}, &subscription{}); err != nil {
+	if err := db.AutoMigrate(&account{}, &subscription{}, &settingRecord{}); err != nil {
+		return nil, "", false, err
+	}
+
+	if err := ensureSettingsDefaults(db); err != nil {
 		return nil, "", false, err
 	}
 
@@ -255,13 +281,57 @@ func loadSubscriptions(db *gorm.DB) ([]subscription, error) {
 	return subscriptions, nil
 }
 
-func newModel(db *gorm.DB, dbPath string, created bool, accounts []account, subscriptions []subscription) model {
+func ensureSettingsDefaults(db *gorm.DB) error {
+	var count int64
+	if err := db.Model(&settingRecord{}).Where("setting_id = ?", "base_currency").Count(&count).Error; err != nil {
+		return err
+	}
+
+	if count == 0 {
+		if err := db.Create(&settingRecord{SettingID: "base_currency", SettingValue: "$"}).Error; err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func loadAppSettings(db *gorm.DB) (appSettings, error) {
+	var rows []settingRecord
+	if err := db.Order("setting_id asc").Find(&rows).Error; err != nil {
+		return appSettings{}, err
+	}
+
+	settings := appSettings{BaseCurrency: "$"}
+	for _, row := range rows {
+		switch row.SettingID {
+		case "base_currency":
+			if strings.TrimSpace(row.SettingValue) != "" {
+				settings.BaseCurrency = row.SettingValue
+			}
+		case "setting_one":
+			if parsed, err := strconv.ParseInt(strings.TrimSpace(row.SettingValue), 10, 64); err == nil {
+				settings.SettingOne = parsed
+			}
+		case "setting_two":
+			settings.SettingTwo = row.SettingValue
+		}
+	}
+
+	return settings, nil
+}
+
+func newModel(db *gorm.DB, dbPath string, created bool, accounts []account, subscriptions []subscription, settings appSettings) model {
 	addForm := newAddAccountForm()
 	addSubForm := newAddSubscriptionForm()
 	editInput := textinput.New()
 	editInput.Placeholder = "1234.56"
 	editInput.CharLimit = 24
 	editInput.Width = 20
+	settingsInput := textinput.New()
+	settingsInput.Placeholder = "$"
+	settingsInput.CharLimit = 24
+	settingsInput.Width = 20
 	helpModel := help.New()
 	helpModel.ShowAll = false
 	helpModel.Width = 0
@@ -278,6 +348,10 @@ func newModel(db *gorm.DB, dbPath string, created bool, accounts []account, subs
 		screen:              screenMenu,
 		accounts:            accounts,
 		subscriptions:       subscriptions,
+		settings:            settings,
+		settingsCursor:      0,
+		settingsEditMode:    false,
+		settingsEditInput:   settingsInput,
 		subscriptionMode:    subscriptionListActive,
 		subscriptionCursor:  0,
 		status:              status,
@@ -553,6 +627,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateSubscriptionEdit(msg)
 		case screenSubscriptionList:
 			return m.updateSubscriptionList(msg)
+		case screenSettings:
+			return m.updateSettings(msg)
 		}
 	}
 
@@ -582,6 +658,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.editSubscriptionForm.paymentMethodInput, cmd = m.editSubscriptionForm.paymentMethodInput.Update(msg)
 			return m, cmd
 		}
+	}
+
+	if m.screen == screenSettings && m.settingsEditMode {
+		m.settingsEditInput, cmd = m.settingsEditInput.Update(msg)
+		return m, cmd
 	}
 
 	return m, cmd
@@ -682,6 +763,14 @@ func (m model) activateMenuSelection() (tea.Model, tea.Cmd) {
 		m.subscriptionMode = subscriptionListAll
 		m.subscriptionCursor = 0
 		m.status = "all subscriptions"
+		return m, nil
+	}
+
+	if m.menuGroup == 7 && m.menuItem == 0 {
+		m.screen = screenSettings
+		m.settingsCursor = 0
+		m.settingsEditMode = false
+		m.status = "settings"
 		return m, nil
 	}
 
@@ -910,6 +999,62 @@ func (m model) updateSubscriptionEdit(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	return m, nil
+}
+
+func (m model) updateSettings(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.settingsEditMode {
+		switch msg.String() {
+		case "esc":
+			m.settingsEditMode = false
+			m.screen = screenMenu
+			m.status = databaseStatus(m.created, len(m.accounts), m.dbPath)
+			return m, nil
+		case "enter":
+			value := strings.TrimSpace(m.settingsEditInput.Value())
+			if value == "" {
+				m.status = "base currency cannot be empty"
+				return m, nil
+			}
+
+			record := settingRecord{SettingID: "base_currency", SettingValue: value}
+			if err := m.db.Save(&record).Error; err != nil {
+				m.status = "settings save failed: " + err.Error()
+				return m, nil
+			}
+
+			updated, err := loadAppSettings(m.db)
+			if err != nil {
+				m.status = "settings reload failed: " + err.Error()
+				return m, nil
+			}
+
+			m.settings = updated
+			m.settingsEditMode = false
+			m.status = "saved setting base_currency"
+			return m, nil
+		}
+
+		var cmd tea.Cmd
+		m.settingsEditInput, cmd = m.settingsEditInput.Update(msg)
+		return m, cmd
+	}
+
+	switch msg.String() {
+	case "esc":
+		m.screen = screenMenu
+		m.status = databaseStatus(m.created, len(m.accounts), m.dbPath)
+		return m, nil
+	case "enter":
+		if m.settingsCursor == 0 {
+			m.settingsEditMode = true
+			m.settingsEditInput.SetValue(m.settings.BaseCurrency)
+			m.settingsEditInput.Focus()
+			m.status = "editing setting base_currency"
+		}
+		return m, nil
+	default:
+		return m, nil
+	}
 }
 
 func (m model) saveAccountFromForm() (tea.Model, tea.Cmd) {
@@ -1242,6 +1387,8 @@ func (m model) renderBody(width int) string {
 		return m.renderSubscriptionEdit(width)
 	case screenSubscriptionList:
 		return m.renderSubscriptionList(width)
+	case screenSettings:
+		return m.renderSettings(width)
 	default:
 		return m.renderMenu(width)
 	}
@@ -1674,6 +1821,28 @@ func (m model) renderSubscriptionRow(width int, index int, sub subscription) str
 
 	row := fmt.Sprintf("%s %-*s %-*s %-*s %-*s %-*s %-*s %-*s", prefix, nameWidth, truncateText(sub.Name, nameWidth), currencyWidth, truncateText(sub.Currency, currencyWidth), amountWidth, renderMoneyWithCurrency(sub.Currency, sub.AmountCents), periodWidth, truncateText(sub.Period, periodWidth), typeWidth, truncateText(sub.Type, typeWidth), activeWidth, active, descWidth, truncateText(sub.PaymentMethod, descWidth))
 	return style.Render(row)
+}
+
+func (m model) renderSettings(width int) string {
+	header := []string{headlineStyle.Render("Settings"), mutedStyle.Render("Press Enter to edit selected setting. Esc returns to menu."), ""}
+	header = append(header, mutedStyle.Render("Setting ID          Value"))
+
+	prefix := " "
+	if m.settingsCursor == 0 {
+		prefix = ">"
+	}
+	baseCurrencyValue := m.settings.BaseCurrency
+	if m.settingsEditMode {
+		baseCurrencyValue = m.settingsEditInput.View()
+	}
+
+	rows := []string{fmt.Sprintf("%s %-18s %s", prefix, "base_currency", baseCurrencyValue)}
+	if m.settingsEditMode {
+		rows = append(rows, "", mutedStyle.Render("Enter saves. Esc exits settings."))
+	}
+
+	content := append(header, rows...)
+	return panelStyle.Width(width).Render(strings.Join(content, "\n"))
 }
 
 func (m model) filteredSubscriptions() []subscription {
