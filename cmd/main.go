@@ -345,6 +345,7 @@ func loadAppSettings(db *gorm.DB) (appSettings, error) {
 }
 
 func newModel(db *gorm.DB, dbPath string, created bool, accounts []account, subscriptions []subscription, settings appSettings) model {
+	accounts = sortAccountsByBaseAmount(accounts, settings)
 	currencyOptions := currencySelectionOptions(settings)
 	addForm := newAddAccountForm(currencyOptions)
 	addSubForm := newAddSubscriptionForm(currencyOptions)
@@ -1085,6 +1086,7 @@ func (m model) updateSettings(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 
 			m.settings = updated
+			m.accounts = sortAccountsByBaseAmount(m.accounts, m.settings)
 			m.settingsEditMode = settingsEditNone
 			m.settingsEditInput.Blur()
 			m.status = "saved setting base_currency"
@@ -1160,6 +1162,7 @@ func (m model) updateSettings(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 
 			m.settings = updated
+			m.accounts = sortAccountsByBaseAmount(m.accounts, m.settings)
 			m.settingsEditMode = settingsEditNone
 			m.settingsCurrencyNameInput.Blur()
 			m.settingsCurrencyRateInput.Blur()
@@ -1294,7 +1297,7 @@ func (m model) saveAccountFromForm() (tea.Model, tea.Cmd) {
 	}
 
 	m.accounts = append([]account{newAccount}, m.accounts...)
-	m.accounts = sortAccountsByAmount(m.accounts)
+	m.accounts = sortAccountsByBaseAmount(m.accounts, m.settings)
 	m.addForm = newAddAccountForm(currencySelectionOptions(m.settings))
 	m.screen = screenMenu
 	m.status = "saved account " + name
@@ -1467,7 +1470,7 @@ func (m model) saveAmount() (tea.Model, tea.Cmd) {
 	selected.LeftoverCents = amount
 	selected.LastUpdatedAt = now
 	m.accounts[m.cursor] = selected
-	m.accounts = sortAccountsByAmount(m.accounts)
+	m.accounts = sortAccountsByBaseAmount(m.accounts, m.settings)
 	m.cursor = findAccountIndex(m.accounts, selected.ID)
 	if m.cursor < 0 {
 		m.cursor = 0
@@ -1710,23 +1713,19 @@ func (m model) renderReadOnlyAccountOverview(width int) string {
 	}
 
 	lines = append(lines, m.renderAccountTableHeader(width))
-	for _, acct := range topAccountsByAmount(m.accounts, 5) {
+	for _, acct := range topAccountsByBaseAmount(m.accounts, 5, m.settings) {
 		lines = append(lines, m.renderReadOnlyAccountRow(width, acct))
 	}
 
 	return panelStyle.Width(width).Render(strings.Join(lines, "\n"))
 }
 
-func topAccountsByAmount(accounts []account, maxCount int) []account {
+func topAccountsByBaseAmount(accounts []account, maxCount int, settings appSettings) []account {
 	if maxCount <= 0 || len(accounts) == 0 {
 		return nil
 	}
 
-	cloned := make([]account, len(accounts))
-	copy(cloned, accounts)
-	sort.Slice(cloned, func(i, j int) bool {
-		return cloned[i].BalanceCents > cloned[j].BalanceCents
-	})
+	cloned := sortAccountsByBaseAmount(accounts, settings)
 
 	if len(cloned) > maxCount {
 		cloned = cloned[:maxCount]
@@ -1735,7 +1734,7 @@ func topAccountsByAmount(accounts []account, maxCount int) []account {
 	return cloned
 }
 
-func sortAccountsByAmount(accounts []account) []account {
+func sortAccountsByBaseAmount(accounts []account, settings appSettings) []account {
 	if len(accounts) < 2 {
 		return accounts
 	}
@@ -1743,16 +1742,37 @@ func sortAccountsByAmount(accounts []account) []account {
 	cloned := make([]account, len(accounts))
 	copy(cloned, accounts)
 	sort.SliceStable(cloned, func(i, j int) bool {
-		if cloned[i].BalanceCents == cloned[j].BalanceCents {
+		leftComparable := comparableAccountBaseCents(cloned[i], settings)
+		rightComparable := comparableAccountBaseCents(cloned[j], settings)
+		if leftComparable == rightComparable {
 			if cloned[i].CreatedAt.Equal(cloned[j].CreatedAt) {
 				return cloned[i].ID > cloned[j].ID
 			}
 			return cloned[i].CreatedAt.After(cloned[j].CreatedAt)
 		}
-		return cloned[i].BalanceCents > cloned[j].BalanceCents
+		return leftComparable > rightComparable
 	})
 
 	return cloned
+}
+
+func comparableAccountBaseCents(acct account, settings appSettings) int64 {
+	base := strings.TrimSpace(settings.BaseCurrency)
+	if base == "" {
+		base = "$"
+	}
+
+	if strings.EqualFold(strings.TrimSpace(acct.Currency), base) {
+		return acct.BalanceCents
+	}
+
+	for _, entry := range settings.Currencies {
+		if strings.EqualFold(strings.TrimSpace(entry.CurrencyName), strings.TrimSpace(acct.Currency)) && entry.RateToBase > 0 {
+			return int64(math.Round(float64(acct.BalanceCents) * entry.RateToBase))
+		}
+	}
+
+	return acct.BalanceCents
 }
 
 func findAccountIndex(accounts []account, id uint) int {
