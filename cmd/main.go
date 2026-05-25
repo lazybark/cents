@@ -51,11 +51,26 @@ type settingRecord struct {
 	SettingValue string
 }
 
+type settingCurrency struct {
+	ID            uint `gorm:"primaryKey"`
+	CreatedAt     time.Time
+	LastUpdatedAt time.Time
+	CurrencyName  string  `gorm:"not null;uniqueIndex"`
+	RateToBase    float64 `gorm:"not null"`
+}
+
 type appSettings struct {
 	BaseCurrency string
-	SettingOne   int64
-	SettingTwo   string
+	Currencies   []settingCurrency
 }
+
+type settingsEditMode int
+
+const (
+	settingsEditNone settingsEditMode = iota
+	settingsEditBaseCurrency
+	settingsEditCurrency
+)
 
 type screen int
 
@@ -78,33 +93,37 @@ const (
 )
 
 type model struct {
-	db                  *gorm.DB
-	dbPath              string
-	created             bool
-	screen              screen
-	accounts            []account
-	subscriptions       []subscription
-	subscriptionMode    subscriptionListMode
-	subscriptionCursor  int
-	settings            appSettings
-	settingsCursor      int
-	settingsEditMode    bool
-	settingsEditInput   textinput.Model
-	status              string
-	width               int
-	height              int
-	quitting            bool
-	menuGroup           int
-	menuItem            int
-	cursor              int
-	addForm             addAccountForm
-	addSubscriptionForm addSubscriptionForm
-	editSubscriptionForm editSubscriptionForm
-	editingSubscriptionID uint
-	editingSubscriptionMode subscriptionListMode
-	editInput           textinput.Model
-	help                help.Model
-	keys                keyMap
+	db                        *gorm.DB
+	dbPath                    string
+	created                   bool
+	screen                    screen
+	accounts                  []account
+	subscriptions             []subscription
+	subscriptionMode          subscriptionListMode
+	subscriptionCursor        int
+	settings                  appSettings
+	settingsCursor            int
+	settingsEditMode          settingsEditMode
+	settingsEditInput         textinput.Model
+	settingsCurrencyNameInput textinput.Model
+	settingsCurrencyRateInput textinput.Model
+	settingsCurrencyField     int
+	settingsCurrencyEditingID uint
+	status                    string
+	width                     int
+	height                    int
+	quitting                  bool
+	menuGroup                 int
+	menuItem                  int
+	cursor                    int
+	addForm                   addAccountForm
+	addSubscriptionForm       addSubscriptionForm
+	editSubscriptionForm      editSubscriptionForm
+	editingSubscriptionID     uint
+	editingSubscriptionMode   subscriptionListMode
+	editInput                 textinput.Model
+	help                      help.Model
+	keys                      keyMap
 }
 
 type keyMap struct {
@@ -155,16 +174,16 @@ type addSubscriptionForm struct {
 }
 
 type editSubscriptionForm struct {
-	amountInput       textinput.Model
+	amountInput        textinput.Model
 	paymentMethodInput textinput.Model
-	isActive          bool
-	activeField       int
-	periodLabel       string
-	typeLabel         string
-	currencyLabel     string
-	nameLabel         string
-	paymentDateYearly string
-	paymentDayMonthly string
+	isActive           bool
+	activeField        int
+	periodLabel        string
+	typeLabel          string
+	currencyLabel      string
+	nameLabel          string
+	paymentDateYearly  string
+	paymentDayMonthly  string
 }
 
 const (
@@ -252,7 +271,7 @@ func openDatabase() (*gorm.DB, string, bool, error) {
 		return nil, "", false, err
 	}
 
-	if err := db.AutoMigrate(&account{}, &subscription{}, &settingRecord{}); err != nil {
+	if err := db.AutoMigrate(&account{}, &subscription{}, &settingRecord{}, &settingCurrency{}); err != nil {
 		return nil, "", false, err
 	}
 
@@ -309,14 +328,14 @@ func loadAppSettings(db *gorm.DB) (appSettings, error) {
 			if strings.TrimSpace(row.SettingValue) != "" {
 				settings.BaseCurrency = row.SettingValue
 			}
-		case "setting_one":
-			if parsed, err := strconv.ParseInt(strings.TrimSpace(row.SettingValue), 10, 64); err == nil {
-				settings.SettingOne = parsed
-			}
-		case "setting_two":
-			settings.SettingTwo = row.SettingValue
 		}
 	}
+
+	var currencies []settingCurrency
+	if err := db.Order("currency_name asc, id asc").Find(&currencies).Error; err != nil {
+		return appSettings{}, err
+	}
+	settings.Currencies = currencies
 
 	return settings, nil
 }
@@ -332,6 +351,14 @@ func newModel(db *gorm.DB, dbPath string, created bool, accounts []account, subs
 	settingsInput.Placeholder = "$"
 	settingsInput.CharLimit = 24
 	settingsInput.Width = 20
+	settingsCurrencyNameInput := textinput.New()
+	settingsCurrencyNameInput.Placeholder = "EUR"
+	settingsCurrencyNameInput.CharLimit = 24
+	settingsCurrencyNameInput.Width = 20
+	settingsCurrencyRateInput := textinput.New()
+	settingsCurrencyRateInput.Placeholder = "1.23"
+	settingsCurrencyRateInput.CharLimit = 24
+	settingsCurrencyRateInput.Width = 20
 	helpModel := help.New()
 	helpModel.ShowAll = false
 	helpModel.Width = 0
@@ -342,27 +369,31 @@ func newModel(db *gorm.DB, dbPath string, created bool, accounts []account, subs
 	}
 
 	return model{
-		db:                  db,
-		dbPath:              dbPath,
-		created:             created,
-		screen:              screenMenu,
-		accounts:            accounts,
-		subscriptions:       subscriptions,
-		settings:            settings,
-		settingsCursor:      0,
-		settingsEditMode:    false,
-		settingsEditInput:   settingsInput,
-		subscriptionMode:    subscriptionListActive,
-		subscriptionCursor:  0,
-		status:              status,
-		menuGroup:           0,
-		menuItem:            0,
-		addForm:             addForm,
-		addSubscriptionForm: addSubForm,
-		editSubscriptionForm: newEditSubscriptionForm(),
-		editInput:           editInput,
-		help:                helpModel,
-		keys:                newKeyMap(),
+		db:                        db,
+		dbPath:                    dbPath,
+		created:                   created,
+		screen:                    screenMenu,
+		accounts:                  accounts,
+		subscriptions:             subscriptions,
+		settings:                  settings,
+		settingsCursor:            0,
+		settingsEditMode:          settingsEditNone,
+		settingsEditInput:         settingsInput,
+		settingsCurrencyNameInput: settingsCurrencyNameInput,
+		settingsCurrencyRateInput: settingsCurrencyRateInput,
+		settingsCurrencyField:     0,
+		settingsCurrencyEditingID: 0,
+		subscriptionMode:          subscriptionListActive,
+		subscriptionCursor:        0,
+		status:                    status,
+		menuGroup:                 0,
+		menuItem:                  0,
+		addForm:                   addForm,
+		addSubscriptionForm:       addSubForm,
+		editSubscriptionForm:      newEditSubscriptionForm(),
+		editInput:                 editInput,
+		help:                      helpModel,
+		keys:                      newKeyMap(),
 	}
 }
 
@@ -660,11 +691,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 
-	if m.screen == screenSettings && m.settingsEditMode {
-		m.settingsEditInput, cmd = m.settingsEditInput.Update(msg)
-		return m, cmd
-	}
-
 	return m, cmd
 }
 
@@ -769,7 +795,7 @@ func (m model) activateMenuSelection() (tea.Model, tea.Cmd) {
 	if m.menuGroup == 7 && m.menuItem == 0 {
 		m.screen = screenSettings
 		m.settingsCursor = 0
-		m.settingsEditMode = false
+		m.settingsEditMode = settingsEditNone
 		m.status = "settings"
 		return m, nil
 	}
@@ -1002,10 +1028,11 @@ func (m model) updateSubscriptionEdit(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) updateSettings(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if m.settingsEditMode {
+	if m.settingsEditMode == settingsEditBaseCurrency {
 		switch msg.String() {
 		case "esc":
-			m.settingsEditMode = false
+			m.settingsEditMode = settingsEditNone
+			m.settingsEditInput.Blur()
 			m.screen = screenMenu
 			m.status = databaseStatus(m.created, len(m.accounts), m.dbPath)
 			return m, nil
@@ -1029,7 +1056,8 @@ func (m model) updateSettings(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 
 			m.settings = updated
-			m.settingsEditMode = false
+			m.settingsEditMode = settingsEditNone
+			m.settingsEditInput.Blur()
 			m.status = "saved setting base_currency"
 			return m, nil
 		}
@@ -1039,22 +1067,160 @@ func (m model) updateSettings(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 
+	if m.settingsEditMode == settingsEditCurrency {
+		switch msg.String() {
+		case "esc":
+			m.settingsEditMode = settingsEditNone
+			m.settingsCurrencyNameInput.Blur()
+			m.settingsCurrencyRateInput.Blur()
+			m.screen = screenMenu
+			m.status = databaseStatus(m.created, len(m.accounts), m.dbPath)
+			return m, nil
+		case "tab", "down":
+			m.settingsCurrencyField = 1
+			m = m.focusCurrencyFormField()
+			return m, nil
+		case "shift+tab", "up":
+			m.settingsCurrencyField = 0
+			m = m.focusCurrencyFormField()
+			return m, nil
+		case "enter":
+			if m.settingsCurrencyField == 0 {
+				m.settingsCurrencyField = 1
+				m = m.focusCurrencyFormField()
+				return m, nil
+			}
+
+			name := strings.TrimSpace(m.settingsCurrencyNameInput.Value())
+			rateRaw := strings.TrimSpace(m.settingsCurrencyRateInput.Value())
+			if name == "" {
+				m.status = "currency name is required"
+				return m, nil
+			}
+
+			rate, err := strconv.ParseFloat(rateRaw, 64)
+			if err != nil {
+				m.status = "rate must be a number"
+				return m, nil
+			}
+			if rate <= 0 {
+				m.status = "rate must be greater than zero"
+				return m, nil
+			}
+
+			now := time.Now()
+			record := settingCurrency{
+				ID:            m.settingsCurrencyEditingID,
+				CurrencyName:  name,
+				RateToBase:    rate,
+				LastUpdatedAt: now,
+			}
+			if record.ID == 0 {
+				record.CreatedAt = now
+			}
+
+			if err := m.db.Save(&record).Error; err != nil {
+				m.status = "currency save failed: " + err.Error()
+				return m, nil
+			}
+
+			updated, err := loadAppSettings(m.db)
+			if err != nil {
+				m.status = "settings reload failed: " + err.Error()
+				return m, nil
+			}
+
+			m.settings = updated
+			m.settingsEditMode = settingsEditNone
+			m.settingsCurrencyNameInput.Blur()
+			m.settingsCurrencyRateInput.Blur()
+			m.settingsCurrencyEditingID = 0
+			m.settingsCurrencyField = 0
+			m.settingsCursor = settingsCursorByName(m.settings.Currencies, name)
+			m.status = "saved currency " + name
+			return m, nil
+		}
+
+		var cmd tea.Cmd
+		if m.settingsCurrencyField == 0 {
+			m.settingsCurrencyNameInput, cmd = m.settingsCurrencyNameInput.Update(msg)
+			return m, cmd
+		}
+		m.settingsCurrencyRateInput, cmd = m.settingsCurrencyRateInput.Update(msg)
+		return m, cmd
+	}
+
 	switch msg.String() {
 	case "esc":
 		m.screen = screenMenu
 		m.status = databaseStatus(m.created, len(m.accounts), m.dbPath)
 		return m, nil
+	case "up":
+		if m.settingsCursor > 0 {
+			m.settingsCursor--
+		}
+		return m, nil
+	case "down":
+		maxCursor := len(m.settings.Currencies) + 1
+		if m.settingsCursor < maxCursor {
+			m.settingsCursor++
+		}
+		return m, nil
 	case "enter":
 		if m.settingsCursor == 0 {
-			m.settingsEditMode = true
+			m.settingsEditMode = settingsEditBaseCurrency
 			m.settingsEditInput.SetValue(m.settings.BaseCurrency)
 			m.settingsEditInput.Focus()
 			m.status = "editing setting base_currency"
+			return m, nil
+		}
+
+		if m.settingsCursor == len(m.settings.Currencies)+1 {
+			m.settingsEditMode = settingsEditCurrency
+			m.settingsCurrencyEditingID = 0
+			m.settingsCurrencyField = 0
+			m.settingsCurrencyNameInput.SetValue("")
+			m.settingsCurrencyRateInput.SetValue("")
+			m = m.focusCurrencyFormField()
+			m.status = "adding new currency"
+			return m, nil
+		}
+
+		index := m.settingsCursor - 1
+		if index >= 0 && index < len(m.settings.Currencies) {
+			selected := m.settings.Currencies[index]
+			m.settingsEditMode = settingsEditCurrency
+			m.settingsCurrencyEditingID = selected.ID
+			m.settingsCurrencyField = 0
+			m.settingsCurrencyNameInput.SetValue(selected.CurrencyName)
+			m.settingsCurrencyRateInput.SetValue(formatRate(selected.RateToBase))
+			m = m.focusCurrencyFormField()
+			m.status = "editing currency " + selected.CurrencyName
 		}
 		return m, nil
 	default:
 		return m, nil
 	}
+}
+
+func (m model) focusCurrencyFormField() model {
+	m.settingsCurrencyNameInput.Blur()
+	m.settingsCurrencyRateInput.Blur()
+	if m.settingsCurrencyField == 0 {
+		m.settingsCurrencyNameInput.Focus()
+	} else {
+		m.settingsCurrencyRateInput.Focus()
+	}
+	return m
+}
+
+func settingsCursorByName(currencies []settingCurrency, name string) int {
+	for index := range currencies {
+		if strings.EqualFold(currencies[index].CurrencyName, name) {
+			return index + 1
+		}
+	}
+	return 0
 }
 
 func (m model) saveAccountFromForm() (tea.Model, tea.Cmd) {
@@ -1824,25 +1990,59 @@ func (m model) renderSubscriptionRow(width int, index int, sub subscription) str
 }
 
 func (m model) renderSettings(width int) string {
-	header := []string{headlineStyle.Render("Settings"), mutedStyle.Render("Press Enter to edit selected setting. Esc returns to menu."), ""}
-	header = append(header, mutedStyle.Render("Setting ID          Value"))
+	header := []string{headlineStyle.Render("Settings"), mutedStyle.Render("Use up/down to select rows. Enter edits selected row. Esc returns to menu."), ""}
+	header = append(header, mutedStyle.Render("General"))
 
-	prefix := " "
+	basePrefix := " "
 	if m.settingsCursor == 0 {
-		prefix = ">"
+		basePrefix = ">"
 	}
 	baseCurrencyValue := m.settings.BaseCurrency
-	if m.settingsEditMode {
+	if m.settingsEditMode == settingsEditBaseCurrency {
 		baseCurrencyValue = m.settingsEditInput.View()
 	}
 
-	rows := []string{fmt.Sprintf("%s %-18s %s", prefix, "base_currency", baseCurrencyValue)}
-	if m.settingsEditMode {
-		rows = append(rows, "", mutedStyle.Render("Enter saves. Esc exits settings."))
+	rows := []string{fmt.Sprintf("%s %-18s %s", basePrefix, "base_currency", baseCurrencyValue), "", mutedStyle.Render("Currencies (relation to base currency)")}
+
+	for index, currency := range m.settings.Currencies {
+		prefix := " "
+		if m.settingsCursor == index+1 {
+			prefix = ">"
+		}
+		rows = append(rows, fmt.Sprintf("%s %-16s rate=%s", prefix, truncateText(currency.CurrencyName, 16), formatRate(currency.RateToBase)))
+	}
+
+	addPrefix := " "
+	if m.settingsCursor == len(m.settings.Currencies)+1 {
+		addPrefix = ">"
+	}
+	rows = append(rows, fmt.Sprintf("%s + add currency", addPrefix))
+
+	if m.settingsEditMode == settingsEditBaseCurrency {
+		rows = append(rows, "", mutedStyle.Render("Editing base currency: Enter saves, Esc exits settings."))
+	}
+
+	if m.settingsEditMode == settingsEditCurrency {
+		namePrefix := " "
+		ratePrefix := " "
+		if m.settingsCurrencyField == 0 {
+			namePrefix = ">"
+		} else {
+			ratePrefix = ">"
+		}
+		rows = append(rows, "")
+		rows = append(rows, fieldLabelStyle.Render("Currency form"))
+		rows = append(rows, fmt.Sprintf("%s Name  %s", namePrefix, m.settingsCurrencyNameInput.View()))
+		rows = append(rows, fmt.Sprintf("%s Rate  %s", ratePrefix, m.settingsCurrencyRateInput.View()))
+		rows = append(rows, mutedStyle.Render("Enter on Name moves to Rate. Enter on Rate saves. Esc exits settings."))
 	}
 
 	content := append(header, rows...)
 	return panelStyle.Width(width).Render(strings.Join(content, "\n"))
+}
+
+func formatRate(value float64) string {
+	return strings.TrimRight(strings.TrimRight(fmt.Sprintf("%.6f", value), "0"), ".")
 }
 
 func (m model) filteredSubscriptions() []subscription {
