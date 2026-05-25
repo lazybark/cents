@@ -327,6 +327,12 @@ var (
 	mutedStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color("#9C927F"))
 	headlineStyle     = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#E7C96D"))
 	statusStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("#D0CABD"))
+	statusLabelStyle  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#1F1A17")).Background(lipgloss.Color("#D2B574")).Padding(0, 1)
+	sectionTitleStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#E7C96D")).Underline(true)
+	tableHeaderStyle  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#DCC48A"))
+	hintStyle         = lipgloss.NewStyle().Foreground(lipgloss.Color("#B5AC9D")).Italic(true)
+	badgeStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color("#1F1A17")).Background(lipgloss.Color("#C9A86A")).Bold(true).Padding(0, 1)
+	modeBadgeStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#F4E9D8")).Background(lipgloss.Color("#5F4C2F")).Padding(0, 1)
 	panelStyle        = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("#6F5F47")).Padding(0, 1)
 	buttonStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("#F4E9D8")).Background(lipgloss.Color("#4E4334")).Padding(0, 1)
 	buttonActiveStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#1F1A17")).Background(lipgloss.Color("#E7C96D")).Bold(true).Padding(0, 1)
@@ -2641,13 +2647,15 @@ func (m model) View() string {
 
 func renderHeader(width int) string {
 	title := appTitleStyle.Render("CENTS")
-	subtitle := mutedStyle.Render("personal finance accounts with one editable amount")
-	line := lipgloss.JoinVertical(lipgloss.Left, title, subtitle)
+	badge := badgeStyle.Render("Personal Finance TUI")
+	subtitle := hintStyle.Render("accounts, subscriptions, debts and settings")
+	line := lipgloss.JoinVertical(lipgloss.Left, lipgloss.JoinHorizontal(lipgloss.Center, title, "  ", badge), subtitle)
 	return panelStyle.Width(width).Render(line)
 }
 
 func renderFooter(width int, status string) string {
-	return panelStyle.Width(width).Render(statusStyle.Render(status))
+	content := lipgloss.JoinHorizontal(lipgloss.Center, statusLabelStyle.Render("STATUS"), " ", statusStyle.Render(status))
+	return panelStyle.Width(width).Render(content)
 }
 
 func (m model) renderBody(width int) string {
@@ -2793,9 +2801,9 @@ func minInt(left int, right int) int {
 }
 
 func (m model) renderReadOnlyAccountOverview(width int) string {
-	lines := []string{headlineStyle.Render("Top 5 accounts by amount")}
+	lines := []string{sectionTitleStyle.Render("Top 5 accounts by amount")}
 	if len(m.accounts) == 0 {
-		lines = append(lines, mutedStyle.Render("No accounts yet. Add one to get started."))
+		lines = append(lines, hintStyle.Render("No accounts yet. Add one to get started."))
 		return panelStyle.Width(width).Render(strings.Join(lines, "\n"))
 	}
 
@@ -2930,8 +2938,8 @@ func (m model) renderAccountCurrencyFieldRow(width int) string {
 }
 
 func (m model) renderAccountTable(width int) string {
-	lines := []string{headlineStyle.Render("Accounts")}
-	lines = append(lines, mutedStyle.Render("Use up/down to move, Enter to edit amount, Delete/Backspace to delete, Esc to go back."))
+	lines := []string{sectionTitleStyle.Render("Accounts")}
+	lines = append(lines, hintStyle.Render("Use up/down to move, Enter to edit amount, Delete/Backspace to delete, Esc to go back."))
 	lines = append(lines, "")
 
 	if len(m.accounts) == 0 {
@@ -2967,7 +2975,7 @@ func (m model) renderAccountTableHeader(width int) string {
 	}
 
 	header := fmt.Sprintf("%-2s %-*s %-*s %-*s %-*s %-*s %-*s", "#", nameWidth, "Name", currencyWidth, "Currency", amountWidth, "Amount", baseAmountWidth, truncateText(baseCurrencyTitle, baseAmountWidth), updatedWidth, "Updated", descWidth, "Description")
-	return mutedStyle.Render(header)
+	return tableHeaderStyle.Render(header)
 }
 
 func (m model) renderAccountRow(width int, index int, acct account) string {
@@ -3101,7 +3109,7 @@ func (m model) renderSubscriptionList(width int) string {
 		modeTitle = "Active subscriptions"
 	}
 
-	lines := []string{headlineStyle.Render(modeTitle), mutedStyle.Render("Use up/down to browse. Enter edits the selected subscription. Delete/Backspace removes it. Esc returns to menu."), ""}
+	lines := []string{lipgloss.JoinHorizontal(lipgloss.Center, sectionTitleStyle.Render(modeTitle), "  ", modeBadgeStyle.Render("Subscriptions")), hintStyle.Render("Use up/down to browse. Enter edits the selected subscription. Delete/Backspace removes it. Esc returns to menu."), ""}
 	filtered := m.filteredSubscriptions()
 	if len(filtered) == 0 {
 		lines = append(lines, mutedStyle.Render("No subscriptions found."))
@@ -3160,7 +3168,7 @@ func (m model) renderSubscriptionTableHeader(width int) string {
 	}
 
 	header := fmt.Sprintf("%-2s %-*s %-*s %-*s %-*s %-*s %-*s %-*s %-*s", "#", nameWidth, "Name", currencyWidth, "Curr", amountWidth, "Amount", baseAmountWidth, truncateText(baseCurrencyTitle, baseAmountWidth), periodWidth, "Period", typeWidth, "Type", activeWidth, "Active", descWidth, "Payment method")
-	return mutedStyle.Render(header)
+	return tableHeaderStyle.Render(header)
 }
 
 func (m model) renderSubscriptionRow(width int, index int, sub subscription) string {
@@ -3257,7 +3265,7 @@ func (m model) renderDebtList(width int) string {
 		title = "Debt history (paid)"
 	}
 
-	lines := []string{headlineStyle.Render(title), mutedStyle.Render("Use up/down to browse. Enter to edit debt and logs. Esc returns to menu."), ""}
+	lines := []string{lipgloss.JoinHorizontal(lipgloss.Center, sectionTitleStyle.Render(title), "  ", modeBadgeStyle.Render("Debts")), hintStyle.Render("Use up/down to browse. Enter to edit debt and logs. Esc returns to menu."), ""}
 	filtered := m.filteredDebts()
 	if len(filtered) == 0 {
 		lines = append(lines, mutedStyle.Render("No debts found."))
@@ -3285,7 +3293,7 @@ func (m model) renderDebtTableHeader(width int) string {
 		commentWidth = 12
 	}
 	header := fmt.Sprintf("%-2s %-*s %-*s %-*s %-*s %-*s %-*s %-*s %-*s", "#", peerWidth, "Peer", currencyWidth, "Curr", amountWidth, "Amount", paidWidth, "Paid", leftWidth, "Left", dueWidth, "Due", dirWidth, "Dir", commentWidth, "Comment")
-	return mutedStyle.Render(header)
+	return tableHeaderStyle.Render(header)
 }
 
 func (m model) renderDebtTableRow(width int, index int, item debt) string {
@@ -3376,8 +3384,8 @@ func (m model) renderEditDebtField(field int, label string, value string) string
 }
 
 func (m model) renderSettings(width int) string {
-	header := []string{headlineStyle.Render("Settings"), mutedStyle.Render("Use up/down to select rows. Enter edits selected row. Esc returns to menu."), ""}
-	header = append(header, mutedStyle.Render("General"))
+	header := []string{sectionTitleStyle.Render("Settings"), hintStyle.Render("Use up/down to select rows. Enter edits selected row. Esc returns to menu."), ""}
+	header = append(header, sectionTitleStyle.Render("General"))
 
 	basePrefix := " "
 	if m.settingsCursor == 0 {
@@ -3388,7 +3396,7 @@ func (m model) renderSettings(width int) string {
 		baseCurrencyValue = m.settingsEditInput.View()
 	}
 
-	rows := []string{fmt.Sprintf("%s %-18s %s", basePrefix, "base_currency", baseCurrencyValue), "", mutedStyle.Render("Currencies (relation to base currency)")}
+	rows := []string{fmt.Sprintf("%s %-18s %s", basePrefix, "base_currency", baseCurrencyValue), "", sectionTitleStyle.Render("Currencies (relation to base currency)")}
 
 	for index, currency := range m.settings.Currencies {
 		prefix := " "
@@ -3404,7 +3412,7 @@ func (m model) renderSettings(width int) string {
 	}
 	rows = append(rows, fmt.Sprintf("%s + add currency", addPrefix))
 
-	rows = append(rows, "", mutedStyle.Render("Payment methods"))
+	rows = append(rows, "", sectionTitleStyle.Render("Payment methods"))
 	paymentStart := settingsPaymentMethodStartCursor(m.settings)
 	for index, method := range m.settings.PaymentMethods {
 		prefix := " "
