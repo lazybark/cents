@@ -4265,7 +4265,7 @@ func (m model) renderGoalTableHeader(width int) string {
 	if descWidth < 10 {
 		descWidth = 10
 	}
-	header := fmt.Sprintf("%-2s %-*s %-*s %-*s %-*s %-*s %-*s %-*s %-*s", "#", nameWidth, "Goal", currencyWidth, "Curr", targetWidth, "Target", accumWidth, "Saved", leftWidth, "Left", startedWidth, "Started", targetDateWidth, "Target dt", progressWidth, "Done", descWidth, "Description")
+	header := fmt.Sprintf("%-2s %-*s %-*s %-*s %-*s %-*s %-*s %-*s %-*s %-*s", "#", nameWidth, "Goal", currencyWidth, "Curr", targetWidth, "Target", accumWidth, "Saved", leftWidth, "Left", startedWidth, "Started", targetDateWidth, "Target dt", progressWidth, "Done", descWidth, "Description")
 	return tableHeaderStyle.Render(header)
 }
 
@@ -4309,9 +4309,8 @@ func (m model) renderGoalTableRow(width int, index int, item goal) string {
 		}
 	}
 
-	row := fmt.Sprintf("%s %-*s %-*s %-*s %-*s %-*s %-*s %-*s %-*s", prefix, nameWidth, truncateText(item.Name, nameWidth), currencyWidth, truncateText(item.Currency, currencyWidth), targetWidth, renderMoneyWithCurrency(item.Currency, item.TargetAmountCents), accumWidth, renderMoneyWithCurrency(item.Currency, item.AmountAccumulatedCents), leftWidth, renderMoneyWithCurrency(item.Currency, left), startedWidth, item.DateStartedAt.Local().Format("2006-01-02"), targetDateWidth, targetDate, progressWidth, fmt.Sprintf("%5.1f%%", progressValue), descWidth, truncateText(item.Description, descWidth))
-	progressLine := "  progress " + m.renderProgressBar(item.AmountAccumulatedCents, item.TargetAmountCents, 18)
-	return style.Render(row + "\n" + progressLine)
+	row := fmt.Sprintf("%s %-*s %-*s %-*s %-*s %-*s %-*s %-*s %-*s %-*s", prefix, nameWidth, truncateText(item.Name, nameWidth), currencyWidth, truncateText(item.Currency, currencyWidth), targetWidth, renderMoneyWithCurrency(item.Currency, item.TargetAmountCents), accumWidth, renderMoneyWithCurrency(item.Currency, item.AmountAccumulatedCents), leftWidth, renderMoneyWithCurrency(item.Currency, left), startedWidth, item.DateStartedAt.Local().Format("2006-01-02"), targetDateWidth, targetDate, progressWidth, fmt.Sprintf("%5.1f%%", progressValue), descWidth, truncateText(item.Description, descWidth))
+	return style.Render(row)
 }
 
 func (m model) renderGoalEdit(width int) string {
