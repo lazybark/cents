@@ -164,6 +164,11 @@ type model struct {
 	settingsPaymentMethodTypeOptions []string
 	settingsPaymentMethodTypeIndex   int
 	settingsPaymentMethodIsDefault   bool
+	settingsDeleteConfirm            bool
+	settingsDeleteTargetType         string
+	settingsDeleteTargetID           uint
+	settingsDeleteTargetName         string
+	settingsDeleteChoice             int
 	status                           string
 	width                            int
 	height                           int
@@ -447,6 +452,49 @@ func ensureSettingsDefaults(db *gorm.DB) error {
 		}
 	}
 
+	if err := ensurePaymentMethodDefaults(db); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func ensurePaymentMethodDefaults(db *gorm.DB) error {
+	var methods []settingPaymentMethod
+	if err := db.Order("created_at asc, id asc").Find(&methods).Error; err != nil {
+		return err
+	}
+
+	if len(methods) == 0 {
+		return db.Create(&settingPaymentMethod{PaymentMethodName: "Other", PaymentMethodType: "Other", IsDefault: true}).Error
+	}
+
+	defaultCount := 0
+	for _, method := range methods {
+		if method.IsDefault {
+			defaultCount++
+		}
+	}
+
+	if defaultCount == 0 {
+		return db.Model(&settingPaymentMethod{}).Where("id = ?", methods[0].ID).Update("is_default", true).Error
+	}
+
+	if defaultCount > 1 {
+		first := true
+		for _, method := range methods {
+			if method.IsDefault {
+				if first {
+					first = false
+					continue
+				}
+				if err := db.Model(&settingPaymentMethod{}).Where("id = ?", method.ID).Update("is_default", false).Error; err != nil {
+					return err
+				}
+			}
+		}
+	}
+
 	return nil
 }
 
@@ -543,6 +591,11 @@ func newModel(db *gorm.DB, dbPath string, created bool, accounts []account, subs
 		settingsPaymentMethodTypeOptions: []string{"Card", "Crypto", "E-Wallet", "Other"},
 		settingsPaymentMethodTypeIndex:   0,
 		settingsPaymentMethodIsDefault:   false,
+		settingsDeleteConfirm:            false,
+		settingsDeleteTargetType:         "",
+		settingsDeleteTargetID:           0,
+		settingsDeleteTargetName:         "",
+		settingsDeleteChoice:             1,
 		subscriptionMode:                 subscriptionListActive,
 		subscriptionCursor:               0,
 		status:                           status,
@@ -1433,6 +1486,66 @@ func (m model) updateSubscriptionEdit(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) updateSettings(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.settingsDeleteConfirm {
+		switch msg.String() {
+		case "esc":
+			m.settingsDeleteConfirm = false
+			m.status = "delete cancelled"
+			return m, nil
+		case "left", "h", "shift+tab":
+			m.settingsDeleteChoice = 0
+			return m, nil
+		case "right", "l", "tab":
+			m.settingsDeleteChoice = 1
+			return m, nil
+		case "enter":
+			if m.settingsDeleteChoice == 1 {
+				m.settingsDeleteConfirm = false
+				m.status = "delete cancelled"
+				return m, nil
+			}
+
+			if m.settingsDeleteTargetType == "currency" {
+				if err := m.db.Delete(&settingCurrency{}, m.settingsDeleteTargetID).Error; err != nil {
+					m.status = "currency delete failed: " + err.Error()
+					return m, nil
+				}
+			}
+
+			if m.settingsDeleteTargetType == "payment_method" {
+				if err := m.db.Delete(&settingPaymentMethod{}, m.settingsDeleteTargetID).Error; err != nil {
+					m.status = "payment method delete failed: " + err.Error()
+					return m, nil
+				}
+				if err := ensurePaymentMethodDefaults(m.db); err != nil {
+					m.status = "payment method default repair failed: " + err.Error()
+					return m, nil
+				}
+			}
+
+			updated, err := loadAppSettings(m.db)
+			if err != nil {
+				m.status = "settings reload failed: " + err.Error()
+				return m, nil
+			}
+
+			m.settings = updated
+			m.accounts = sortAccountsByBaseAmount(m.accounts, m.settings)
+			deletedName := m.settingsDeleteTargetName
+			deletedType := m.settingsDeleteTargetType
+			m.settingsDeleteConfirm = false
+			m.settingsDeleteTargetType = ""
+			m.settingsDeleteTargetID = 0
+			m.settingsDeleteTargetName = ""
+			m.settingsDeleteChoice = 1
+			m.settingsCursor = 0
+			m.status = "deleted " + deletedType + " " + deletedName
+			return m, nil
+		}
+
+		return m, nil
+	}
+
 	if m.settingsEditMode == settingsEditBaseCurrency {
 		switch msg.String() {
 		case "esc":
@@ -1667,6 +1780,30 @@ func (m model) updateSettings(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "esc":
 		m.screen = screenMenu
 		m.status = databaseStatus(m.created, len(m.accounts), m.dbPath)
+		return m, nil
+	case "backspace", "delete":
+		paymentStart := settingsPaymentMethodStartCursor(m.settings)
+		paymentAdd := settingsPaymentMethodAddCursor(m.settings)
+		if m.settingsCursor > 0 && m.settingsCursor <= len(m.settings.Currencies) {
+			selected := m.settings.Currencies[m.settingsCursor-1]
+			m.settingsDeleteConfirm = true
+			m.settingsDeleteTargetType = "currency"
+			m.settingsDeleteTargetID = selected.ID
+			m.settingsDeleteTargetName = selected.CurrencyName
+			m.settingsDeleteChoice = 1
+			m.status = "confirm currency delete"
+			return m, nil
+		}
+		if m.settingsCursor >= paymentStart && m.settingsCursor < paymentAdd {
+			selected := m.settings.PaymentMethods[m.settingsCursor-paymentStart]
+			m.settingsDeleteConfirm = true
+			m.settingsDeleteTargetType = "payment_method"
+			m.settingsDeleteTargetID = selected.ID
+			m.settingsDeleteTargetName = selected.PaymentMethodName
+			m.settingsDeleteChoice = 1
+			m.status = "confirm payment method delete"
+			return m, nil
+		}
 		return m, nil
 	case "up":
 		if m.settingsCursor > 0 {
@@ -3341,6 +3478,21 @@ func (m model) renderSettings(width int) string {
 		rows = append(rows, fmt.Sprintf("%s Type     %s", typePrefix, strings.Join(typeOptions, " ")))
 		rows = append(rows, fmt.Sprintf("%s Default  %s", defaultPrefix, defaultMarker))
 		rows = append(rows, mutedStyle.Render("Enter/Tab moves fields. Left/right changes type. Space toggles default. Enter on Default saves. Esc exits settings."))
+	}
+
+	if m.settingsDeleteConfirm {
+		yesStyle := buttonStyle
+		noStyle := buttonStyle
+		if m.settingsDeleteChoice == 0 {
+			yesStyle = buttonActiveStyle
+		} else {
+			noStyle = buttonActiveStyle
+		}
+		rows = append(rows, "")
+		rows = append(rows, fieldLabelStyle.Render("Confirm delete"))
+		rows = append(rows, fmt.Sprintf("Are you sure you want to delete %s?", m.settingsDeleteTargetName))
+		rows = append(rows, yesStyle.Render("Yes")+" "+noStyle.Render("No"))
+		rows = append(rows, mutedStyle.Render("Left/Right selects. Enter confirms. Esc cancels."))
 	}
 
 	content := append(header, rows...)
