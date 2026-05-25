@@ -68,6 +68,27 @@ type debtLog struct {
 	Note           string
 }
 
+type goal struct {
+	ID                     uint `gorm:"primaryKey"`
+	CreatedAt              time.Time
+	LastUpdatedAt          time.Time `gorm:"not null;default:1970-01-01 00:00:00"`
+	Name                   string
+	Currency               string
+	TargetAmountCents      int64
+	AmountAccumulatedCents int64
+	Description            string
+	DateStartedAt          time.Time
+	TargetDate             *time.Time
+}
+
+type goalLog struct {
+	ID                    uint `gorm:"primaryKey"`
+	CreatedAt             time.Time
+	GoalID                uint `gorm:"index;not null"`
+	DeltaAccumulatedCents int64
+	Note                  string
+}
+
 type settingRecord struct {
 	SettingID    string `gorm:"primaryKey"`
 	SettingValue string
@@ -119,6 +140,9 @@ const (
 	screenDebtNew
 	screenDebtList
 	screenDebtEdit
+	screenGoalNew
+	screenGoalList
+	screenGoalEdit
 )
 
 type subscriptionListMode int
@@ -136,6 +160,13 @@ const (
 	debtListHistory
 )
 
+type goalListMode int
+
+const (
+	goalListActive goalListMode = iota
+	goalListHistory
+)
+
 type model struct {
 	db                               *gorm.DB
 	dbPath                           string
@@ -144,12 +175,17 @@ type model struct {
 	accounts                         []account
 	subscriptions                    []subscription
 	debts                            []debt
+	goals                            []goal
 	subscriptionMode                 subscriptionListMode
 	subscriptionCursor               int
 	debtMode                         debtListMode
 	debtCursor                       int
 	debtLogs                         []debtLog
 	editingDebtID                    uint
+	goalMode                         goalListMode
+	goalCursor                       int
+	goalLogs                         []goalLog
+	editingGoalID                    uint
 	settings                         appSettings
 	settingsCursor                   int
 	settingsEditMode                 settingsEditMode
@@ -179,8 +215,10 @@ type model struct {
 	addForm                          addAccountForm
 	addSubscriptionForm              addSubscriptionForm
 	addDebtForm                      addDebtForm
+	addGoalForm                      addGoalForm
 	editSubscriptionForm             editSubscriptionForm
 	editDebtForm                     editDebtForm
+	editGoalForm                     editGoalForm
 	editingSubscriptionID            uint
 	editingSubscriptionMode          subscriptionListMode
 	editInput                        textinput.Model
@@ -277,6 +315,27 @@ type editDebtForm struct {
 	directionLabel   string
 }
 
+type addGoalForm struct {
+	inputs          []textinput.Model
+	active          int
+	currencyOptions []string
+	currencyIndex   int
+}
+
+type editGoalForm struct {
+	targetAmountInput      textinput.Model
+	accumulatedAmountInput textinput.Model
+	dateStartedInput       textinput.Model
+	targetDateInput        textinput.Model
+	descriptionInput       textinput.Model
+	logDeltaInput          textinput.Model
+	logDateInput           textinput.Model
+	logCommentInput        textinput.Model
+	activeField            int
+	nameLabel              string
+	currencyLabel          string
+}
+
 const (
 	editSubFieldAmount = iota
 	editSubFieldPaymentMethod
@@ -294,6 +353,18 @@ const (
 	editDebtFieldLogDate
 	editDebtFieldLogComment
 	editDebtFieldCount
+)
+
+const (
+	editGoalFieldTargetAmount = iota
+	editGoalFieldAccumulated
+	editGoalFieldDateStarted
+	editGoalFieldTargetDate
+	editGoalFieldDescription
+	editGoalFieldLogDelta
+	editGoalFieldLogDate
+	editGoalFieldLogComment
+	editGoalFieldCount
 )
 
 const (
@@ -320,6 +391,17 @@ const (
 	debtFieldDueDate
 	debtFieldComment
 	debtFieldCount
+)
+
+const (
+	goalFieldName = iota
+	goalFieldCurrency
+	goalFieldTargetAmount
+	goalFieldAccumulated
+	goalFieldDescription
+	goalFieldDateStarted
+	goalFieldTargetDate
+	goalFieldCount
 )
 
 var (
@@ -369,13 +451,19 @@ func main() {
 		os.Exit(1)
 	}
 
+	goals, err := loadGoals(db)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "goals read failed:", err)
+		os.Exit(1)
+	}
+
 	settings, err := loadAppSettings(db)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "settings read failed:", err)
 		os.Exit(1)
 	}
 
-	m := newModel(db, dbPath, created, accounts, subscriptions, debts, settings)
+	m := newModel(db, dbPath, created, accounts, subscriptions, debts, goals, settings)
 	program := tea.NewProgram(m, tea.WithAltScreen())
 	if _, err := program.Run(); err != nil {
 		fmt.Fprintln(os.Stderr, "program failed:", err)
@@ -401,7 +489,7 @@ func openDatabase() (*gorm.DB, string, bool, error) {
 		return nil, "", false, err
 	}
 
-	if err := db.AutoMigrate(&account{}, &subscription{}, &debt{}, &debtLog{}, &settingRecord{}, &settingCurrency{}, &settingPaymentMethod{}); err != nil {
+	if err := db.AutoMigrate(&account{}, &subscription{}, &debt{}, &debtLog{}, &goal{}, &goalLog{}, &settingRecord{}, &settingCurrency{}, &settingPaymentMethod{}); err != nil {
 		return nil, "", false, err
 	}
 
@@ -436,6 +524,14 @@ func loadDebts(db *gorm.DB) ([]debt, error) {
 		return nil, err
 	}
 	return debts, nil
+}
+
+func loadGoals(db *gorm.DB) ([]goal, error) {
+	var goals []goal
+	if err := db.Order("target_amount_cents desc, created_at desc, id desc").Find(&goals).Error; err != nil {
+		return nil, err
+	}
+	return goals, nil
 }
 
 func ensureSettingsDefaults(db *gorm.DB) error {
@@ -537,13 +633,14 @@ func loadAppSettings(db *gorm.DB) (appSettings, error) {
 	return settings, nil
 }
 
-func newModel(db *gorm.DB, dbPath string, created bool, accounts []account, subscriptions []subscription, debts []debt, settings appSettings) model {
+func newModel(db *gorm.DB, dbPath string, created bool, accounts []account, subscriptions []subscription, debts []debt, goals []goal, settings appSettings) model {
 	accounts = sortAccountsByBaseAmount(accounts, settings)
 	currencyOptions := currencySelectionOptions(settings)
 	paymentMethodOptions := paymentMethodSelectionOptions(settings)
 	addForm := newAddAccountForm(currencyOptions)
 	addSubForm := newAddSubscriptionForm(currencyOptions, paymentMethodOptions)
 	addDebtForm := newAddDebtForm(currencyOptions)
+	addGoalForm := newAddGoalForm(currencyOptions)
 	editInput := textinput.New()
 	editInput.Placeholder = "1234.56"
 	editInput.CharLimit = 24
@@ -581,10 +678,15 @@ func newModel(db *gorm.DB, dbPath string, created bool, accounts []account, subs
 		accounts:                         accounts,
 		subscriptions:                    subscriptions,
 		debts:                            debts,
+		goals:                            goals,
 		debtMode:                         debtListOutgoing,
 		debtCursor:                       0,
 		debtLogs:                         nil,
 		editingDebtID:                    0,
+		goalMode:                         goalListActive,
+		goalCursor:                       0,
+		goalLogs:                         nil,
+		editingGoalID:                    0,
 		settings:                         settings,
 		settingsCursor:                   0,
 		settingsEditMode:                 settingsEditNone,
@@ -612,8 +714,10 @@ func newModel(db *gorm.DB, dbPath string, created bool, accounts []account, subs
 		addForm:                          addForm,
 		addSubscriptionForm:              addSubForm,
 		addDebtForm:                      addDebtForm,
+		addGoalForm:                      addGoalForm,
 		editSubscriptionForm:             newEditSubscriptionForm(),
 		editDebtForm:                     newEditDebtForm(),
+		editGoalForm:                     newEditGoalForm(),
 		editInput:                        editInput,
 		help:                             helpModel,
 		keys:                             newKeyMap(),
@@ -912,6 +1016,173 @@ func (f editDebtForm) prev() editDebtForm {
 	return f.focusActive()
 }
 
+func newAddGoalForm(currencyOptions []string) addGoalForm {
+	inputs := make([]textinput.Model, 6)
+	placeholders := []string{"Emergency Fund", "10000.00", "0.00", "Optional description", time.Now().Format("02.01.2006"), "optional DD.MM.YYYY"}
+	for i := range inputs {
+		field := textinput.New()
+		field.Placeholder = placeholders[i]
+		field.CharLimit = 120
+		field.Width = 34
+		inputs[i] = field
+	}
+
+	form := addGoalForm{
+		inputs:          inputs,
+		active:          0,
+		currencyOptions: append([]string(nil), currencyOptions...),
+		currencyIndex:   0,
+	}
+
+	return form.focusActive()
+}
+
+func (f addGoalForm) inputIndexForField(field int) int {
+	switch field {
+	case goalFieldName:
+		return 0
+	case goalFieldCurrency:
+		return -1
+	case goalFieldTargetAmount:
+		return 1
+	case goalFieldAccumulated:
+		return 2
+	case goalFieldDescription:
+		return 3
+	case goalFieldDateStarted:
+		return 4
+	case goalFieldTargetDate:
+		return 5
+	default:
+		return -1
+	}
+}
+
+func (f addGoalForm) focusActive() addGoalForm {
+	for i := range f.inputs {
+		f.inputs[i].Blur()
+	}
+	if inputIndex := f.inputIndexForField(f.active); inputIndex >= 0 {
+		f.inputs[inputIndex].Focus()
+	}
+	return f
+}
+
+func (f addGoalForm) next() addGoalForm {
+	if f.active < goalFieldCount-1 {
+		f.active++
+	}
+	return f.focusActive()
+}
+
+func (f addGoalForm) prev() addGoalForm {
+	if f.active > 0 {
+		f.active--
+	}
+	return f.focusActive()
+}
+
+func newEditGoalForm() editGoalForm {
+	targetAmountInput := textinput.New()
+	targetAmountInput.Placeholder = "10000.00"
+	targetAmountInput.CharLimit = 24
+	targetAmountInput.Width = 20
+
+	accumulatedAmountInput := textinput.New()
+	accumulatedAmountInput.Placeholder = "0.00"
+	accumulatedAmountInput.CharLimit = 24
+	accumulatedAmountInput.Width = 20
+
+	dateStartedInput := textinput.New()
+	dateStartedInput.Placeholder = "02.01.2006"
+	dateStartedInput.CharLimit = 24
+	dateStartedInput.Width = 20
+
+	targetDateInput := textinput.New()
+	targetDateInput.Placeholder = "optional DD.MM.YYYY"
+	targetDateInput.CharLimit = 24
+	targetDateInput.Width = 24
+
+	descriptionInput := textinput.New()
+	descriptionInput.Placeholder = "description"
+	descriptionInput.CharLimit = 120
+	descriptionInput.Width = 36
+
+	logDeltaInput := textinput.New()
+	logDeltaInput.Placeholder = "+100.00 or -50.00"
+	logDeltaInput.CharLimit = 24
+	logDeltaInput.Width = 24
+
+	logDateInput := textinput.New()
+	logDateInput.Placeholder = "DD.MM.YYYY (optional)"
+	logDateInput.CharLimit = 24
+	logDateInput.Width = 24
+
+	logCommentInput := textinput.New()
+	logCommentInput.Placeholder = "transaction note (optional)"
+	logCommentInput.CharLimit = 120
+	logCommentInput.Width = 36
+
+	form := editGoalForm{
+		targetAmountInput:      targetAmountInput,
+		accumulatedAmountInput: accumulatedAmountInput,
+		dateStartedInput:       dateStartedInput,
+		targetDateInput:        targetDateInput,
+		descriptionInput:       descriptionInput,
+		logDeltaInput:          logDeltaInput,
+		logDateInput:           logDateInput,
+		logCommentInput:        logCommentInput,
+		activeField:            0,
+	}
+
+	return form.focusActive()
+}
+
+func (f editGoalForm) focusActive() editGoalForm {
+	f.targetAmountInput.Blur()
+	f.accumulatedAmountInput.Blur()
+	f.dateStartedInput.Blur()
+	f.targetDateInput.Blur()
+	f.descriptionInput.Blur()
+	f.logDeltaInput.Blur()
+	f.logDateInput.Blur()
+	f.logCommentInput.Blur()
+
+	switch f.activeField {
+	case editGoalFieldTargetAmount:
+		f.targetAmountInput.Focus()
+	case editGoalFieldAccumulated:
+		f.accumulatedAmountInput.Focus()
+	case editGoalFieldDateStarted:
+		f.dateStartedInput.Focus()
+	case editGoalFieldTargetDate:
+		f.targetDateInput.Focus()
+	case editGoalFieldDescription:
+		f.descriptionInput.Focus()
+	case editGoalFieldLogDelta:
+		f.logDeltaInput.Focus()
+	case editGoalFieldLogDate:
+		f.logDateInput.Focus()
+	case editGoalFieldLogComment:
+		f.logCommentInput.Focus()
+	}
+	return f
+}
+
+func (f editGoalForm) next() editGoalForm {
+	if f.activeField < editGoalFieldCount-1 {
+		f.activeField++
+	}
+	return f.focusActive()
+}
+
+func (f editGoalForm) prev() editGoalForm {
+	if f.activeField > 0 {
+		f.activeField--
+	}
+	return f.focusActive()
+}
+
 func newKeyMap() keyMap {
 	return keyMap{
 		Up: key.NewBinding(
@@ -964,7 +1235,7 @@ func appMenuGroups() []menuGroup {
 		{title: "Subscriptions", items: []string{"new", "active", "all"}},
 		{title: "Invoices", items: []string{"new", "outgoing", "incoming"}},
 		{title: "Debts", items: []string{"new", "outgoing", "incoming", "history"}},
-		{title: "Goals", items: []string{"new", "all"}},
+		{title: "Goals", items: []string{"new", "all", "history"}},
 		{title: "Taxes", items: []string{"new", "unpaid", "history"}},
 		{title: "Settings", items: []string{"edit", "backup"}},
 	}
@@ -1065,6 +1336,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateDebtList(msg)
 		case screenDebtEdit:
 			return m.updateDebtEdit(msg)
+		case screenGoalNew:
+			return m.updateGoalNew(msg)
+		case screenGoalList:
+			return m.updateGoalList(msg)
+		case screenGoalEdit:
+			return m.updateGoalEdit(msg)
 		}
 	}
 
@@ -1225,6 +1502,29 @@ func (m model) activateMenuSelection() (tea.Model, tea.Cmd) {
 		m.debtMode = debtListHistory
 		m.debtCursor = 0
 		m.status = "paid debt history"
+		return m, nil
+	}
+
+	if m.menuGroup == 5 && m.menuItem == 0 {
+		m.screen = screenGoalNew
+		m.addGoalForm = newAddGoalForm(currencySelectionOptions(m.settings))
+		m.status = "new goal"
+		return m, nil
+	}
+
+	if m.menuGroup == 5 && m.menuItem == 1 {
+		m.screen = screenGoalList
+		m.goalMode = goalListActive
+		m.goalCursor = 0
+		m.status = "active goals"
+		return m, nil
+	}
+
+	if m.menuGroup == 5 && m.menuItem == 2 {
+		m.screen = screenGoalList
+		m.goalMode = goalListHistory
+		m.goalCursor = 0
+		m.status = "goal history"
 		return m, nil
 	}
 
@@ -2622,6 +2922,413 @@ func (m model) filteredDebts() []debt {
 	return filtered
 }
 
+func (m model) updateGoalNew(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.screen = screenMenu
+		m.status = databaseStatus(m.created, len(m.accounts), m.dbPath)
+		return m, nil
+	case "up", "shift+tab":
+		m.addGoalForm = m.addGoalForm.prev()
+		return m, nil
+	case "down", "tab":
+		m.addGoalForm = m.addGoalForm.next()
+		return m, nil
+	case "left":
+		if m.addGoalForm.active == goalFieldCurrency && m.addGoalForm.currencyIndex > 0 {
+			m.addGoalForm.currencyIndex--
+		}
+		return m, nil
+	case "right":
+		if m.addGoalForm.active == goalFieldCurrency && m.addGoalForm.currencyIndex < len(m.addGoalForm.currencyOptions)-1 {
+			m.addGoalForm.currencyIndex++
+		}
+		return m, nil
+	case "enter":
+		if m.addGoalForm.active == goalFieldCount-1 {
+			return m.saveGoalFromForm()
+		}
+		m.addGoalForm = m.addGoalForm.next()
+		return m, nil
+	}
+
+	if inputIndex := m.addGoalForm.inputIndexForField(m.addGoalForm.active); inputIndex >= 0 {
+		var cmd tea.Cmd
+		m.addGoalForm.inputs[inputIndex], cmd = m.addGoalForm.inputs[inputIndex].Update(msg)
+		return m, cmd
+	}
+
+	return m, nil
+}
+
+func (m model) updateGoalList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	filtered := m.filteredGoals()
+	if len(filtered) == 0 {
+		if msg.String() == "esc" {
+			m.screen = screenMenu
+			m.status = databaseStatus(m.created, len(m.accounts), m.dbPath)
+		}
+		return m, nil
+	}
+
+	switch msg.String() {
+	case "esc":
+		m.screen = screenMenu
+		m.status = databaseStatus(m.created, len(m.accounts), m.dbPath)
+		return m, nil
+	case "up", "k":
+		if m.goalCursor > 0 {
+			m.goalCursor--
+		}
+		return m, nil
+	case "down", "j":
+		if m.goalCursor < len(filtered)-1 {
+			m.goalCursor++
+		}
+		return m, nil
+	case "enter", "l":
+		m = m.openGoalEditor(filtered[m.goalCursor]).(model)
+		return m, nil
+	default:
+		return m, nil
+	}
+}
+
+func (m model) openGoalEditor(selected goal) tea.Model {
+	m.screen = screenGoalEdit
+	m.editingGoalID = selected.ID
+	m.editGoalForm = newEditGoalForm()
+	m.editGoalForm.targetAmountInput.SetValue(formatAmount(selected.TargetAmountCents))
+	m.editGoalForm.accumulatedAmountInput.SetValue(formatAmount(selected.AmountAccumulatedCents))
+	m.editGoalForm.dateStartedInput.SetValue(selected.DateStartedAt.Local().Format("02.01.2006"))
+	if selected.TargetDate != nil {
+		m.editGoalForm.targetDateInput.SetValue(selected.TargetDate.Local().Format("02.01.2006"))
+	}
+	m.editGoalForm.descriptionInput.SetValue(selected.Description)
+	m.editGoalForm.logDateInput.SetValue(time.Now().Format("02.01.2006"))
+	m.editGoalForm.logCommentInput.SetValue("")
+	m.editGoalForm.nameLabel = selected.Name
+	m.editGoalForm.currencyLabel = selected.Currency
+	m.editGoalForm = m.editGoalForm.focusActive()
+
+	var logs []goalLog
+	if err := m.db.Where("goal_id = ?", selected.ID).Order("created_at desc, id desc").Limit(20).Find(&logs).Error; err == nil {
+		m.goalLogs = logs
+	} else {
+		m.goalLogs = nil
+	}
+
+	m.status = "editing goal " + selected.Name
+	return m
+}
+
+func (m model) updateGoalEdit(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.screen = screenGoalList
+		m.status = "goal edit cancelled"
+		return m, nil
+	case "up", "shift+tab":
+		m.editGoalForm = m.editGoalForm.prev()
+		return m, nil
+	case "down", "tab":
+		m.editGoalForm = m.editGoalForm.next()
+		return m, nil
+	case "enter":
+		if m.editGoalForm.activeField == editGoalFieldLogComment {
+			return m.applyGoalLogDelta()
+		}
+		if m.editGoalForm.activeField == editGoalFieldDescription {
+			return m.saveGoalEdit()
+		}
+		m.editGoalForm = m.editGoalForm.next()
+		return m, nil
+	}
+
+	var cmd tea.Cmd
+	switch m.editGoalForm.activeField {
+	case editGoalFieldTargetAmount:
+		m.editGoalForm.targetAmountInput, cmd = m.editGoalForm.targetAmountInput.Update(msg)
+	case editGoalFieldAccumulated:
+		m.editGoalForm.accumulatedAmountInput, cmd = m.editGoalForm.accumulatedAmountInput.Update(msg)
+	case editGoalFieldDateStarted:
+		m.editGoalForm.dateStartedInput, cmd = m.editGoalForm.dateStartedInput.Update(msg)
+	case editGoalFieldTargetDate:
+		m.editGoalForm.targetDateInput, cmd = m.editGoalForm.targetDateInput.Update(msg)
+	case editGoalFieldDescription:
+		m.editGoalForm.descriptionInput, cmd = m.editGoalForm.descriptionInput.Update(msg)
+	case editGoalFieldLogDelta:
+		m.editGoalForm.logDeltaInput, cmd = m.editGoalForm.logDeltaInput.Update(msg)
+	case editGoalFieldLogDate:
+		m.editGoalForm.logDateInput, cmd = m.editGoalForm.logDateInput.Update(msg)
+	case editGoalFieldLogComment:
+		m.editGoalForm.logCommentInput, cmd = m.editGoalForm.logCommentInput.Update(msg)
+	}
+	return m, cmd
+}
+
+func (m model) saveGoalFromForm() (tea.Model, tea.Cmd) {
+	name := strings.TrimSpace(m.addGoalForm.inputs[0].Value())
+	currency := selectedCurrencyOption(m.addGoalForm.currencyOptions, m.addGoalForm.currencyIndex)
+	targetRaw := strings.TrimSpace(m.addGoalForm.inputs[1].Value())
+	accumulatedRaw := strings.TrimSpace(m.addGoalForm.inputs[2].Value())
+	description := strings.TrimSpace(m.addGoalForm.inputs[3].Value())
+	dateStartedRaw := strings.TrimSpace(m.addGoalForm.inputs[4].Value())
+	targetDateRaw := strings.TrimSpace(m.addGoalForm.inputs[5].Value())
+
+	if name == "" {
+		m.status = "goal name is required"
+		return m, nil
+	}
+
+	target, err := parseAmountCents(targetRaw)
+	if err != nil {
+		m.status = "target amount error: " + err.Error()
+		return m, nil
+	}
+	if target <= 0 {
+		m.status = "target amount must be greater than zero"
+		return m, nil
+	}
+
+	accumulated, err := parseAmountCents(accumulatedRaw)
+	if err != nil {
+		m.status = "accumulated amount error: " + err.Error()
+		return m, nil
+	}
+	if accumulated > target {
+		m.status = "accumulated amount cannot be more than target"
+		return m, nil
+	}
+
+	dateStarted, err := parseRequiredDate(dateStartedRaw)
+	if err != nil {
+		m.status = err.Error()
+		return m, nil
+	}
+
+	targetDate, err := parseOptionalDatePointer(targetDateRaw)
+	if err != nil {
+		m.status = err.Error()
+		return m, nil
+	}
+
+	now := time.Now()
+	newGoal := goal{
+		Name:                   name,
+		Currency:               currency,
+		TargetAmountCents:      target,
+		AmountAccumulatedCents: accumulated,
+		Description:            description,
+		DateStartedAt:          dateStarted,
+		TargetDate:             targetDate,
+		LastUpdatedAt:          now,
+	}
+
+	if err := m.db.Create(&newGoal).Error; err != nil {
+		m.status = "save failed: " + err.Error()
+		return m, nil
+	}
+
+	m.goals = append([]goal{newGoal}, m.goals...)
+	m.addGoalForm = newAddGoalForm(currencySelectionOptions(m.settings))
+	m.screen = screenGoalList
+	if newGoal.AmountAccumulatedCents >= newGoal.TargetAmountCents {
+		m.goalMode = goalListHistory
+	} else {
+		m.goalMode = goalListActive
+	}
+	m.goalCursor = 0
+	m.status = "saved goal " + name
+	return m, nil
+}
+
+func (m model) saveGoalEdit() (tea.Model, tea.Cmd) {
+	index := m.findGoalIndex(m.editingGoalID)
+	if index < 0 {
+		m.status = "goal not found"
+		return m, nil
+	}
+
+	target, err := parseAmountCents(strings.TrimSpace(m.editGoalForm.targetAmountInput.Value()))
+	if err != nil {
+		m.status = "target amount error: " + err.Error()
+		return m, nil
+	}
+	if target <= 0 {
+		m.status = "target amount must be greater than zero"
+		return m, nil
+	}
+
+	accumulated, err := parseAmountCents(strings.TrimSpace(m.editGoalForm.accumulatedAmountInput.Value()))
+	if err != nil {
+		m.status = "accumulated amount error: " + err.Error()
+		return m, nil
+	}
+	if accumulated > target {
+		m.status = "accumulated amount cannot be more than target"
+		return m, nil
+	}
+
+	dateStarted, err := parseRequiredDate(strings.TrimSpace(m.editGoalForm.dateStartedInput.Value()))
+	if err != nil {
+		m.status = err.Error()
+		return m, nil
+	}
+	targetDate, err := parseOptionalDatePointer(strings.TrimSpace(m.editGoalForm.targetDateInput.Value()))
+	if err != nil {
+		m.status = err.Error()
+		return m, nil
+	}
+
+	selected := m.goals[index]
+	selected.TargetAmountCents = target
+	selected.AmountAccumulatedCents = accumulated
+	selected.DateStartedAt = dateStarted
+	selected.TargetDate = targetDate
+	selected.Description = strings.TrimSpace(m.editGoalForm.descriptionInput.Value())
+	selected.LastUpdatedAt = time.Now()
+
+	if err := m.db.Save(&selected).Error; err != nil {
+		m.status = "save failed: " + err.Error()
+		return m, nil
+	}
+
+	m.goals[index] = selected
+	m.screen = screenGoalList
+	m.status = "updated goal " + selected.Name
+	return m, nil
+}
+
+func (m model) applyGoalLogDelta() (tea.Model, tea.Cmd) {
+	index := m.findGoalIndex(m.editingGoalID)
+	if index < 0 {
+		m.status = "goal not found"
+		return m, nil
+	}
+
+	delta, err := parseSignedAmountCents(strings.TrimSpace(m.editGoalForm.logDeltaInput.Value()))
+	if err != nil {
+		m.status = "log delta error: " + err.Error()
+		return m, nil
+	}
+	if delta == 0 {
+		m.status = "delta cannot be zero"
+		return m, nil
+	}
+
+	selected := m.goals[index]
+	nextAccumulated := selected.AmountAccumulatedCents + delta
+	if nextAccumulated < 0 || nextAccumulated > selected.TargetAmountCents {
+		m.status = "delta makes accumulated amount out of range"
+		return m, nil
+	}
+
+	entryTime, err := parseLogDateOrToday(strings.TrimSpace(m.editGoalForm.logDateInput.Value()))
+	if err != nil {
+		m.status = err.Error()
+		return m, nil
+	}
+
+	now := time.Now()
+	selected.AmountAccumulatedCents = nextAccumulated
+	selected.LastUpdatedAt = now
+	if err := m.db.Save(&selected).Error; err != nil {
+		m.status = "goal update failed: " + err.Error()
+		return m, nil
+	}
+
+	note := strings.TrimSpace(m.editGoalForm.logCommentInput.Value())
+	if note == "" {
+		note = "manual accumulated adjustment"
+	}
+	entry := goalLog{
+		GoalID:                selected.ID,
+		DeltaAccumulatedCents: delta,
+		Note:                  note,
+		CreatedAt:             entryTime,
+	}
+	if err := m.db.Create(&entry).Error; err != nil {
+		m.status = "log save failed: " + err.Error()
+		return m, nil
+	}
+
+	m.goals[index] = selected
+	m.goalLogs = append([]goalLog{entry}, m.goalLogs...)
+	m.editGoalForm.accumulatedAmountInput.SetValue(formatAmount(selected.AmountAccumulatedCents))
+	m.editGoalForm.logDeltaInput.SetValue("")
+	m.editGoalForm.logDateInput.SetValue(time.Now().Format("02.01.2006"))
+	m.editGoalForm.logCommentInput.SetValue("")
+	m.status = "applied goal log delta"
+	return m, nil
+}
+
+func (m model) findGoalIndex(id uint) int {
+	for i := range m.goals {
+		if m.goals[i].ID == id {
+			return i
+		}
+	}
+	return -1
+}
+
+func (m model) filteredGoals() []goal {
+	filtered := make([]goal, 0, len(m.goals))
+	for _, item := range m.goals {
+		done := item.AmountAccumulatedCents >= item.TargetAmountCents
+		switch m.goalMode {
+		case goalListActive:
+			if !done {
+				filtered = append(filtered, item)
+			}
+		case goalListHistory:
+			if done {
+				filtered = append(filtered, item)
+			}
+		}
+	}
+	return filtered
+}
+
+func (m model) goalProgressTotalsBase(items []goal) (accumulated int64, target int64) {
+	for _, item := range items {
+		itemTarget := item.TargetAmountCents
+		itemAccumulated := item.AmountAccumulatedCents
+		if itemTarget < 0 {
+			itemTarget = 0
+		}
+		if itemAccumulated < 0 {
+			itemAccumulated = 0
+		}
+		if itemAccumulated > itemTarget {
+			itemAccumulated = itemTarget
+		}
+
+		targetBase, targetOK := m.convertToBaseCents(item.Currency, itemTarget)
+		accumulatedBase, accumulatedOK := m.convertToBaseCents(item.Currency, itemAccumulated)
+		if targetOK && accumulatedOK {
+			target += targetBase
+			accumulated += accumulatedBase
+			continue
+		}
+
+		target += itemTarget
+		accumulated += itemAccumulated
+	}
+
+	if accumulated > target {
+		accumulated = target
+	}
+	if accumulated < 0 {
+		accumulated = 0
+	}
+	if target < 0 {
+		target = 0
+	}
+
+	return accumulated, target
+}
+
 func debtDirectionLabel(isOwedToUser bool) string {
 	if isOwedToUser {
 		return "incoming (someone owes me)"
@@ -2717,7 +3424,7 @@ func (m model) View() string {
 func renderHeader(width int) string {
 	title := appTitleStyle.Render("CENTS")
 	badge := badgeStyle.Render("Personal Finance TUI")
-	subtitle := hintStyle.Render("accounts, subscriptions, debts and settings")
+	subtitle := hintStyle.Render("accounts, subscriptions, debts, goals and settings")
 	line := lipgloss.JoinVertical(lipgloss.Left, lipgloss.JoinHorizontal(lipgloss.Center, title, "  ", badge), subtitle)
 	return panelStyle.Width(width).Render(line)
 }
@@ -2751,6 +3458,12 @@ func (m model) renderBody(width int) string {
 		return m.renderDebtList(width)
 	case screenDebtEdit:
 		return m.renderDebtEdit(width)
+	case screenGoalNew:
+		return m.renderGoalNew(width)
+	case screenGoalList:
+		return m.renderGoalList(width)
+	case screenGoalEdit:
+		return m.renderGoalEdit(width)
 	default:
 		return m.renderMenu(width)
 	}
@@ -3466,6 +4179,196 @@ func (m model) renderEditDebtField(field int, label string, value string) string
 	return prefix + fieldLabelStyle.Render(label) + "  " + value
 }
 
+func (m model) renderGoalNew(width int) string {
+	lines := []string{
+		headlineStyle.Render("New goal"),
+		mutedStyle.Render("Use up/down to move fields. Left/right changes currency. Enter on last field saves."),
+		"",
+		m.renderGoalRowText(goalFieldName, "Goal", m.addGoalForm.inputs[0].View()),
+		m.renderGoalChoiceRow(goalFieldCurrency, "Currency", m.addGoalForm.currencyOptions, m.addGoalForm.currencyIndex),
+		m.renderGoalRowText(goalFieldTargetAmount, "Target amount", m.addGoalForm.inputs[1].View()),
+		m.renderGoalRowText(goalFieldAccumulated, "Accumulated", m.addGoalForm.inputs[2].View()),
+		m.renderGoalRowText(goalFieldDescription, "Description", m.addGoalForm.inputs[3].View()),
+		m.renderGoalRowText(goalFieldDateStarted, "Date started", m.addGoalForm.inputs[4].View()),
+		m.renderGoalRowText(goalFieldTargetDate, "Target date", m.addGoalForm.inputs[5].View()),
+	}
+
+	return panelStyle.Width(width).Render(strings.Join(lines, "\n"))
+}
+
+func (m model) renderGoalRowText(field int, label string, value string) string {
+	prefix := "  "
+	if m.addGoalForm.active == field {
+		prefix = "> "
+	}
+	return prefix + fieldLabelStyle.Render(label) + "  " + value
+}
+
+func (m model) renderGoalChoiceRow(field int, label string, options []string, selected int) string {
+	prefix := "  "
+	if m.addGoalForm.active == field {
+		prefix = "> "
+	}
+
+	chips := make([]string, 0, len(options))
+	for i, option := range options {
+		style := buttonStyle
+		if i == selected {
+			style = buttonActiveStyle
+		}
+		chips = append(chips, style.Render(option))
+	}
+
+	return prefix + fieldLabelStyle.Render(label) + "  " + strings.Join(chips, " ")
+}
+
+func (m model) renderGoalList(width int) string {
+	title := "Active goals"
+	if m.goalMode == goalListHistory {
+		title = "Goal history (completed)"
+	}
+
+	lines := []string{lipgloss.JoinHorizontal(lipgloss.Center, sectionTitleStyle.Render(title), "  ", modeBadgeStyle.Render("Goals")), hintStyle.Render("Use up/down to browse. Enter to edit goal and logs. Esc returns to menu."), ""}
+	filtered := m.filteredGoals()
+	if len(filtered) == 0 {
+		lines = append(lines, mutedStyle.Render("No goals found."))
+		return panelStyle.Width(width).Render(strings.Join(lines, "\n"))
+	}
+
+	accumulatedBase, targetBase := m.goalProgressTotalsBase(filtered)
+	lines = append(lines, fieldLabelStyle.Render("Overall progress ("+m.baseCurrencyLabel()+")"))
+	lines = append(lines, "  "+m.renderProgressBar(accumulatedBase, targetBase, 28))
+	lines = append(lines, "")
+
+	lines = append(lines, m.renderGoalTableHeader(width))
+	for i, item := range filtered {
+		lines = append(lines, m.renderGoalTableRow(width, i, item))
+	}
+
+	return panelStyle.Width(width).Render(strings.Join(lines, "\n"))
+}
+
+func (m model) renderGoalTableHeader(width int) string {
+	nameWidth := 14
+	currencyWidth := 8
+	targetWidth := 12
+	accumWidth := 12
+	leftWidth := 12
+	startedWidth := 12
+	targetDateWidth := 12
+	progressWidth := 8
+	descWidth := width - 14 - nameWidth - currencyWidth - targetWidth - accumWidth - leftWidth - startedWidth - targetDateWidth - progressWidth - 18
+	if descWidth < 10 {
+		descWidth = 10
+	}
+	header := fmt.Sprintf("%-2s %-*s %-*s %-*s %-*s %-*s %-*s %-*s %-*s", "#", nameWidth, "Goal", currencyWidth, "Curr", targetWidth, "Target", accumWidth, "Saved", leftWidth, "Left", startedWidth, "Started", targetDateWidth, "Target dt", progressWidth, "Done", descWidth, "Description")
+	return tableHeaderStyle.Render(header)
+}
+
+func (m model) renderGoalTableRow(width int, index int, item goal) string {
+	nameWidth := 14
+	currencyWidth := 8
+	targetWidth := 12
+	accumWidth := 12
+	leftWidth := 12
+	startedWidth := 12
+	targetDateWidth := 12
+	progressWidth := 8
+	descWidth := width - 14 - nameWidth - currencyWidth - targetWidth - accumWidth - leftWidth - startedWidth - targetDateWidth - progressWidth - 18
+	if descWidth < 10 {
+		descWidth = 10
+	}
+
+	prefix := " "
+	style := rowStyle
+	if index == m.goalCursor {
+		prefix = ">"
+		style = selectedRowStyle
+	}
+
+	left := item.TargetAmountCents - item.AmountAccumulatedCents
+	if left < 0 {
+		left = 0
+	}
+	targetDate := "-"
+	if item.TargetDate != nil {
+		targetDate = item.TargetDate.Local().Format("2006-01-02")
+	}
+	progressValue := 0.0
+	if item.TargetAmountCents > 0 {
+		progressValue = (float64(item.AmountAccumulatedCents) / float64(item.TargetAmountCents)) * 100
+		if progressValue < 0 {
+			progressValue = 0
+		}
+		if progressValue > 100 {
+			progressValue = 100
+		}
+	}
+
+	row := fmt.Sprintf("%s %-*s %-*s %-*s %-*s %-*s %-*s %-*s %-*s", prefix, nameWidth, truncateText(item.Name, nameWidth), currencyWidth, truncateText(item.Currency, currencyWidth), targetWidth, renderMoneyWithCurrency(item.Currency, item.TargetAmountCents), accumWidth, renderMoneyWithCurrency(item.Currency, item.AmountAccumulatedCents), leftWidth, renderMoneyWithCurrency(item.Currency, left), startedWidth, item.DateStartedAt.Local().Format("2006-01-02"), targetDateWidth, targetDate, progressWidth, fmt.Sprintf("%5.1f%%", progressValue), descWidth, truncateText(item.Description, descWidth))
+	progressLine := "  progress " + m.renderProgressBar(item.AmountAccumulatedCents, item.TargetAmountCents, 18)
+	return style.Render(row + "\n" + progressLine)
+}
+
+func (m model) renderGoalEdit(width int) string {
+	lines := []string{
+		headlineStyle.Render("Edit goal"),
+		mutedStyle.Render("Edit fields and press Enter on Description to save."),
+		"",
+		mutedStyle.Render("Goal: " + m.editGoalForm.nameLabel + " | Currency: " + m.editGoalForm.currencyLabel),
+	}
+
+	if idx := m.findGoalIndex(m.editingGoalID); idx >= 0 {
+		item := m.goals[idx]
+		lines = append(lines, fieldLabelStyle.Render("Accumulation progress"))
+		lines = append(lines, "  "+m.renderProgressBar(item.AmountAccumulatedCents, item.TargetAmountCents, 28))
+	}
+
+	lines = append(lines,
+		"",
+		m.renderEditGoalField(editGoalFieldTargetAmount, "Target amount", m.editGoalForm.targetAmountInput.View()),
+		m.renderEditGoalField(editGoalFieldAccumulated, "Accumulated", m.editGoalForm.accumulatedAmountInput.View()),
+		m.renderEditGoalField(editGoalFieldDateStarted, "Date started", m.editGoalForm.dateStartedInput.View()),
+		m.renderEditGoalField(editGoalFieldTargetDate, "Target date", m.editGoalForm.targetDateInput.View()),
+		m.renderEditGoalField(editGoalFieldDescription, "Description", m.editGoalForm.descriptionInput.View()),
+		"",
+		fieldLabelStyle.Render("Add transaction"),
+		mutedStyle.Render("Set delta/date/comment, then press Enter on Transaction comment to apply."),
+		m.renderEditGoalField(editGoalFieldLogDelta, "Transaction delta", m.editGoalForm.logDeltaInput.View()),
+		m.renderEditGoalField(editGoalFieldLogDate, "Transaction date", m.editGoalForm.logDateInput.View()),
+		m.renderEditGoalField(editGoalFieldLogComment, "Transaction comment", m.editGoalForm.logCommentInput.View()),
+		"",
+		fieldLabelStyle.Render("Logs"),
+	)
+
+	if len(m.goalLogs) == 0 {
+		lines = append(lines, mutedStyle.Render("No log entries yet."))
+	} else {
+		for _, entry := range m.goalLogs {
+			sign := "+"
+			if entry.DeltaAccumulatedCents < 0 {
+				sign = ""
+			}
+			note := strings.TrimSpace(entry.Note)
+			if note != "" {
+				lines = append(lines, fmt.Sprintf("%s%s at %s | %s", sign, formatAmount(entry.DeltaAccumulatedCents), entry.CreatedAt.Local().Format("2006-01-02 15:04"), note))
+			} else {
+				lines = append(lines, fmt.Sprintf("%s%s at %s", sign, formatAmount(entry.DeltaAccumulatedCents), entry.CreatedAt.Local().Format("2006-01-02 15:04")))
+			}
+		}
+	}
+
+	return panelStyle.Width(width).Render(strings.Join(lines, "\n"))
+}
+
+func (m model) renderEditGoalField(field int, label string, value string) string {
+	prefix := "  "
+	if m.editGoalForm.activeField == field {
+		prefix = "> "
+	}
+	return prefix + fieldLabelStyle.Render(label) + "  " + value
+}
+
 func (m model) renderSettings(width int) string {
 	header := []string{sectionTitleStyle.Render("Settings"), hintStyle.Render("Use up/down to select rows. Enter edits selected row. Esc returns to menu."), ""}
 	header = append(header, sectionTitleStyle.Render("General"))
@@ -3838,11 +4741,11 @@ func parseOptionalDate(raw string) (string, error) {
 func parseRequiredDate(raw string) (time.Time, error) {
 	trimmed := strings.TrimSpace(raw)
 	if trimmed == "" {
-		return time.Time{}, errors.New("debt created date is required")
+		return time.Time{}, errors.New("created date is required")
 	}
 	value, err := time.Parse("02.01.2006", trimmed)
 	if err != nil {
-		return time.Time{}, errors.New("debt created date must use DD.MM.YYYY format")
+		return time.Time{}, errors.New("created date must use DD.MM.YYYY format")
 	}
 	return value, nil
 }
