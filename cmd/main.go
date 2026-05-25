@@ -333,6 +333,8 @@ var (
 	hintStyle         = lipgloss.NewStyle().Foreground(lipgloss.Color("#B5AC9D")).Italic(true)
 	badgeStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color("#1F1A17")).Background(lipgloss.Color("#C9A86A")).Bold(true).Padding(0, 1)
 	modeBadgeStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#F4E9D8")).Background(lipgloss.Color("#5F4C2F")).Padding(0, 1)
+	progressFillStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#8EC07C"))
+	progressRestStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#5F5A52"))
 	panelStyle        = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("#6F5F47")).Padding(0, 1)
 	buttonStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("#F4E9D8")).Background(lipgloss.Color("#4E4334")).Padding(0, 1)
 	buttonActiveStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#1F1A17")).Background(lipgloss.Color("#E7C96D")).Bold(true).Padding(0, 1)
@@ -2627,6 +2629,73 @@ func debtDirectionLabel(isOwedToUser bool) string {
 	return "outgoing (i owe someone)"
 }
 
+func (m model) debtProgressTotalsBase(items []debt) (paid int64, total int64) {
+	for _, item := range items {
+		itemTotal := item.AmountCents
+		itemPaid := item.AmountPaidCents
+		if itemTotal < 0 {
+			itemTotal = 0
+		}
+		if itemPaid < 0 {
+			itemPaid = 0
+		}
+		if itemPaid > itemTotal {
+			itemPaid = itemTotal
+		}
+
+		totalBase, totalOK := m.convertToBaseCents(item.Currency, itemTotal)
+		paidBase, paidOK := m.convertToBaseCents(item.Currency, itemPaid)
+		if totalOK && paidOK {
+			total += totalBase
+			paid += paidBase
+			continue
+		}
+
+		total += itemTotal
+		paid += itemPaid
+	}
+
+	if paid > total {
+		paid = total
+	}
+	if paid < 0 {
+		paid = 0
+	}
+	if total < 0 {
+		total = 0
+	}
+
+	return paid, total
+}
+
+func (m model) renderProgressBar(paid int64, total int64, width int) string {
+	if width < 8 {
+		width = 8
+	}
+	if total <= 0 {
+		bar := progressRestStyle.Render(strings.Repeat("░", width))
+		return bar + " 0.0%"
+	}
+	if paid < 0 {
+		paid = 0
+	}
+	if paid > total {
+		paid = total
+	}
+
+	ratio := float64(paid) / float64(total)
+	filled := int(math.Round(ratio * float64(width)))
+	if filled < 0 {
+		filled = 0
+	}
+	if filled > width {
+		filled = width
+	}
+
+	bar := progressFillStyle.Render(strings.Repeat("█", filled)) + progressRestStyle.Render(strings.Repeat("░", width-filled))
+	return fmt.Sprintf("%s %5.1f%%", bar, ratio*100)
+}
+
 func (m model) View() string {
 	if m.quitting {
 		return ""
@@ -3272,6 +3341,11 @@ func (m model) renderDebtList(width int) string {
 		return panelStyle.Width(width).Render(strings.Join(lines, "\n"))
 	}
 
+	paidBase, totalBase := m.debtProgressTotalsBase(filtered)
+	lines = append(lines, fieldLabelStyle.Render("Overall paid progress ("+m.baseCurrencyLabel()+")"))
+	lines = append(lines, "  "+m.renderProgressBar(paidBase, totalBase, 28))
+	lines = append(lines, "")
+
 	lines = append(lines, m.renderDebtTableHeader(width))
 	for i, item := range filtered {
 		lines = append(lines, m.renderDebtTableRow(width, i, item))
@@ -3339,6 +3413,15 @@ func (m model) renderDebtEdit(width int) string {
 		mutedStyle.Render("Edit fields and press Enter on Comment to save."),
 		"",
 		mutedStyle.Render("Peer: " + m.editDebtForm.peerLabel + " | Direction: " + m.editDebtForm.directionLabel + " | Currency: " + m.editDebtForm.currencyLabel),
+	}
+
+	if idx := m.findDebtIndex(m.editingDebtID); idx >= 0 {
+		item := m.debts[idx]
+		lines = append(lines, fieldLabelStyle.Render("Paid progress"))
+		lines = append(lines, "  "+m.renderProgressBar(item.AmountPaidCents, item.AmountCents, 28))
+	}
+
+	lines = append(lines,
 		"",
 		m.renderEditDebtField(editDebtFieldAmount, "Amount", m.editDebtForm.amountInput.View()),
 		m.renderEditDebtField(editDebtFieldAmountPaid, "Amount paid", m.editDebtForm.amountPaidInput.View()),
@@ -3353,7 +3436,7 @@ func (m model) renderDebtEdit(width int) string {
 		m.renderEditDebtField(editDebtFieldLogComment, "Transaction comment", m.editDebtForm.logCommentInput.View()),
 		"",
 		fieldLabelStyle.Render("Logs"),
-	}
+	)
 
 	if len(m.debtLogs) == 0 {
 		lines = append(lines, mutedStyle.Render("No log entries yet."))
