@@ -1274,8 +1274,8 @@ func (m model) updateSettings(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case " ":
 			if m.settingsPaymentMethodField == 2 {
 				m.settingsPaymentMethodIsDefault = !m.settingsPaymentMethodIsDefault
+				return m, nil
 			}
-			return m, nil
 		case "enter":
 			if m.settingsPaymentMethodField < 2 {
 				m.settingsPaymentMethodField++
