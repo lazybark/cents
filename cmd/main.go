@@ -4016,14 +4016,6 @@ func (m model) renderDebtRowText(field int, label string, value string) string {
 	return prefix + fieldLabelStyle.Render(label) + "  " + value
 }
 
-func (m model) renderDebtRowOption(field int, label string, value string) string {
-	prefix := "  "
-	if m.addDebtForm.active == field {
-		prefix = "> "
-	}
-	return prefix + fieldLabelStyle.Render(label) + "  " + value
-}
-
 func (m model) renderDebtChoiceRow(field int, label string, options []string, selected int) string {
 	prefix := "  "
 	if m.addDebtForm.active == field {
