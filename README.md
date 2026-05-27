@@ -10,3 +10,9 @@
 - [ ] Backup and restore DB.
 - [ ] When user opens app, it tries to fetch DB. If no DB or it's empty (lacks settings table) - suggest user to create new DB or open existing. Then this setting is saved in some config file.
 - [ ] CSV exports for everything (accounts, transactions, budgets, goals, debts, invoices, etc.)
+
+Analytics features: montly stats, yearly stats, category stats, etc.
+
+Account history log: maybe in case account amount change we can log this and show history of changes for the account, with possibility to filter by date, etc.
+
+Edit account: ability to enter name of payment method or set an ID of existing.

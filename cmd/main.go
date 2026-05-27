@@ -89,6 +89,28 @@ type goalLog struct {
 	Note                  string
 }
 
+type tax struct {
+	ID              uint `gorm:"primaryKey"`
+	CreatedAt       time.Time
+	LastUpdatedAt   time.Time `gorm:"not null;default:1970-01-01 00:00:00"`
+	TaxTypeID       uint
+	TaxCountry      string
+	TaxTypeName     string
+	AmountDueCents  int64
+	AmountPaidCents int64
+	Period          string
+	DueDate         *time.Time
+	Comment         string
+}
+
+type taxLog struct {
+	ID             uint `gorm:"primaryKey"`
+	CreatedAt      time.Time
+	TaxID          uint `gorm:"index;not null"`
+	DeltaPaidCents int64
+	Note           string
+}
+
 type settingRecord struct {
 	SettingID    string `gorm:"primaryKey"`
 	SettingValue string
@@ -111,10 +133,21 @@ type settingPaymentMethod struct {
 	IsDefault         bool   `gorm:"not null;default:false"`
 }
 
+type settingTaxType struct {
+	ID            uint `gorm:"primaryKey"`
+	CreatedAt     time.Time
+	LastUpdatedAt time.Time
+	Country       string `gorm:"not null;uniqueIndex:idx_tax_type_country_name"`
+	TaxTypeName   string `gorm:"not null;uniqueIndex:idx_tax_type_country_name"`
+	Description   string
+	URL           string
+}
+
 type appSettings struct {
 	BaseCurrency   string
 	Currencies     []settingCurrency
 	PaymentMethods []settingPaymentMethod
+	TaxTypes       []settingTaxType
 }
 
 type settingsEditMode int
@@ -124,6 +157,7 @@ const (
 	settingsEditBaseCurrency
 	settingsEditCurrency
 	settingsEditPaymentMethod
+	settingsEditTaxType
 )
 
 type screen int
@@ -143,6 +177,9 @@ const (
 	screenGoalNew
 	screenGoalList
 	screenGoalEdit
+	screenTaxNew
+	screenTaxList
+	screenTaxEdit
 )
 
 type subscriptionListMode int
@@ -167,6 +204,13 @@ const (
 	goalListHistory
 )
 
+type taxListMode int
+
+const (
+	taxListUnpaid taxListMode = iota
+	taxListHistory
+)
+
 type model struct {
 	db                               *gorm.DB
 	dbPath                           string
@@ -176,6 +220,7 @@ type model struct {
 	subscriptions                    []subscription
 	debts                            []debt
 	goals                            []goal
+	taxes                            []tax
 	subscriptionMode                 subscriptionListMode
 	subscriptionCursor               int
 	debtMode                         debtListMode
@@ -186,6 +231,10 @@ type model struct {
 	goalCursor                       int
 	goalLogs                         []goalLog
 	editingGoalID                    uint
+	taxMode                          taxListMode
+	taxCursor                        int
+	taxLogs                          []taxLog
+	editingTaxID                     uint
 	settings                         appSettings
 	settingsCursor                   int
 	settingsEditMode                 settingsEditMode
@@ -200,6 +249,12 @@ type model struct {
 	settingsPaymentMethodTypeOptions []string
 	settingsPaymentMethodTypeIndex   int
 	settingsPaymentMethodIsDefault   bool
+	settingsTaxTypeCountryInput      textinput.Model
+	settingsTaxTypeNameInput         textinput.Model
+	settingsTaxTypeDescriptionInput  textinput.Model
+	settingsTaxTypeURLInput          textinput.Model
+	settingsTaxTypeField             int
+	settingsTaxTypeEditingID         uint
 	settingsDeleteConfirm            bool
 	settingsDeleteTargetType         string
 	settingsDeleteTargetID           uint
@@ -216,9 +271,11 @@ type model struct {
 	addSubscriptionForm              addSubscriptionForm
 	addDebtForm                      addDebtForm
 	addGoalForm                      addGoalForm
+	addTaxForm                       addTaxForm
 	editSubscriptionForm             editSubscriptionForm
 	editDebtForm                     editDebtForm
 	editGoalForm                     editGoalForm
+	editTaxForm                      editTaxForm
 	editingSubscriptionID            uint
 	editingSubscriptionMode          subscriptionListMode
 	editInput                        textinput.Model
@@ -336,6 +393,28 @@ type editGoalForm struct {
 	currencyLabel          string
 }
 
+type addTaxForm struct {
+	inputs          []textinput.Model
+	active          int
+	taxTypeOptions  []settingTaxType
+	taxTypeIndex    int
+	taxDisplayNames []string
+}
+
+type editTaxForm struct {
+	amountDueInput  textinput.Model
+	amountPaidInput textinput.Model
+	periodInput     textinput.Model
+	dueDateInput    textinput.Model
+	commentInput    textinput.Model
+	logDeltaInput   textinput.Model
+	logDateInput    textinput.Model
+	logCommentInput textinput.Model
+	activeField     int
+	taxTypeLabel    string
+	countryLabel    string
+}
+
 const (
 	editSubFieldAmount = iota
 	editSubFieldPaymentMethod
@@ -365,6 +444,18 @@ const (
 	editGoalFieldLogDate
 	editGoalFieldLogComment
 	editGoalFieldCount
+)
+
+const (
+	editTaxFieldAmountDue = iota
+	editTaxFieldAmountPaid
+	editTaxFieldPeriod
+	editTaxFieldDueDate
+	editTaxFieldComment
+	editTaxFieldLogDelta
+	editTaxFieldLogDate
+	editTaxFieldLogComment
+	editTaxFieldCount
 )
 
 const (
@@ -402,6 +493,16 @@ const (
 	goalFieldDateStarted
 	goalFieldTargetDate
 	goalFieldCount
+)
+
+const (
+	taxFieldTaxType = iota
+	taxFieldAmountDue
+	taxFieldAmountPaid
+	taxFieldPeriod
+	taxFieldDueDate
+	taxFieldComment
+	taxFieldCount
 )
 
 var (
@@ -457,13 +558,19 @@ func main() {
 		os.Exit(1)
 	}
 
+	taxes, err := loadTaxes(db)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "taxes read failed:", err)
+		os.Exit(1)
+	}
+
 	settings, err := loadAppSettings(db)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "settings read failed:", err)
 		os.Exit(1)
 	}
 
-	m := newModel(db, dbPath, created, accounts, subscriptions, debts, goals, settings)
+	m := newModel(db, dbPath, created, accounts, subscriptions, debts, goals, taxes, settings)
 	program := tea.NewProgram(m, tea.WithAltScreen())
 	if _, err := program.Run(); err != nil {
 		fmt.Fprintln(os.Stderr, "program failed:", err)
@@ -489,7 +596,7 @@ func openDatabase() (*gorm.DB, string, bool, error) {
 		return nil, "", false, err
 	}
 
-	if err := db.AutoMigrate(&account{}, &subscription{}, &debt{}, &debtLog{}, &goal{}, &goalLog{}, &settingRecord{}, &settingCurrency{}, &settingPaymentMethod{}); err != nil {
+	if err := db.AutoMigrate(&account{}, &subscription{}, &debt{}, &debtLog{}, &goal{}, &goalLog{}, &tax{}, &taxLog{}, &settingRecord{}, &settingCurrency{}, &settingPaymentMethod{}, &settingTaxType{}); err != nil {
 		return nil, "", false, err
 	}
 
@@ -532,6 +639,14 @@ func loadGoals(db *gorm.DB) ([]goal, error) {
 		return nil, err
 	}
 	return goals, nil
+}
+
+func loadTaxes(db *gorm.DB) ([]tax, error) {
+	var taxes []tax
+	if err := db.Order("amount_due_cents desc, created_at desc, id desc").Find(&taxes).Error; err != nil {
+		return nil, err
+	}
+	return taxes, nil
 }
 
 func ensureSettingsDefaults(db *gorm.DB) error {
@@ -630,10 +745,16 @@ func loadAppSettings(db *gorm.DB) (appSettings, error) {
 	}
 	settings.PaymentMethods = paymentMethods
 
+	var taxTypes []settingTaxType
+	if err := db.Order("country asc, tax_type_name asc, id asc").Find(&taxTypes).Error; err != nil {
+		return appSettings{}, err
+	}
+	settings.TaxTypes = taxTypes
+
 	return settings, nil
 }
 
-func newModel(db *gorm.DB, dbPath string, created bool, accounts []account, subscriptions []subscription, debts []debt, goals []goal, settings appSettings) model {
+func newModel(db *gorm.DB, dbPath string, created bool, accounts []account, subscriptions []subscription, debts []debt, goals []goal, taxes []tax, settings appSettings) model {
 	accounts = sortAccountsByBaseAmount(accounts, settings)
 	currencyOptions := currencySelectionOptions(settings)
 	paymentMethodOptions := paymentMethodSelectionOptions(settings)
@@ -641,6 +762,7 @@ func newModel(db *gorm.DB, dbPath string, created bool, accounts []account, subs
 	addSubForm := newAddSubscriptionForm(currencyOptions, paymentMethodOptions)
 	addDebtForm := newAddDebtForm(currencyOptions)
 	addGoalForm := newAddGoalForm(currencyOptions)
+	addTaxForm := newAddTaxForm(settings.TaxTypes)
 	editInput := textinput.New()
 	editInput.Placeholder = "1234.56"
 	editInput.CharLimit = 24
@@ -661,6 +783,22 @@ func newModel(db *gorm.DB, dbPath string, created bool, accounts []account, subs
 	settingsPaymentMethodNameInput.Placeholder = "Personal Visa"
 	settingsPaymentMethodNameInput.CharLimit = 40
 	settingsPaymentMethodNameInput.Width = 28
+	settingsTaxTypeCountryInput := textinput.New()
+	settingsTaxTypeCountryInput.Placeholder = "Netherlands"
+	settingsTaxTypeCountryInput.CharLimit = 60
+	settingsTaxTypeCountryInput.Width = 28
+	settingsTaxTypeNameInput := textinput.New()
+	settingsTaxTypeNameInput.Placeholder = "Income Tax"
+	settingsTaxTypeNameInput.CharLimit = 80
+	settingsTaxTypeNameInput.Width = 28
+	settingsTaxTypeDescriptionInput := textinput.New()
+	settingsTaxTypeDescriptionInput.Placeholder = "optional description"
+	settingsTaxTypeDescriptionInput.CharLimit = 140
+	settingsTaxTypeDescriptionInput.Width = 36
+	settingsTaxTypeURLInput := textinput.New()
+	settingsTaxTypeURLInput.Placeholder = "optional https://..."
+	settingsTaxTypeURLInput.CharLimit = 180
+	settingsTaxTypeURLInput.Width = 40
 	helpModel := help.New()
 	helpModel.ShowAll = false
 	helpModel.Width = 0
@@ -679,6 +817,7 @@ func newModel(db *gorm.DB, dbPath string, created bool, accounts []account, subs
 		subscriptions:                    subscriptions,
 		debts:                            debts,
 		goals:                            goals,
+		taxes:                            taxes,
 		debtMode:                         debtListOutgoing,
 		debtCursor:                       0,
 		debtLogs:                         nil,
@@ -687,6 +826,10 @@ func newModel(db *gorm.DB, dbPath string, created bool, accounts []account, subs
 		goalCursor:                       0,
 		goalLogs:                         nil,
 		editingGoalID:                    0,
+		taxMode:                          taxListUnpaid,
+		taxCursor:                        0,
+		taxLogs:                          nil,
+		editingTaxID:                     0,
 		settings:                         settings,
 		settingsCursor:                   0,
 		settingsEditMode:                 settingsEditNone,
@@ -701,6 +844,12 @@ func newModel(db *gorm.DB, dbPath string, created bool, accounts []account, subs
 		settingsPaymentMethodTypeOptions: []string{"Card", "Crypto", "E-Wallet", "Other"},
 		settingsPaymentMethodTypeIndex:   0,
 		settingsPaymentMethodIsDefault:   false,
+		settingsTaxTypeCountryInput:      settingsTaxTypeCountryInput,
+		settingsTaxTypeNameInput:         settingsTaxTypeNameInput,
+		settingsTaxTypeDescriptionInput:  settingsTaxTypeDescriptionInput,
+		settingsTaxTypeURLInput:          settingsTaxTypeURLInput,
+		settingsTaxTypeField:             0,
+		settingsTaxTypeEditingID:         0,
 		settingsDeleteConfirm:            false,
 		settingsDeleteTargetType:         "",
 		settingsDeleteTargetID:           0,
@@ -715,9 +864,11 @@ func newModel(db *gorm.DB, dbPath string, created bool, accounts []account, subs
 		addSubscriptionForm:              addSubForm,
 		addDebtForm:                      addDebtForm,
 		addGoalForm:                      addGoalForm,
+		addTaxForm:                       addTaxForm,
 		editSubscriptionForm:             newEditSubscriptionForm(),
 		editDebtForm:                     newEditDebtForm(),
 		editGoalForm:                     newEditGoalForm(),
+		editTaxForm:                      newEditTaxForm(),
 		editInput:                        editInput,
 		help:                             helpModel,
 		keys:                             newKeyMap(),
@@ -1187,6 +1338,189 @@ func (f editGoalForm) prev() editGoalForm {
 	return f.focusActive()
 }
 
+func newAddTaxForm(taxTypeOptions []settingTaxType) addTaxForm {
+	today := time.Now().Format("02.01.2006")
+	inputs := make([]textinput.Model, 5)
+	placeholders := []string{"1000.00", "0.00", "Q1 2026", today, "Optional comment"}
+	for i := range inputs {
+		field := textinput.New()
+		field.Placeholder = placeholders[i]
+		field.CharLimit = 120
+		field.Width = 34
+		if i == 3 {
+			field.SetValue(today)
+		}
+		inputs[i] = field
+	}
+
+	display := make([]string, 0, len(taxTypeOptions))
+	for _, item := range taxTypeOptions {
+		label := strings.TrimSpace(item.Country)
+		name := strings.TrimSpace(item.TaxTypeName)
+		if label == "" {
+			label = "Unknown"
+		}
+		if name == "" {
+			name = "Tax"
+		}
+		display = append(display, label+" / "+name)
+	}
+
+	form := addTaxForm{
+		inputs:          inputs,
+		active:          0,
+		taxTypeOptions:  append([]settingTaxType(nil), taxTypeOptions...),
+		taxTypeIndex:    0,
+		taxDisplayNames: display,
+	}
+
+	return form.focusActive()
+}
+
+func (f addTaxForm) inputIndexForField(field int) int {
+	switch field {
+	case taxFieldTaxType:
+		return -1
+	case taxFieldAmountDue:
+		return 0
+	case taxFieldAmountPaid:
+		return 1
+	case taxFieldPeriod:
+		return 2
+	case taxFieldDueDate:
+		return 3
+	case taxFieldComment:
+		return 4
+	default:
+		return -1
+	}
+}
+
+func (f addTaxForm) focusActive() addTaxForm {
+	for i := range f.inputs {
+		f.inputs[i].Blur()
+	}
+	if inputIndex := f.inputIndexForField(f.active); inputIndex >= 0 {
+		f.inputs[inputIndex].Focus()
+	}
+	return f
+}
+
+func (f addTaxForm) next() addTaxForm {
+	if f.active < taxFieldCount-1 {
+		f.active++
+	}
+	return f.focusActive()
+}
+
+func (f addTaxForm) prev() addTaxForm {
+	if f.active > 0 {
+		f.active--
+	}
+	return f.focusActive()
+}
+
+func newEditTaxForm() editTaxForm {
+	amountDueInput := textinput.New()
+	amountDueInput.Placeholder = "1000.00"
+	amountDueInput.CharLimit = 24
+	amountDueInput.Width = 20
+
+	amountPaidInput := textinput.New()
+	amountPaidInput.Placeholder = "0.00"
+	amountPaidInput.CharLimit = 24
+	amountPaidInput.Width = 20
+
+	periodInput := textinput.New()
+	periodInput.Placeholder = "Q1 2026"
+	periodInput.CharLimit = 60
+	periodInput.Width = 24
+
+	dueDateInput := textinput.New()
+	dueDateInput.Placeholder = "optional DD.MM.YYYY"
+	dueDateInput.CharLimit = 24
+	dueDateInput.Width = 20
+
+	commentInput := textinput.New()
+	commentInput.Placeholder = "comment"
+	commentInput.CharLimit = 140
+	commentInput.Width = 36
+
+	logDeltaInput := textinput.New()
+	logDeltaInput.Placeholder = "+10.00 or -5.00"
+	logDeltaInput.CharLimit = 24
+	logDeltaInput.Width = 24
+
+	logDateInput := textinput.New()
+	logDateInput.Placeholder = "DD.MM.YYYY (optional)"
+	logDateInput.CharLimit = 24
+	logDateInput.Width = 24
+
+	logCommentInput := textinput.New()
+	logCommentInput.Placeholder = "transaction note (optional)"
+	logCommentInput.CharLimit = 120
+	logCommentInput.Width = 36
+
+	form := editTaxForm{
+		amountDueInput:  amountDueInput,
+		amountPaidInput: amountPaidInput,
+		periodInput:     periodInput,
+		dueDateInput:    dueDateInput,
+		commentInput:    commentInput,
+		logDeltaInput:   logDeltaInput,
+		logDateInput:    logDateInput,
+		logCommentInput: logCommentInput,
+		activeField:     0,
+	}
+
+	return form.focusActive()
+}
+
+func (f editTaxForm) focusActive() editTaxForm {
+	f.amountDueInput.Blur()
+	f.amountPaidInput.Blur()
+	f.periodInput.Blur()
+	f.dueDateInput.Blur()
+	f.commentInput.Blur()
+	f.logDeltaInput.Blur()
+	f.logDateInput.Blur()
+	f.logCommentInput.Blur()
+
+	switch f.activeField {
+	case editTaxFieldAmountDue:
+		f.amountDueInput.Focus()
+	case editTaxFieldAmountPaid:
+		f.amountPaidInput.Focus()
+	case editTaxFieldPeriod:
+		f.periodInput.Focus()
+	case editTaxFieldDueDate:
+		f.dueDateInput.Focus()
+	case editTaxFieldComment:
+		f.commentInput.Focus()
+	case editTaxFieldLogDelta:
+		f.logDeltaInput.Focus()
+	case editTaxFieldLogDate:
+		f.logDateInput.Focus()
+	case editTaxFieldLogComment:
+		f.logCommentInput.Focus()
+	}
+	return f
+}
+
+func (f editTaxForm) next() editTaxForm {
+	if f.activeField < editTaxFieldCount-1 {
+		f.activeField++
+	}
+	return f.focusActive()
+}
+
+func (f editTaxForm) prev() editTaxForm {
+	if f.activeField > 0 {
+		f.activeField--
+	}
+	return f.focusActive()
+}
+
 func newKeyMap() keyMap {
 	return keyMap{
 		Up: key.NewBinding(
@@ -1346,6 +1680,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateGoalList(msg)
 		case screenGoalEdit:
 			return m.updateGoalEdit(msg)
+		case screenTaxNew:
+			return m.updateTaxNew(msg)
+		case screenTaxList:
+			return m.updateTaxList(msg)
+		case screenTaxEdit:
+			return m.updateTaxEdit(msg)
 		}
 	}
 
@@ -1529,6 +1869,29 @@ func (m model) activateMenuSelection() (tea.Model, tea.Cmd) {
 		m.goalMode = goalListHistory
 		m.goalCursor = 0
 		m.status = "goal history"
+		return m, nil
+	}
+
+	if m.menuGroup == 6 && m.menuItem == 0 {
+		m.screen = screenTaxNew
+		m.addTaxForm = newAddTaxForm(m.settings.TaxTypes)
+		m.status = "new tax"
+		return m, nil
+	}
+
+	if m.menuGroup == 6 && m.menuItem == 1 {
+		m.screen = screenTaxList
+		m.taxMode = taxListUnpaid
+		m.taxCursor = 0
+		m.status = "unpaid taxes"
+		return m, nil
+	}
+
+	if m.menuGroup == 6 && m.menuItem == 2 {
+		m.screen = screenTaxList
+		m.taxMode = taxListHistory
+		m.taxCursor = 0
+		m.status = "tax history"
 		return m, nil
 	}
 
@@ -1835,6 +2198,13 @@ func (m model) updateSettings(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				}
 			}
 
+			if m.settingsDeleteTargetType == "tax_type" {
+				if err := m.db.Delete(&settingTaxType{}, m.settingsDeleteTargetID).Error; err != nil {
+					m.status = "tax type delete failed: " + err.Error()
+					return m, nil
+				}
+			}
+
 			updated, err := loadAppSettings(m.db)
 			if err != nil {
 				m.status = "settings reload failed: " + err.Error()
@@ -2088,6 +2458,101 @@ func (m model) updateSettings(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	if m.settingsEditMode == settingsEditTaxType {
+		switch msg.String() {
+		case "esc":
+			m.settingsEditMode = settingsEditNone
+			m.settingsTaxTypeCountryInput.Blur()
+			m.settingsTaxTypeNameInput.Blur()
+			m.settingsTaxTypeDescriptionInput.Blur()
+			m.settingsTaxTypeURLInput.Blur()
+			m.settingsTaxTypeEditingID = 0
+			m.settingsTaxTypeField = 0
+			m.status = "tax type edit cancelled"
+			return m, nil
+		case "down", "tab":
+			if m.settingsTaxTypeField < 3 {
+				m.settingsTaxTypeField++
+			}
+			m = m.focusTaxTypeFormField()
+			return m, nil
+		case "up", "shift+tab":
+			if m.settingsTaxTypeField > 0 {
+				m.settingsTaxTypeField--
+			}
+			m = m.focusTaxTypeFormField()
+			return m, nil
+		case "enter":
+			if m.settingsTaxTypeField < 3 {
+				m.settingsTaxTypeField++
+				m = m.focusTaxTypeFormField()
+				return m, nil
+			}
+
+			country := strings.TrimSpace(m.settingsTaxTypeCountryInput.Value())
+			name := strings.TrimSpace(m.settingsTaxTypeNameInput.Value())
+			description := strings.TrimSpace(m.settingsTaxTypeDescriptionInput.Value())
+			url := strings.TrimSpace(m.settingsTaxTypeURLInput.Value())
+			if country == "" {
+				m.status = "country is required"
+				return m, nil
+			}
+			if name == "" {
+				m.status = "tax type name is required"
+				return m, nil
+			}
+
+			now := time.Now()
+			record := settingTaxType{
+				ID:            m.settingsTaxTypeEditingID,
+				Country:       country,
+				TaxTypeName:   name,
+				Description:   description,
+				URL:           url,
+				LastUpdatedAt: now,
+			}
+			if record.ID == 0 {
+				record.CreatedAt = now
+			}
+
+			if err := m.db.Save(&record).Error; err != nil {
+				m.status = "tax type save failed: " + err.Error()
+				return m, nil
+			}
+
+			updated, err := loadAppSettings(m.db)
+			if err != nil {
+				m.status = "settings reload failed: " + err.Error()
+				return m, nil
+			}
+
+			m.settings = updated
+			m.settingsEditMode = settingsEditNone
+			m.settingsTaxTypeCountryInput.Blur()
+			m.settingsTaxTypeNameInput.Blur()
+			m.settingsTaxTypeDescriptionInput.Blur()
+			m.settingsTaxTypeURLInput.Blur()
+			m.settingsTaxTypeEditingID = 0
+			m.settingsTaxTypeField = 0
+			m.settingsCursor = settingsCursorByTaxTypeID(m.settings, record.ID, country, name)
+			m.status = "saved tax type " + country + " / " + name
+			return m, nil
+		}
+
+		var cmd tea.Cmd
+		switch m.settingsTaxTypeField {
+		case 0:
+			m.settingsTaxTypeCountryInput, cmd = m.settingsTaxTypeCountryInput.Update(msg)
+		case 1:
+			m.settingsTaxTypeNameInput, cmd = m.settingsTaxTypeNameInput.Update(msg)
+		case 2:
+			m.settingsTaxTypeDescriptionInput, cmd = m.settingsTaxTypeDescriptionInput.Update(msg)
+		case 3:
+			m.settingsTaxTypeURLInput, cmd = m.settingsTaxTypeURLInput.Update(msg)
+		}
+		return m, cmd
+	}
+
 	switch msg.String() {
 	case "esc":
 		m.screen = screenMenu
@@ -2096,6 +2561,8 @@ func (m model) updateSettings(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "backspace", "delete":
 		paymentStart := settingsPaymentMethodStartCursor(m.settings)
 		paymentAdd := settingsPaymentMethodAddCursor(m.settings)
+		taxStart := settingsTaxTypeStartCursor(m.settings)
+		taxAdd := settingsTaxTypeAddCursor(m.settings)
 		if m.settingsCursor > 0 && m.settingsCursor <= len(m.settings.Currencies) {
 			selected := m.settings.Currencies[m.settingsCursor-1]
 			m.settingsDeleteConfirm = true
@@ -2116,6 +2583,16 @@ func (m model) updateSettings(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.status = "confirm payment method delete"
 			return m, nil
 		}
+		if m.settingsCursor >= taxStart && m.settingsCursor < taxAdd {
+			selected := m.settings.TaxTypes[m.settingsCursor-taxStart]
+			m.settingsDeleteConfirm = true
+			m.settingsDeleteTargetType = "tax_type"
+			m.settingsDeleteTargetID = selected.ID
+			m.settingsDeleteTargetName = strings.TrimSpace(selected.Country + " / " + selected.TaxTypeName)
+			m.settingsDeleteChoice = 1
+			m.status = "confirm tax type delete"
+			return m, nil
+		}
 		return m, nil
 	case "up":
 		if m.settingsCursor > 0 {
@@ -2123,7 +2600,7 @@ func (m model) updateSettings(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case "down":
-		maxCursor := settingsPaymentMethodAddCursor(m.settings)
+		maxCursor := settingsTaxTypeAddCursor(m.settings)
 		if m.settingsCursor < maxCursor {
 			m.settingsCursor++
 		}
@@ -2131,6 +2608,8 @@ func (m model) updateSettings(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "enter":
 		paymentStart := settingsPaymentMethodStartCursor(m.settings)
 		paymentAdd := settingsPaymentMethodAddCursor(m.settings)
+		taxStart := settingsTaxTypeStartCursor(m.settings)
+		taxAdd := settingsTaxTypeAddCursor(m.settings)
 
 		if m.settingsCursor == 0 {
 			m.settingsEditMode = settingsEditBaseCurrency
@@ -2163,6 +2642,19 @@ func (m model) updateSettings(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
+		if m.settingsCursor == taxAdd {
+			m.settingsEditMode = settingsEditTaxType
+			m.settingsTaxTypeEditingID = 0
+			m.settingsTaxTypeField = 0
+			m.settingsTaxTypeCountryInput.SetValue("")
+			m.settingsTaxTypeNameInput.SetValue("")
+			m.settingsTaxTypeDescriptionInput.SetValue("")
+			m.settingsTaxTypeURLInput.SetValue("")
+			m = m.focusTaxTypeFormField()
+			m.status = "adding new tax type"
+			return m, nil
+		}
+
 		index := m.settingsCursor - 1
 		if index >= 0 && index < len(m.settings.Currencies) {
 			selected := m.settings.Currencies[index]
@@ -2190,6 +2682,21 @@ func (m model) updateSettings(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
+		if m.settingsCursor >= taxStart && m.settingsCursor < taxAdd {
+			taxTypeIndex := m.settingsCursor - taxStart
+			selected := m.settings.TaxTypes[taxTypeIndex]
+			m.settingsEditMode = settingsEditTaxType
+			m.settingsTaxTypeEditingID = selected.ID
+			m.settingsTaxTypeField = 0
+			m.settingsTaxTypeCountryInput.SetValue(selected.Country)
+			m.settingsTaxTypeNameInput.SetValue(selected.TaxTypeName)
+			m.settingsTaxTypeDescriptionInput.SetValue(selected.Description)
+			m.settingsTaxTypeURLInput.SetValue(selected.URL)
+			m = m.focusTaxTypeFormField()
+			m.status = "editing tax type " + selected.Country + " / " + selected.TaxTypeName
+			return m, nil
+		}
+
 		return m, nil
 	default:
 		return m, nil
@@ -2211,6 +2718,24 @@ func (m model) focusPaymentMethodFormField() model {
 	m.settingsPaymentMethodNameInput.Blur()
 	if m.settingsPaymentMethodField == 0 {
 		m.settingsPaymentMethodNameInput.Focus()
+	}
+	return m
+}
+
+func (m model) focusTaxTypeFormField() model {
+	m.settingsTaxTypeCountryInput.Blur()
+	m.settingsTaxTypeNameInput.Blur()
+	m.settingsTaxTypeDescriptionInput.Blur()
+	m.settingsTaxTypeURLInput.Blur()
+	switch m.settingsTaxTypeField {
+	case 0:
+		m.settingsTaxTypeCountryInput.Focus()
+	case 1:
+		m.settingsTaxTypeNameInput.Focus()
+	case 2:
+		m.settingsTaxTypeDescriptionInput.Focus()
+	case 3:
+		m.settingsTaxTypeURLInput.Focus()
 	}
 	return m
 }
@@ -2240,6 +2765,28 @@ func settingsCursorByPaymentMethodName(settings appSettings, name string) int {
 		}
 	}
 	return settingsPaymentMethodAddCursor(settings)
+}
+
+func settingsTaxTypeStartCursor(settings appSettings) int {
+	return settingsPaymentMethodAddCursor(settings) + 1
+}
+
+func settingsTaxTypeAddCursor(settings appSettings) int {
+	return settingsTaxTypeStartCursor(settings) + len(settings.TaxTypes)
+}
+
+func settingsCursorByTaxTypeID(settings appSettings, id uint, country string, name string) int {
+	start := settingsTaxTypeStartCursor(settings)
+	for index := range settings.TaxTypes {
+		item := settings.TaxTypes[index]
+		if id > 0 && item.ID == id {
+			return start + index
+		}
+		if strings.EqualFold(strings.TrimSpace(item.Country), strings.TrimSpace(country)) && strings.EqualFold(strings.TrimSpace(item.TaxTypeName), strings.TrimSpace(name)) {
+			return start + index
+		}
+	}
+	return settingsTaxTypeAddCursor(settings)
 }
 
 func paymentMethodTypeIndex(options []string, value string) int {
@@ -3333,6 +3880,409 @@ func (m model) goalProgressTotalsBase(items []goal) (accumulated int64, target i
 	return accumulated, target
 }
 
+func (m model) updateTaxNew(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if len(m.addTaxForm.taxTypeOptions) == 0 {
+		if msg.String() == "esc" {
+			m.screen = screenMenu
+			m.status = databaseStatus(m.created, len(m.accounts), m.dbPath)
+			return m, nil
+		}
+		return m, nil
+	}
+
+	switch msg.String() {
+	case "esc":
+		m.screen = screenMenu
+		m.status = databaseStatus(m.created, len(m.accounts), m.dbPath)
+		return m, nil
+	case "up", "shift+tab":
+		m.addTaxForm = m.addTaxForm.prev()
+		return m, nil
+	case "down", "tab":
+		m.addTaxForm = m.addTaxForm.next()
+		return m, nil
+	case "left":
+		if m.addTaxForm.active == taxFieldTaxType && m.addTaxForm.taxTypeIndex > 0 {
+			m.addTaxForm.taxTypeIndex--
+		}
+		return m, nil
+	case "right":
+		if m.addTaxForm.active == taxFieldTaxType && m.addTaxForm.taxTypeIndex < len(m.addTaxForm.taxTypeOptions)-1 {
+			m.addTaxForm.taxTypeIndex++
+		}
+		return m, nil
+	case "enter":
+		if m.addTaxForm.active == taxFieldCount-1 {
+			return m.saveTaxFromForm()
+		}
+		m.addTaxForm = m.addTaxForm.next()
+		return m, nil
+	}
+
+	if inputIndex := m.addTaxForm.inputIndexForField(m.addTaxForm.active); inputIndex >= 0 {
+		var cmd tea.Cmd
+		m.addTaxForm.inputs[inputIndex], cmd = m.addTaxForm.inputs[inputIndex].Update(msg)
+		return m, cmd
+	}
+
+	return m, nil
+}
+
+func (m model) updateTaxList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	filtered := m.filteredTaxes()
+	if len(filtered) == 0 {
+		if msg.String() == "esc" {
+			m.screen = screenMenu
+			m.status = databaseStatus(m.created, len(m.accounts), m.dbPath)
+		}
+		return m, nil
+	}
+
+	switch msg.String() {
+	case "esc":
+		m.screen = screenMenu
+		m.status = databaseStatus(m.created, len(m.accounts), m.dbPath)
+		return m, nil
+	case "up", "k":
+		if m.taxCursor > 0 {
+			m.taxCursor--
+		}
+		return m, nil
+	case "down", "j":
+		if m.taxCursor < len(filtered)-1 {
+			m.taxCursor++
+		}
+		return m, nil
+	case "enter", "l":
+		m = m.openTaxEditor(filtered[m.taxCursor]).(model)
+		return m, nil
+	default:
+		return m, nil
+	}
+}
+
+func (m model) openTaxEditor(selected tax) tea.Model {
+	m.screen = screenTaxEdit
+	m.editingTaxID = selected.ID
+	m.editTaxForm = newEditTaxForm()
+	m.editTaxForm.amountDueInput.SetValue(formatAmount(selected.AmountDueCents))
+	m.editTaxForm.amountPaidInput.SetValue(formatAmount(selected.AmountPaidCents))
+	m.editTaxForm.periodInput.SetValue(selected.Period)
+	if selected.DueDate != nil {
+		m.editTaxForm.dueDateInput.SetValue(selected.DueDate.Local().Format("02.01.2006"))
+	} else {
+		m.editTaxForm.dueDateInput.SetValue("")
+	}
+	m.editTaxForm.commentInput.SetValue(selected.Comment)
+	m.editTaxForm.logDateInput.SetValue(time.Now().Format("02.01.2006"))
+	m.editTaxForm.logCommentInput.SetValue("")
+	m.editTaxForm.taxTypeLabel = selected.TaxTypeName
+	m.editTaxForm.countryLabel = selected.TaxCountry
+	m.editTaxForm = m.editTaxForm.focusActive()
+
+	var logs []taxLog
+	if err := m.db.Where("tax_id = ?", selected.ID).Order("created_at desc, id desc").Limit(20).Find(&logs).Error; err == nil {
+		m.taxLogs = logs
+	} else {
+		m.taxLogs = nil
+	}
+
+	m.status = "editing tax " + selected.TaxCountry + " / " + selected.TaxTypeName
+	return m
+}
+
+func (m model) updateTaxEdit(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.screen = screenTaxList
+		m.status = "tax edit cancelled"
+		return m, nil
+	case "up", "shift+tab":
+		m.editTaxForm = m.editTaxForm.prev()
+		return m, nil
+	case "down", "tab":
+		m.editTaxForm = m.editTaxForm.next()
+		return m, nil
+	case "enter":
+		if m.editTaxForm.activeField == editTaxFieldLogComment {
+			return m.applyTaxLogDelta()
+		}
+		if m.editTaxForm.activeField == editTaxFieldComment {
+			return m.saveTaxEdit()
+		}
+		m.editTaxForm = m.editTaxForm.next()
+		return m, nil
+	}
+
+	var cmd tea.Cmd
+	switch m.editTaxForm.activeField {
+	case editTaxFieldAmountDue:
+		m.editTaxForm.amountDueInput, cmd = m.editTaxForm.amountDueInput.Update(msg)
+	case editTaxFieldAmountPaid:
+		m.editTaxForm.amountPaidInput, cmd = m.editTaxForm.amountPaidInput.Update(msg)
+	case editTaxFieldPeriod:
+		m.editTaxForm.periodInput, cmd = m.editTaxForm.periodInput.Update(msg)
+	case editTaxFieldDueDate:
+		m.editTaxForm.dueDateInput, cmd = m.editTaxForm.dueDateInput.Update(msg)
+	case editTaxFieldComment:
+		m.editTaxForm.commentInput, cmd = m.editTaxForm.commentInput.Update(msg)
+	case editTaxFieldLogDelta:
+		m.editTaxForm.logDeltaInput, cmd = m.editTaxForm.logDeltaInput.Update(msg)
+	case editTaxFieldLogDate:
+		m.editTaxForm.logDateInput, cmd = m.editTaxForm.logDateInput.Update(msg)
+	case editTaxFieldLogComment:
+		m.editTaxForm.logCommentInput, cmd = m.editTaxForm.logCommentInput.Update(msg)
+	}
+	return m, cmd
+}
+
+func (m model) saveTaxFromForm() (tea.Model, tea.Cmd) {
+	if len(m.addTaxForm.taxTypeOptions) == 0 {
+		m.status = "no tax types configured; add one in settings"
+		return m, nil
+	}
+
+	taxTypeIndex := m.addTaxForm.taxTypeIndex
+	if taxTypeIndex < 0 || taxTypeIndex >= len(m.addTaxForm.taxTypeOptions) {
+		taxTypeIndex = 0
+	}
+	selectedType := m.addTaxForm.taxTypeOptions[taxTypeIndex]
+	amountDueRaw := strings.TrimSpace(m.addTaxForm.inputs[0].Value())
+	amountPaidRaw := strings.TrimSpace(m.addTaxForm.inputs[1].Value())
+	period := strings.TrimSpace(m.addTaxForm.inputs[2].Value())
+	dueDateRaw := strings.TrimSpace(m.addTaxForm.inputs[3].Value())
+	comment := strings.TrimSpace(m.addTaxForm.inputs[4].Value())
+
+	if period == "" {
+		m.status = "period is required"
+		return m, nil
+	}
+
+	amountDue, err := parseAmountCents(amountDueRaw)
+	if err != nil {
+		m.status = "amount due error: " + err.Error()
+		return m, nil
+	}
+	if amountDue <= 0 {
+		m.status = "amount due must be greater than zero"
+		return m, nil
+	}
+
+	amountPaid, err := parseAmountCents(amountPaidRaw)
+	if err != nil {
+		m.status = "amount paid error: " + err.Error()
+		return m, nil
+	}
+
+	dueDate, err := parseOptionalDatePointer(dueDateRaw)
+	if err != nil {
+		m.status = err.Error()
+		return m, nil
+	}
+
+	now := time.Now()
+	newTax := tax{
+		TaxTypeID:       selectedType.ID,
+		TaxCountry:      strings.TrimSpace(selectedType.Country),
+		TaxTypeName:     strings.TrimSpace(selectedType.TaxTypeName),
+		AmountDueCents:  amountDue,
+		AmountPaidCents: amountPaid,
+		Period:          period,
+		DueDate:         dueDate,
+		Comment:         comment,
+		LastUpdatedAt:   now,
+	}
+
+	if err := m.db.Create(&newTax).Error; err != nil {
+		m.status = "save failed: " + err.Error()
+		return m, nil
+	}
+
+	m.taxes = append([]tax{newTax}, m.taxes...)
+	m.addTaxForm = newAddTaxForm(m.settings.TaxTypes)
+	m.screen = screenTaxList
+	if newTax.AmountPaidCents >= newTax.AmountDueCents {
+		m.taxMode = taxListHistory
+	} else {
+		m.taxMode = taxListUnpaid
+	}
+	m.taxCursor = 0
+	m.status = "saved tax " + newTax.TaxCountry + " / " + newTax.TaxTypeName
+	return m, nil
+}
+
+func (m model) saveTaxEdit() (tea.Model, tea.Cmd) {
+	index := m.findTaxIndex(m.editingTaxID)
+	if index < 0 {
+		m.status = "tax not found"
+		return m, nil
+	}
+
+	amountDue, err := parseAmountCents(strings.TrimSpace(m.editTaxForm.amountDueInput.Value()))
+	if err != nil {
+		m.status = "amount due error: " + err.Error()
+		return m, nil
+	}
+	if amountDue <= 0 {
+		m.status = "amount due must be greater than zero"
+		return m, nil
+	}
+
+	amountPaid, err := parseAmountCents(strings.TrimSpace(m.editTaxForm.amountPaidInput.Value()))
+	if err != nil {
+		m.status = "amount paid error: " + err.Error()
+		return m, nil
+	}
+
+	period := strings.TrimSpace(m.editTaxForm.periodInput.Value())
+	if period == "" {
+		m.status = "period is required"
+		return m, nil
+	}
+
+	dueDate, err := parseOptionalDatePointer(strings.TrimSpace(m.editTaxForm.dueDateInput.Value()))
+	if err != nil {
+		m.status = err.Error()
+		return m, nil
+	}
+
+	selected := m.taxes[index]
+	selected.AmountDueCents = amountDue
+	selected.AmountPaidCents = amountPaid
+	selected.Period = period
+	selected.DueDate = dueDate
+	selected.Comment = strings.TrimSpace(m.editTaxForm.commentInput.Value())
+	selected.LastUpdatedAt = time.Now()
+
+	if err := m.db.Save(&selected).Error; err != nil {
+		m.status = "save failed: " + err.Error()
+		return m, nil
+	}
+
+	m.taxes[index] = selected
+	m.screen = screenTaxList
+	m.status = "updated tax " + selected.TaxCountry + " / " + selected.TaxTypeName
+	return m, nil
+}
+
+func (m model) applyTaxLogDelta() (tea.Model, tea.Cmd) {
+	index := m.findTaxIndex(m.editingTaxID)
+	if index < 0 {
+		m.status = "tax not found"
+		return m, nil
+	}
+
+	delta, err := parseSignedAmountCents(strings.TrimSpace(m.editTaxForm.logDeltaInput.Value()))
+	if err != nil {
+		m.status = "log delta error: " + err.Error()
+		return m, nil
+	}
+	if delta == 0 {
+		m.status = "delta cannot be zero"
+		return m, nil
+	}
+
+	selected := m.taxes[index]
+	nextPaid := selected.AmountPaidCents + delta
+	if nextPaid < 0 {
+		m.status = "delta makes amount paid negative"
+		return m, nil
+	}
+
+	entryTime, err := parseLogDateOrToday(strings.TrimSpace(m.editTaxForm.logDateInput.Value()))
+	if err != nil {
+		m.status = err.Error()
+		return m, nil
+	}
+
+	now := time.Now()
+	selected.AmountPaidCents = nextPaid
+	selected.LastUpdatedAt = now
+	if err := m.db.Save(&selected).Error; err != nil {
+		m.status = "tax update failed: " + err.Error()
+		return m, nil
+	}
+
+	note := strings.TrimSpace(m.editTaxForm.logCommentInput.Value())
+	if note == "" {
+		note = "manual tax paid adjustment"
+	}
+	entry := taxLog{
+		TaxID:          selected.ID,
+		DeltaPaidCents: delta,
+		Note:           note,
+		CreatedAt:      entryTime,
+	}
+	if err := m.db.Create(&entry).Error; err != nil {
+		m.status = "log save failed: " + err.Error()
+		return m, nil
+	}
+
+	m.taxes[index] = selected
+	m.taxLogs = append([]taxLog{entry}, m.taxLogs...)
+	m.editTaxForm.amountPaidInput.SetValue(formatAmount(selected.AmountPaidCents))
+	m.editTaxForm.logDeltaInput.SetValue("")
+	m.editTaxForm.logDateInput.SetValue(time.Now().Format("02.01.2006"))
+	m.editTaxForm.logCommentInput.SetValue("")
+	m.status = "applied tax log delta"
+	return m, nil
+}
+
+func (m model) findTaxIndex(id uint) int {
+	for i := range m.taxes {
+		if m.taxes[i].ID == id {
+			return i
+		}
+	}
+	return -1
+}
+
+func (m model) filteredTaxes() []tax {
+	filtered := make([]tax, 0, len(m.taxes))
+	for _, item := range m.taxes {
+		paid := item.AmountPaidCents >= item.AmountDueCents
+		switch m.taxMode {
+		case taxListUnpaid:
+			if !paid {
+				filtered = append(filtered, item)
+			}
+		case taxListHistory:
+			if paid {
+				filtered = append(filtered, item)
+			}
+		}
+	}
+	return filtered
+}
+
+func taxProgressTotals(items []tax) (paid int64, total int64) {
+	for _, item := range items {
+		itemTotal := item.AmountDueCents
+		itemPaid := item.AmountPaidCents
+		if itemTotal < 0 {
+			itemTotal = 0
+		}
+		if itemPaid < 0 {
+			itemPaid = 0
+		}
+		if itemPaid > itemTotal {
+			itemPaid = itemTotal
+		}
+		total += itemTotal
+		paid += itemPaid
+	}
+	if paid > total {
+		paid = total
+	}
+	if paid < 0 {
+		paid = 0
+	}
+	if total < 0 {
+		total = 0
+	}
+	return paid, total
+}
+
 func debtDirectionLabel(isOwedToUser bool) string {
 	if isOwedToUser {
 		return "incoming (someone owes me)"
@@ -3428,7 +4378,7 @@ func (m model) View() string {
 func renderHeader(width int) string {
 	title := appTitleStyle.Render("CENTS")
 	badge := badgeStyle.Render("Personal Finance TUI")
-	subtitle := hintStyle.Render("accounts, subscriptions, debts, goals and settings")
+	subtitle := hintStyle.Render("accounts, subscriptions, debts, goals, taxes and settings")
 	line := lipgloss.JoinVertical(lipgloss.Left, lipgloss.JoinHorizontal(lipgloss.Center, title, "  ", badge), subtitle)
 	return panelStyle.Width(width).Render(line)
 }
@@ -3468,6 +4418,12 @@ func (m model) renderBody(width int) string {
 		return m.renderGoalList(width)
 	case screenGoalEdit:
 		return m.renderGoalEdit(width)
+	case screenTaxNew:
+		return m.renderTaxNew(width)
+	case screenTaxList:
+		return m.renderTaxList(width)
+	case screenTaxEdit:
+		return m.renderTaxEdit(width)
 	default:
 		return m.renderMenu(width)
 	}
@@ -4364,6 +5320,204 @@ func (m model) renderEditGoalField(field int, label string, value string) string
 	return prefix + fieldLabelStyle.Render(label) + "  " + value
 }
 
+func (m model) renderTaxNew(width int) string {
+	lines := []string{
+		headlineStyle.Render("New tax"),
+		mutedStyle.Render("Use up/down to move fields. Left/right changes tax type. Enter on last field saves."),
+		"",
+	}
+
+	if len(m.addTaxForm.taxTypeOptions) == 0 {
+		lines = append(lines, mutedStyle.Render("No tax types configured. Add one in Settings first."))
+		lines = append(lines, mutedStyle.Render("Press Esc to go back."))
+		return panelStyle.Width(width).Render(strings.Join(lines, "\n"))
+	}
+
+	lines = append(lines,
+		m.renderTaxChoiceRow(taxFieldTaxType, "Tax type", m.addTaxForm.taxDisplayNames, m.addTaxForm.taxTypeIndex),
+		m.renderTaxRowText(taxFieldAmountDue, "Amount due", m.addTaxForm.inputs[0].View()),
+		m.renderTaxRowText(taxFieldAmountPaid, "Amount paid", m.addTaxForm.inputs[1].View()),
+		m.renderTaxRowText(taxFieldPeriod, "Period", m.addTaxForm.inputs[2].View()),
+		m.renderTaxRowText(taxFieldDueDate, "Due date", m.addTaxForm.inputs[3].View()),
+		m.renderTaxRowText(taxFieldComment, "Comment", m.addTaxForm.inputs[4].View()),
+	)
+
+	return panelStyle.Width(width).Render(strings.Join(lines, "\n"))
+}
+
+func (m model) renderTaxRowText(field int, label string, value string) string {
+	prefix := "  "
+	if m.addTaxForm.active == field {
+		prefix = "> "
+	}
+	return prefix + fieldLabelStyle.Render(label) + "  " + value
+}
+
+func (m model) renderTaxChoiceRow(field int, label string, options []string, selected int) string {
+	prefix := "  "
+	if m.addTaxForm.active == field {
+		prefix = "> "
+	}
+
+	chips := make([]string, 0, len(options))
+	for i, option := range options {
+		style := buttonStyle
+		if i == selected {
+			style = buttonActiveStyle
+		}
+		chips = append(chips, style.Render(option))
+	}
+
+	return prefix + fieldLabelStyle.Render(label) + "  " + strings.Join(chips, " ")
+}
+
+func (m model) renderTaxList(width int) string {
+	title := "Unpaid taxes"
+	if m.taxMode == taxListHistory {
+		title = "Tax history (paid)"
+	}
+
+	lines := []string{lipgloss.JoinHorizontal(lipgloss.Center, sectionTitleStyle.Render(title), "  ", modeBadgeStyle.Render("Taxes")), hintStyle.Render("Use up/down to browse. Enter to edit tax and logs. Esc returns to menu."), ""}
+	filtered := m.filteredTaxes()
+	if len(filtered) == 0 {
+		lines = append(lines, mutedStyle.Render("No taxes found."))
+		return panelStyle.Width(width).Render(strings.Join(lines, "\n"))
+	}
+
+	paid, total := taxProgressTotals(filtered)
+	lines = append(lines, fieldLabelStyle.Render("Overall paid progress ("+m.baseCurrencyLabel()+")"))
+	lines = append(lines, "  "+m.renderProgressBar(paid, total, 28))
+	lines = append(lines, "")
+
+	lines = append(lines, m.renderTaxTableHeader(width))
+	for i, item := range filtered {
+		lines = append(lines, m.renderTaxTableRow(width, i, item))
+	}
+
+	return panelStyle.Width(width).Render(strings.Join(lines, "\n"))
+}
+
+func (m model) renderTaxTableHeader(width int) string {
+	countryWidth := 12
+	typeWidth := 14
+	dueWidth := 12
+	paidWidth := 12
+	leftWidth := 12
+	periodWidth := 12
+	dueDateWidth := 12
+	progressWidth := 8
+	commentWidth := width - 14 - countryWidth - typeWidth - dueWidth - paidWidth - leftWidth - periodWidth - dueDateWidth - progressWidth - 18
+	if commentWidth < 10 {
+		commentWidth = 10
+	}
+	header := fmt.Sprintf("%-2s %-*s %-*s %-*s %-*s %-*s %-*s %-*s %-*s %-*s", "#", countryWidth, "Country", typeWidth, "Tax type", dueWidth, "Due", paidWidth, "Paid", leftWidth, "Left", periodWidth, "Period", dueDateWidth, "Due date", progressWidth, "Done", commentWidth, "Comment")
+	return tableHeaderStyle.Render(header)
+}
+
+func (m model) renderTaxTableRow(width int, index int, item tax) string {
+	countryWidth := 12
+	typeWidth := 14
+	dueWidth := 12
+	paidWidth := 12
+	leftWidth := 12
+	periodWidth := 12
+	dueDateWidth := 12
+	progressWidth := 8
+	commentWidth := width - 14 - countryWidth - typeWidth - dueWidth - paidWidth - leftWidth - periodWidth - dueDateWidth - progressWidth - 18
+	if commentWidth < 10 {
+		commentWidth = 10
+	}
+
+	prefix := " "
+	style := rowStyle
+	if index == m.taxCursor {
+		prefix = ">"
+		style = selectedRowStyle
+	}
+
+	left := item.AmountDueCents - item.AmountPaidCents
+	if left < 0 {
+		left = 0
+	}
+	progressValue := 0.0
+	if item.AmountDueCents > 0 {
+		progressValue = (float64(item.AmountPaidCents) / float64(item.AmountDueCents)) * 100
+		if progressValue < 0 {
+			progressValue = 0
+		}
+		if progressValue > 100 {
+			progressValue = 100
+		}
+	}
+
+	base := m.baseCurrencyLabel()
+	dueDateLabel := "-"
+	if item.DueDate != nil {
+		dueDateLabel = item.DueDate.Local().Format("2006-01-02")
+	}
+	row := fmt.Sprintf("%s %-*s %-*s %-*s %-*s %-*s %-*s %-*s %-*s %-*s", prefix, countryWidth, truncateText(item.TaxCountry, countryWidth), typeWidth, truncateText(item.TaxTypeName, typeWidth), dueWidth, renderMoneyWithCurrency(base, item.AmountDueCents), paidWidth, renderMoneyWithCurrency(base, item.AmountPaidCents), leftWidth, renderMoneyWithCurrency(base, left), periodWidth, truncateText(item.Period, periodWidth), dueDateWidth, dueDateLabel, progressWidth, fmt.Sprintf("%5.1f%%", progressValue), commentWidth, truncateText(item.Comment, commentWidth))
+	return style.Render(row)
+}
+
+func (m model) renderTaxEdit(width int) string {
+	lines := []string{
+		headlineStyle.Render("Edit tax"),
+		mutedStyle.Render("Edit fields and press Enter on Comment to save."),
+		"",
+		mutedStyle.Render("Tax: " + m.editTaxForm.countryLabel + " / " + m.editTaxForm.taxTypeLabel),
+	}
+
+	if idx := m.findTaxIndex(m.editingTaxID); idx >= 0 {
+		item := m.taxes[idx]
+		lines = append(lines, fieldLabelStyle.Render("Paid progress"))
+		lines = append(lines, "  "+m.renderProgressBar(item.AmountPaidCents, item.AmountDueCents, 28))
+	}
+
+	lines = append(lines,
+		"",
+		m.renderEditTaxField(editTaxFieldAmountDue, "Amount due", m.editTaxForm.amountDueInput.View()),
+		m.renderEditTaxField(editTaxFieldAmountPaid, "Amount paid", m.editTaxForm.amountPaidInput.View()),
+		m.renderEditTaxField(editTaxFieldPeriod, "Period", m.editTaxForm.periodInput.View()),
+		m.renderEditTaxField(editTaxFieldDueDate, "Due date", m.editTaxForm.dueDateInput.View()),
+		m.renderEditTaxField(editTaxFieldComment, "Comment", m.editTaxForm.commentInput.View()),
+		"",
+		fieldLabelStyle.Render("Add transaction"),
+		mutedStyle.Render("Set delta/date/comment, then press Enter on Transaction comment to apply."),
+		m.renderEditTaxField(editTaxFieldLogDelta, "Transaction delta", m.editTaxForm.logDeltaInput.View()),
+		m.renderEditTaxField(editTaxFieldLogDate, "Transaction date", m.editTaxForm.logDateInput.View()),
+		m.renderEditTaxField(editTaxFieldLogComment, "Transaction comment", m.editTaxForm.logCommentInput.View()),
+		"",
+		fieldLabelStyle.Render("Logs"),
+	)
+
+	if len(m.taxLogs) == 0 {
+		lines = append(lines, mutedStyle.Render("No log entries yet."))
+	} else {
+		for _, entry := range m.taxLogs {
+			sign := "+"
+			if entry.DeltaPaidCents < 0 {
+				sign = ""
+			}
+			note := strings.TrimSpace(entry.Note)
+			if note != "" {
+				lines = append(lines, fmt.Sprintf("%s%s at %s | %s", sign, formatAmount(entry.DeltaPaidCents), entry.CreatedAt.Local().Format("2006-01-02 15:04"), note))
+			} else {
+				lines = append(lines, fmt.Sprintf("%s%s at %s", sign, formatAmount(entry.DeltaPaidCents), entry.CreatedAt.Local().Format("2006-01-02 15:04")))
+			}
+		}
+	}
+
+	return panelStyle.Width(width).Render(strings.Join(lines, "\n"))
+}
+
+func (m model) renderEditTaxField(field int, label string, value string) string {
+	prefix := "  "
+	if m.editTaxForm.activeField == field {
+		prefix = "> "
+	}
+	return prefix + fieldLabelStyle.Render(label) + "  " + value
+}
+
 func (m model) renderSettings(width int) string {
 	header := []string{sectionTitleStyle.Render("Settings"), hintStyle.Render("Use up/down to select rows. Enter edits selected row. Esc returns to menu."), ""}
 	header = append(header, sectionTitleStyle.Render("General"))
@@ -4413,6 +5567,27 @@ func (m model) renderSettings(width int) string {
 		methodAddPrefix = ">"
 	}
 	rows = append(rows, fmt.Sprintf("%s + add payment method", methodAddPrefix))
+
+	rows = append(rows, "", sectionTitleStyle.Render("Tax types"))
+	taxStart := settingsTaxTypeStartCursor(m.settings)
+	for index, taxType := range m.settings.TaxTypes {
+		prefix := " "
+		cursor := taxStart + index
+		if m.settingsCursor == cursor {
+			prefix = ">"
+		}
+		description := strings.TrimSpace(taxType.Description)
+		if description == "" {
+			description = "-"
+		}
+		rows = append(rows, fmt.Sprintf("%s %-14s %-16s %s", prefix, truncateText(taxType.Country, 14), truncateText(taxType.TaxTypeName, 16), truncateText(description, 26)))
+	}
+
+	taxAddPrefix := " "
+	if m.settingsCursor == settingsTaxTypeAddCursor(m.settings) {
+		taxAddPrefix = ">"
+	}
+	rows = append(rows, fmt.Sprintf("%s + add tax type", taxAddPrefix))
 
 	if m.settingsEditMode == settingsEditBaseCurrency {
 		rows = append(rows, "", mutedStyle.Render("Editing base currency: Enter saves, Esc exits settings."))
@@ -4467,6 +5642,33 @@ func (m model) renderSettings(width int) string {
 		rows = append(rows, fmt.Sprintf("%s Type     %s", typePrefix, strings.Join(typeOptions, " ")))
 		rows = append(rows, fmt.Sprintf("%s Default  %s", defaultPrefix, defaultMarker))
 		rows = append(rows, mutedStyle.Render("Enter/Tab moves fields. Left/right changes type. Space toggles default. Enter on Default saves. Esc exits settings."))
+	}
+
+	if m.settingsEditMode == settingsEditTaxType {
+		countryPrefix := " "
+		namePrefix := " "
+		descPrefix := " "
+		urlPrefix := " "
+		if m.settingsTaxTypeField == 0 {
+			countryPrefix = ">"
+		}
+		if m.settingsTaxTypeField == 1 {
+			namePrefix = ">"
+		}
+		if m.settingsTaxTypeField == 2 {
+			descPrefix = ">"
+		}
+		if m.settingsTaxTypeField == 3 {
+			urlPrefix = ">"
+		}
+
+		rows = append(rows, "")
+		rows = append(rows, fieldLabelStyle.Render("Tax type form"))
+		rows = append(rows, fmt.Sprintf("%s Country      %s", countryPrefix, m.settingsTaxTypeCountryInput.View()))
+		rows = append(rows, fmt.Sprintf("%s Tax type     %s", namePrefix, m.settingsTaxTypeNameInput.View()))
+		rows = append(rows, fmt.Sprintf("%s Description  %s", descPrefix, m.settingsTaxTypeDescriptionInput.View()))
+		rows = append(rows, fmt.Sprintf("%s URL          %s", urlPrefix, m.settingsTaxTypeURLInput.View()))
+		rows = append(rows, mutedStyle.Render("Enter/Tab moves fields. Enter on URL saves. Esc exits settings."))
 	}
 
 	if m.settingsDeleteConfirm {
