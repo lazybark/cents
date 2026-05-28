@@ -21,3 +21,5 @@ Edit account: ability to enter name of payment method or set an ID of existing.
 Make sure app can init DB on first launch. And also can restore all tables in case one of them is missing.
 
 Store settings in JSON file? Then we can easily setup app. And we do not depend on any DB to actually store settings. We can keep there path to DB.
+
+Data importer (CSV, JSON)
