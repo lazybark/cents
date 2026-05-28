@@ -111,6 +111,22 @@ type taxLog struct {
 	Note           string
 }
 
+type invoice struct {
+	ID            uint `gorm:"primaryKey"`
+	CreatedAt     time.Time
+	LastUpdatedAt time.Time `gorm:"not null;default:1970-01-01 00:00:00"`
+	Title         string
+	IsIncoming    bool
+	Currency      string
+	AmountCents   int64
+	Paid          bool
+	Peer          string
+	InvoiceDate   *time.Time
+	DueDate       *time.Time
+	URL           string
+	Description   string
+}
+
 type settingRecord struct {
 	SettingID    string `gorm:"primaryKey"`
 	SettingValue string
@@ -180,6 +196,9 @@ const (
 	screenTaxNew
 	screenTaxList
 	screenTaxEdit
+	screenInvoiceNew
+	screenInvoiceList
+	screenInvoiceEdit
 )
 
 type subscriptionListMode int
@@ -211,6 +230,14 @@ const (
 	taxListHistory
 )
 
+type invoiceListMode int
+
+const (
+	invoiceListOutgoingUnpaid invoiceListMode = iota
+	invoiceListIncomingUnpaid
+	invoiceListHistoryPaid
+)
+
 type model struct {
 	db                               *gorm.DB
 	dbPath                           string
@@ -221,6 +248,7 @@ type model struct {
 	debts                            []debt
 	goals                            []goal
 	taxes                            []tax
+	invoices                         []invoice
 	subscriptionMode                 subscriptionListMode
 	subscriptionCursor               int
 	debtMode                         debtListMode
@@ -235,6 +263,9 @@ type model struct {
 	taxCursor                        int
 	taxLogs                          []taxLog
 	editingTaxID                     uint
+	invoiceMode                      invoiceListMode
+	invoiceCursor                    int
+	editingInvoiceID                 uint
 	settings                         appSettings
 	settingsCursor                   int
 	settingsEditMode                 settingsEditMode
@@ -272,10 +303,12 @@ type model struct {
 	addDebtForm                      addDebtForm
 	addGoalForm                      addGoalForm
 	addTaxForm                       addTaxForm
+	addInvoiceForm                   addInvoiceForm
 	editSubscriptionForm             editSubscriptionForm
 	editDebtForm                     editDebtForm
 	editGoalForm                     editGoalForm
 	editTaxForm                      editTaxForm
+	editInvoiceForm                  editInvoiceForm
 	editingSubscriptionID            uint
 	editingSubscriptionMode          subscriptionListMode
 	editInput                        textinput.Model
@@ -415,6 +448,30 @@ type editTaxForm struct {
 	countryLabel    string
 }
 
+type addInvoiceForm struct {
+	inputs          []textinput.Model
+	active          int
+	currencyOptions []string
+	currencyIndex   int
+	isIncoming      bool
+	paid            bool
+}
+
+type editInvoiceForm struct {
+	titleInput       textinput.Model
+	amountInput      textinput.Model
+	peerInput        textinput.Model
+	invoiceDateInput textinput.Model
+	dueDateInput     textinput.Model
+	urlInput         textinput.Model
+	descriptionInput textinput.Model
+	activeField      int
+	currencyOptions  []string
+	currencyIndex    int
+	isIncoming       bool
+	paid             bool
+}
+
 const (
 	editSubFieldAmount = iota
 	editSubFieldPaymentMethod
@@ -505,6 +562,20 @@ const (
 	taxFieldCount
 )
 
+const (
+	invoiceFieldTitle = iota
+	invoiceFieldType
+	invoiceFieldCurrency
+	invoiceFieldAmount
+	invoiceFieldPaid
+	invoiceFieldPeer
+	invoiceFieldInvoiceDate
+	invoiceFieldDueDate
+	invoiceFieldURL
+	invoiceFieldDescription
+	invoiceFieldCount
+)
+
 var (
 	appTitleStyle     = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#F4E9D8"))
 	mutedStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color("#9C927F"))
@@ -564,13 +635,19 @@ func main() {
 		os.Exit(1)
 	}
 
+	invoices, err := loadInvoices(db)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "invoices read failed:", err)
+		os.Exit(1)
+	}
+
 	settings, err := loadAppSettings(db)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "settings read failed:", err)
 		os.Exit(1)
 	}
 
-	m := newModel(db, dbPath, created, accounts, subscriptions, debts, goals, taxes, settings)
+	m := newModel(db, dbPath, created, accounts, subscriptions, debts, goals, taxes, invoices, settings)
 	program := tea.NewProgram(m, tea.WithAltScreen())
 	if _, err := program.Run(); err != nil {
 		fmt.Fprintln(os.Stderr, "program failed:", err)
@@ -596,7 +673,7 @@ func openDatabase() (*gorm.DB, string, bool, error) {
 		return nil, "", false, err
 	}
 
-	if err := db.AutoMigrate(&account{}, &subscription{}, &debt{}, &debtLog{}, &goal{}, &goalLog{}, &tax{}, &taxLog{}, &settingRecord{}, &settingCurrency{}, &settingPaymentMethod{}, &settingTaxType{}); err != nil {
+	if err := db.AutoMigrate(&account{}, &subscription{}, &debt{}, &debtLog{}, &goal{}, &goalLog{}, &tax{}, &taxLog{}, &invoice{}, &settingRecord{}, &settingCurrency{}, &settingPaymentMethod{}, &settingTaxType{}); err != nil {
 		return nil, "", false, err
 	}
 
@@ -647,6 +724,14 @@ func loadTaxes(db *gorm.DB) ([]tax, error) {
 		return nil, err
 	}
 	return taxes, nil
+}
+
+func loadInvoices(db *gorm.DB) ([]invoice, error) {
+	var invoices []invoice
+	if err := db.Order("created_at desc, id desc").Find(&invoices).Error; err != nil {
+		return nil, err
+	}
+	return invoices, nil
 }
 
 func ensureSettingsDefaults(db *gorm.DB) error {
@@ -754,7 +839,7 @@ func loadAppSettings(db *gorm.DB) (appSettings, error) {
 	return settings, nil
 }
 
-func newModel(db *gorm.DB, dbPath string, created bool, accounts []account, subscriptions []subscription, debts []debt, goals []goal, taxes []tax, settings appSettings) model {
+func newModel(db *gorm.DB, dbPath string, created bool, accounts []account, subscriptions []subscription, debts []debt, goals []goal, taxes []tax, invoices []invoice, settings appSettings) model {
 	accounts = sortAccountsByBaseAmount(accounts, settings)
 	currencyOptions := currencySelectionOptions(settings)
 	paymentMethodOptions := paymentMethodSelectionOptions(settings)
@@ -763,6 +848,7 @@ func newModel(db *gorm.DB, dbPath string, created bool, accounts []account, subs
 	addDebtForm := newAddDebtForm(currencyOptions)
 	addGoalForm := newAddGoalForm(currencyOptions)
 	addTaxForm := newAddTaxForm(settings.TaxTypes)
+	addInvoiceForm := newAddInvoiceForm(currencyOptions)
 	editInput := textinput.New()
 	editInput.Placeholder = "1234.56"
 	editInput.CharLimit = 24
@@ -818,6 +904,7 @@ func newModel(db *gorm.DB, dbPath string, created bool, accounts []account, subs
 		debts:                            debts,
 		goals:                            goals,
 		taxes:                            taxes,
+		invoices:                         invoices,
 		debtMode:                         debtListOutgoing,
 		debtCursor:                       0,
 		debtLogs:                         nil,
@@ -830,6 +917,9 @@ func newModel(db *gorm.DB, dbPath string, created bool, accounts []account, subs
 		taxCursor:                        0,
 		taxLogs:                          nil,
 		editingTaxID:                     0,
+		invoiceMode:                      invoiceListOutgoingUnpaid,
+		invoiceCursor:                    0,
+		editingInvoiceID:                 0,
 		settings:                         settings,
 		settingsCursor:                   0,
 		settingsEditMode:                 settingsEditNone,
@@ -865,10 +955,12 @@ func newModel(db *gorm.DB, dbPath string, created bool, accounts []account, subs
 		addDebtForm:                      addDebtForm,
 		addGoalForm:                      addGoalForm,
 		addTaxForm:                       addTaxForm,
+		addInvoiceForm:                   addInvoiceForm,
 		editSubscriptionForm:             newEditSubscriptionForm(),
 		editDebtForm:                     newEditDebtForm(),
 		editGoalForm:                     newEditGoalForm(),
 		editTaxForm:                      newEditTaxForm(),
+		editInvoiceForm:                  newEditInvoiceForm(currencyOptions),
 		editInput:                        editInput,
 		help:                             helpModel,
 		keys:                             newKeyMap(),
@@ -1521,6 +1613,179 @@ func (f editTaxForm) prev() editTaxForm {
 	return f.focusActive()
 }
 
+func newAddInvoiceForm(currencyOptions []string) addInvoiceForm {
+	currencyOptions = invoiceCurrencySelectionOptions(currencyOptions)
+	today := time.Now().Format("02.01.2006")
+	inputs := make([]textinput.Model, 7)
+	placeholders := []string{"Invoice title", "1000.00", "Peer", today, "optional DD.MM.YYYY", "optional https://...", "optional description"}
+	for i := range inputs {
+		field := textinput.New()
+		field.Placeholder = placeholders[i]
+		field.CharLimit = 180
+		field.Width = 36
+		inputs[i] = field
+	}
+
+	form := addInvoiceForm{
+		inputs:          inputs,
+		active:          0,
+		currencyOptions: append([]string(nil), currencyOptions...),
+		currencyIndex:   0,
+		isIncoming:      true,
+		paid:            false,
+	}
+
+	return form.focusActive()
+}
+
+func (f addInvoiceForm) inputIndexForField(field int) int {
+	switch field {
+	case invoiceFieldTitle:
+		return 0
+	case invoiceFieldType:
+		return -1
+	case invoiceFieldCurrency:
+		return -1
+	case invoiceFieldAmount:
+		return 1
+	case invoiceFieldPaid:
+		return -1
+	case invoiceFieldPeer:
+		return 2
+	case invoiceFieldInvoiceDate:
+		return 3
+	case invoiceFieldDueDate:
+		return 4
+	case invoiceFieldURL:
+		return 5
+	case invoiceFieldDescription:
+		return 6
+	default:
+		return -1
+	}
+}
+
+func (f addInvoiceForm) focusActive() addInvoiceForm {
+	for i := range f.inputs {
+		f.inputs[i].Blur()
+	}
+	if inputIndex := f.inputIndexForField(f.active); inputIndex >= 0 {
+		f.inputs[inputIndex].Focus()
+	}
+	return f
+}
+
+func (f addInvoiceForm) next() addInvoiceForm {
+	if f.active < invoiceFieldCount-1 {
+		f.active++
+	}
+	return f.focusActive()
+}
+
+func (f addInvoiceForm) prev() addInvoiceForm {
+	if f.active > 0 {
+		f.active--
+	}
+	return f.focusActive()
+}
+
+func newEditInvoiceForm(currencyOptions []string) editInvoiceForm {
+	currencyOptions = invoiceCurrencySelectionOptions(currencyOptions)
+	titleInput := textinput.New()
+	titleInput.Placeholder = "Invoice title"
+	titleInput.CharLimit = 120
+	titleInput.Width = 36
+
+	amountInput := textinput.New()
+	amountInput.Placeholder = "optional 1000.00"
+	amountInput.CharLimit = 24
+	amountInput.Width = 20
+
+	peerInput := textinput.New()
+	peerInput.Placeholder = "peer"
+	peerInput.CharLimit = 120
+	peerInput.Width = 30
+
+	invoiceDateInput := textinput.New()
+	invoiceDateInput.Placeholder = "optional DD.MM.YYYY"
+	invoiceDateInput.CharLimit = 24
+	invoiceDateInput.Width = 24
+
+	dueDateInput := textinput.New()
+	dueDateInput.Placeholder = "optional DD.MM.YYYY"
+	dueDateInput.CharLimit = 24
+	dueDateInput.Width = 24
+
+	urlInput := textinput.New()
+	urlInput.Placeholder = "optional https://..."
+	urlInput.CharLimit = 180
+	urlInput.Width = 42
+
+	descriptionInput := textinput.New()
+	descriptionInput.Placeholder = "optional description"
+	descriptionInput.CharLimit = 180
+	descriptionInput.Width = 42
+
+	form := editInvoiceForm{
+		titleInput:       titleInput,
+		amountInput:      amountInput,
+		peerInput:        peerInput,
+		invoiceDateInput: invoiceDateInput,
+		dueDateInput:     dueDateInput,
+		urlInput:         urlInput,
+		descriptionInput: descriptionInput,
+		activeField:      0,
+		currencyOptions:  append([]string(nil), currencyOptions...),
+		currencyIndex:    0,
+		isIncoming:       true,
+		paid:             false,
+	}
+
+	return form.focusActive()
+}
+
+func (f editInvoiceForm) focusActive() editInvoiceForm {
+	f.titleInput.Blur()
+	f.amountInput.Blur()
+	f.peerInput.Blur()
+	f.invoiceDateInput.Blur()
+	f.dueDateInput.Blur()
+	f.urlInput.Blur()
+	f.descriptionInput.Blur()
+
+	switch f.activeField {
+	case invoiceFieldTitle:
+		f.titleInput.Focus()
+	case invoiceFieldAmount:
+		f.amountInput.Focus()
+	case invoiceFieldPeer:
+		f.peerInput.Focus()
+	case invoiceFieldInvoiceDate:
+		f.invoiceDateInput.Focus()
+	case invoiceFieldDueDate:
+		f.dueDateInput.Focus()
+	case invoiceFieldURL:
+		f.urlInput.Focus()
+	case invoiceFieldDescription:
+		f.descriptionInput.Focus()
+	}
+	return f
+}
+
+func (f editInvoiceForm) next() editInvoiceForm {
+	if f.activeField < invoiceFieldCount-1 {
+		f.activeField++
+	}
+	return f.focusActive()
+}
+
+func (f editInvoiceForm) prev() editInvoiceForm {
+	if f.activeField > 0 {
+		f.activeField--
+	}
+	return f.focusActive()
+}
+
 func newKeyMap() keyMap {
 	return keyMap{
 		Up: key.NewBinding(
@@ -1571,7 +1836,7 @@ func appMenuGroups() []menuGroup {
 		{title: "Incomes and Expences", items: []string{"New Expence", "New Income", "History"}},
 		{title: "Accounts", items: []string{"add account", "list accounts"}},
 		{title: "Subscriptions", items: []string{"new", "active", "all"}},
-		{title: "Invoices", items: []string{"new", "outgoing", "incoming"}},
+		{title: "Invoices", items: []string{"new", "outgoing", "incoming", "history"}},
 		{title: "Debts", items: []string{"new", "outgoing", "incoming", "history"}},
 		{title: "Goals", items: []string{"new", "all", "history"}},
 		{title: "Taxes", items: []string{"new", "unpaid", "history"}},
@@ -1686,6 +1951,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateTaxList(msg)
 		case screenTaxEdit:
 			return m.updateTaxEdit(msg)
+		case screenInvoiceNew:
+			return m.updateInvoiceNew(msg)
+		case screenInvoiceList:
+			return m.updateInvoiceList(msg)
+		case screenInvoiceEdit:
+			return m.updateInvoiceEdit(msg)
 		}
 	}
 
@@ -1815,6 +2086,37 @@ func (m model) activateMenuSelection() (tea.Model, tea.Cmd) {
 		m.subscriptionMode = subscriptionListAll
 		m.subscriptionCursor = 0
 		m.status = "all subscriptions"
+		return m, nil
+	}
+
+	if m.menuGroup == 3 && m.menuItem == 0 {
+		m.screen = screenInvoiceNew
+		m.addInvoiceForm = newAddInvoiceForm(currencySelectionOptions(m.settings))
+		m.status = "new invoice"
+		return m, nil
+	}
+
+	if m.menuGroup == 3 && m.menuItem == 1 {
+		m.screen = screenInvoiceList
+		m.invoiceMode = invoiceListOutgoingUnpaid
+		m.invoiceCursor = 0
+		m.status = "outgoing unpaid invoices"
+		return m, nil
+	}
+
+	if m.menuGroup == 3 && m.menuItem == 2 {
+		m.screen = screenInvoiceList
+		m.invoiceMode = invoiceListIncomingUnpaid
+		m.invoiceCursor = 0
+		m.status = "incoming unpaid invoices"
+		return m, nil
+	}
+
+	if m.menuGroup == 3 && m.menuItem == 3 {
+		m.screen = screenInvoiceList
+		m.invoiceMode = invoiceListHistoryPaid
+		m.invoiceCursor = 0
+		m.status = "invoice history"
 		return m, nil
 	}
 
@@ -4283,6 +4585,335 @@ func taxProgressTotals(items []tax) (paid int64, total int64) {
 	return paid, total
 }
 
+func (m model) updateInvoiceNew(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.screen = screenMenu
+		m.status = databaseStatus(m.created, len(m.accounts), m.dbPath)
+		return m, nil
+	case "up", "shift+tab":
+		m.addInvoiceForm = m.addInvoiceForm.prev()
+		return m, nil
+	case "down", "tab":
+		m.addInvoiceForm = m.addInvoiceForm.next()
+		return m, nil
+	case "left":
+		if m.addInvoiceForm.active == invoiceFieldType {
+			m.addInvoiceForm.isIncoming = true
+		}
+		if m.addInvoiceForm.active == invoiceFieldCurrency && m.addInvoiceForm.currencyIndex > 0 {
+			m.addInvoiceForm.currencyIndex--
+		}
+		return m, nil
+	case "right":
+		if m.addInvoiceForm.active == invoiceFieldType {
+			m.addInvoiceForm.isIncoming = false
+		}
+		if m.addInvoiceForm.active == invoiceFieldCurrency && m.addInvoiceForm.currencyIndex < len(m.addInvoiceForm.currencyOptions)-1 {
+			m.addInvoiceForm.currencyIndex++
+		}
+		return m, nil
+	case " ":
+		if m.addInvoiceForm.active == invoiceFieldPaid {
+			m.addInvoiceForm.paid = !m.addInvoiceForm.paid
+			return m, nil
+		}
+	case "enter":
+		if m.addInvoiceForm.active == invoiceFieldCount-1 {
+			return m.saveInvoiceFromForm()
+		}
+		m.addInvoiceForm = m.addInvoiceForm.next()
+		return m, nil
+	}
+
+	if inputIndex := m.addInvoiceForm.inputIndexForField(m.addInvoiceForm.active); inputIndex >= 0 {
+		var cmd tea.Cmd
+		m.addInvoiceForm.inputs[inputIndex], cmd = m.addInvoiceForm.inputs[inputIndex].Update(msg)
+		return m, cmd
+	}
+
+	return m, nil
+}
+
+func (m model) updateInvoiceList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	filtered := m.filteredInvoices()
+	if len(filtered) == 0 {
+		if msg.String() == "esc" {
+			m.screen = screenMenu
+			m.status = databaseStatus(m.created, len(m.accounts), m.dbPath)
+		}
+		return m, nil
+	}
+
+	switch msg.String() {
+	case "esc":
+		m.screen = screenMenu
+		m.status = databaseStatus(m.created, len(m.accounts), m.dbPath)
+		return m, nil
+	case "up", "k":
+		if m.invoiceCursor > 0 {
+			m.invoiceCursor--
+		}
+		return m, nil
+	case "down", "j":
+		if m.invoiceCursor < len(filtered)-1 {
+			m.invoiceCursor++
+		}
+		return m, nil
+	case "enter", "l":
+		m = m.openInvoiceEditor(filtered[m.invoiceCursor]).(model)
+		return m, nil
+	default:
+		return m, nil
+	}
+}
+
+func (m model) updateInvoiceEdit(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.screen = screenInvoiceList
+		m.status = "invoice edit cancelled"
+		return m, nil
+	case "up", "shift+tab":
+		m.editInvoiceForm = m.editInvoiceForm.prev()
+		return m, nil
+	case "down", "tab":
+		m.editInvoiceForm = m.editInvoiceForm.next()
+		return m, nil
+	case "left":
+		if m.editInvoiceForm.activeField == invoiceFieldType {
+			m.editInvoiceForm.isIncoming = true
+		}
+		if m.editInvoiceForm.activeField == invoiceFieldCurrency && m.editInvoiceForm.currencyIndex > 0 {
+			m.editInvoiceForm.currencyIndex--
+		}
+		return m, nil
+	case "right":
+		if m.editInvoiceForm.activeField == invoiceFieldType {
+			m.editInvoiceForm.isIncoming = false
+		}
+		if m.editInvoiceForm.activeField == invoiceFieldCurrency && m.editInvoiceForm.currencyIndex < len(m.editInvoiceForm.currencyOptions)-1 {
+			m.editInvoiceForm.currencyIndex++
+		}
+		return m, nil
+	case " ":
+		if m.editInvoiceForm.activeField == invoiceFieldPaid {
+			m.editInvoiceForm.paid = !m.editInvoiceForm.paid
+			return m, nil
+		}
+	case "enter":
+		if m.editInvoiceForm.activeField == invoiceFieldCount-1 {
+			return m.saveInvoiceEdit()
+		}
+		m.editInvoiceForm = m.editInvoiceForm.next()
+		return m, nil
+	}
+
+	var cmd tea.Cmd
+	switch m.editInvoiceForm.activeField {
+	case invoiceFieldTitle:
+		m.editInvoiceForm.titleInput, cmd = m.editInvoiceForm.titleInput.Update(msg)
+	case invoiceFieldAmount:
+		m.editInvoiceForm.amountInput, cmd = m.editInvoiceForm.amountInput.Update(msg)
+	case invoiceFieldPeer:
+		m.editInvoiceForm.peerInput, cmd = m.editInvoiceForm.peerInput.Update(msg)
+	case invoiceFieldInvoiceDate:
+		m.editInvoiceForm.invoiceDateInput, cmd = m.editInvoiceForm.invoiceDateInput.Update(msg)
+	case invoiceFieldDueDate:
+		m.editInvoiceForm.dueDateInput, cmd = m.editInvoiceForm.dueDateInput.Update(msg)
+	case invoiceFieldURL:
+		m.editInvoiceForm.urlInput, cmd = m.editInvoiceForm.urlInput.Update(msg)
+	case invoiceFieldDescription:
+		m.editInvoiceForm.descriptionInput, cmd = m.editInvoiceForm.descriptionInput.Update(msg)
+	}
+	return m, cmd
+}
+
+func (m model) saveInvoiceFromForm() (tea.Model, tea.Cmd) {
+	title := strings.TrimSpace(m.addInvoiceForm.inputs[0].Value())
+	currency := selectedCurrencyOption(m.addInvoiceForm.currencyOptions, m.addInvoiceForm.currencyIndex)
+	amountRaw := strings.TrimSpace(m.addInvoiceForm.inputs[1].Value())
+	peer := strings.TrimSpace(m.addInvoiceForm.inputs[2].Value())
+	invoiceDateRaw := strings.TrimSpace(m.addInvoiceForm.inputs[3].Value())
+	dueDateRaw := strings.TrimSpace(m.addInvoiceForm.inputs[4].Value())
+	url := strings.TrimSpace(m.addInvoiceForm.inputs[5].Value())
+	description := strings.TrimSpace(m.addInvoiceForm.inputs[6].Value())
+
+	if title == "" {
+		m.status = "invoice title is required"
+		return m, nil
+	}
+
+	amount, err := parseOptionalAmountCents(amountRaw)
+	if err != nil {
+		m.status = "amount error: " + err.Error()
+		return m, nil
+	}
+
+	invoiceDate, err := parseOptionalDatePointer(invoiceDateRaw)
+	if err != nil {
+		m.status = "invoice date must use DD.MM.YYYY format"
+		return m, nil
+	}
+
+	dueDate, err := parseOptionalDatePointer(dueDateRaw)
+	if err != nil {
+		m.status = "due date must use DD.MM.YYYY format"
+		return m, nil
+	}
+
+	now := time.Now()
+	item := invoice{
+		Title:         title,
+		IsIncoming:    m.addInvoiceForm.isIncoming,
+		Currency:      currency,
+		AmountCents:   amount,
+		Paid:          m.addInvoiceForm.paid,
+		Peer:          peer,
+		InvoiceDate:   invoiceDate,
+		DueDate:       dueDate,
+		URL:           url,
+		Description:   description,
+		LastUpdatedAt: now,
+	}
+
+	if err := m.db.Create(&item).Error; err != nil {
+		m.status = "save failed: " + err.Error()
+		return m, nil
+	}
+
+	m.invoices = append([]invoice{item}, m.invoices...)
+	m.addInvoiceForm = newAddInvoiceForm(currencySelectionOptions(m.settings))
+	m.screen = screenInvoiceList
+	if item.Paid {
+		m.invoiceMode = invoiceListHistoryPaid
+	} else if item.IsIncoming {
+		m.invoiceMode = invoiceListIncomingUnpaid
+	} else {
+		m.invoiceMode = invoiceListOutgoingUnpaid
+	}
+	m.invoiceCursor = 0
+	m.status = "saved invoice " + title
+	return m, nil
+}
+
+func (m model) openInvoiceEditor(item invoice) tea.Model {
+	m.screen = screenInvoiceEdit
+	m.editingInvoiceID = item.ID
+	m.editInvoiceForm = newEditInvoiceForm(currencySelectionOptions(m.settings))
+	m.editInvoiceForm.titleInput.SetValue(item.Title)
+	if item.AmountCents != 0 {
+		m.editInvoiceForm.amountInput.SetValue(formatAmount(item.AmountCents))
+	} else {
+		m.editInvoiceForm.amountInput.SetValue("")
+	}
+	m.editInvoiceForm.peerInput.SetValue(item.Peer)
+	if item.InvoiceDate != nil {
+		m.editInvoiceForm.invoiceDateInput.SetValue(item.InvoiceDate.Local().Format("02.01.2006"))
+	}
+	if item.DueDate != nil {
+		m.editInvoiceForm.dueDateInput.SetValue(item.DueDate.Local().Format("02.01.2006"))
+	}
+	m.editInvoiceForm.urlInput.SetValue(item.URL)
+	m.editInvoiceForm.descriptionInput.SetValue(item.Description)
+	m.editInvoiceForm.currencyIndex = 0
+	for i := range m.editInvoiceForm.currencyOptions {
+		if strings.EqualFold(strings.TrimSpace(m.editInvoiceForm.currencyOptions[i]), strings.TrimSpace(item.Currency)) {
+			m.editInvoiceForm.currencyIndex = i
+			break
+		}
+	}
+	m.editInvoiceForm.isIncoming = item.IsIncoming
+	m.editInvoiceForm.paid = item.Paid
+	m.editInvoiceForm = m.editInvoiceForm.focusActive()
+	m.status = "editing invoice " + item.Title
+	return m
+}
+
+func (m model) saveInvoiceEdit() (tea.Model, tea.Cmd) {
+	index := m.findInvoiceIndex(m.editingInvoiceID)
+	if index < 0 {
+		m.status = "invoice not found"
+		return m, nil
+	}
+
+	title := strings.TrimSpace(m.editInvoiceForm.titleInput.Value())
+	if title == "" {
+		m.status = "invoice title is required"
+		return m, nil
+	}
+
+	amount, err := parseOptionalAmountCents(strings.TrimSpace(m.editInvoiceForm.amountInput.Value()))
+	if err != nil {
+		m.status = "amount error: " + err.Error()
+		return m, nil
+	}
+
+	invoiceDate, err := parseOptionalDatePointer(strings.TrimSpace(m.editInvoiceForm.invoiceDateInput.Value()))
+	if err != nil {
+		m.status = "invoice date must use DD.MM.YYYY format"
+		return m, nil
+	}
+	dueDate, err := parseOptionalDatePointer(strings.TrimSpace(m.editInvoiceForm.dueDateInput.Value()))
+	if err != nil {
+		m.status = "due date must use DD.MM.YYYY format"
+		return m, nil
+	}
+
+	selected := m.invoices[index]
+	selected.Title = title
+	selected.IsIncoming = m.editInvoiceForm.isIncoming
+	selected.Currency = selectedCurrencyOption(m.editInvoiceForm.currencyOptions, m.editInvoiceForm.currencyIndex)
+	selected.AmountCents = amount
+	selected.Paid = m.editInvoiceForm.paid
+	selected.Peer = strings.TrimSpace(m.editInvoiceForm.peerInput.Value())
+	selected.InvoiceDate = invoiceDate
+	selected.DueDate = dueDate
+	selected.URL = strings.TrimSpace(m.editInvoiceForm.urlInput.Value())
+	selected.Description = strings.TrimSpace(m.editInvoiceForm.descriptionInput.Value())
+	selected.LastUpdatedAt = time.Now()
+
+	if err := m.db.Save(&selected).Error; err != nil {
+		m.status = "save failed: " + err.Error()
+		return m, nil
+	}
+
+	m.invoices[index] = selected
+	m.screen = screenInvoiceList
+	m.status = "updated invoice " + selected.Title
+	return m, nil
+}
+
+func (m model) filteredInvoices() []invoice {
+	filtered := make([]invoice, 0, len(m.invoices))
+	for _, item := range m.invoices {
+		switch m.invoiceMode {
+		case invoiceListOutgoingUnpaid:
+			if !item.Paid && !item.IsIncoming {
+				filtered = append(filtered, item)
+			}
+		case invoiceListIncomingUnpaid:
+			if !item.Paid && item.IsIncoming {
+				filtered = append(filtered, item)
+			}
+		case invoiceListHistoryPaid:
+			if item.Paid {
+				filtered = append(filtered, item)
+			}
+		}
+	}
+	return filtered
+}
+
+func (m model) findInvoiceIndex(id uint) int {
+	for i := range m.invoices {
+		if m.invoices[i].ID == id {
+			return i
+		}
+	}
+	return -1
+}
+
 func debtDirectionLabel(isOwedToUser bool) string {
 	if isOwedToUser {
 		return "incoming (someone owes me)"
@@ -4378,7 +5009,7 @@ func (m model) View() string {
 func renderHeader(width int) string {
 	title := appTitleStyle.Render("CENTS")
 	badge := badgeStyle.Render("Personal Finance TUI")
-	subtitle := hintStyle.Render("accounts, subscriptions, debts, goals, taxes and settings")
+	subtitle := hintStyle.Render("accounts, subscriptions, invoices, debts, goals, taxes and settings")
 	line := lipgloss.JoinVertical(lipgloss.Left, lipgloss.JoinHorizontal(lipgloss.Center, title, "  ", badge), subtitle)
 	return panelStyle.Width(width).Render(line)
 }
@@ -4424,6 +5055,12 @@ func (m model) renderBody(width int) string {
 		return m.renderTaxList(width)
 	case screenTaxEdit:
 		return m.renderTaxEdit(width)
+	case screenInvoiceNew:
+		return m.renderInvoiceNew(width)
+	case screenInvoiceList:
+		return m.renderInvoiceList(width)
+	case screenInvoiceEdit:
+		return m.renderInvoiceEdit(width)
 	default:
 		return m.renderMenu(width)
 	}
@@ -5510,6 +6147,203 @@ func (m model) renderTaxEdit(width int) string {
 	return panelStyle.Width(width).Render(strings.Join(lines, "\n"))
 }
 
+func (m model) renderInvoiceNew(width int) string {
+	typeIndex := 0
+	if !m.addInvoiceForm.isIncoming {
+		typeIndex = 1
+	}
+	paidMarker := "[ ]"
+	if m.addInvoiceForm.paid {
+		paidMarker = "[x]"
+	}
+
+	lines := []string{
+		headlineStyle.Render("New invoice"),
+		mutedStyle.Render("Only title and type are required. Use Enter on last field to save."),
+		"",
+		m.renderInvoiceRowText(invoiceFieldTitle, "Title", m.addInvoiceForm.inputs[0].View()),
+		m.renderInvoiceChoiceRow(invoiceFieldType, "Type", []string{"incoming (i must pay)", "outgoing (they pay me)"}, typeIndex),
+		m.renderInvoiceChoiceRow(invoiceFieldCurrency, "Currency", m.addInvoiceForm.currencyOptions, m.addInvoiceForm.currencyIndex),
+		m.renderInvoiceRowText(invoiceFieldAmount, "Amount", m.addInvoiceForm.inputs[1].View()),
+		m.renderInvoiceRowText(invoiceFieldPaid, "Paid", paidMarker),
+		m.renderInvoiceRowText(invoiceFieldPeer, "Peer", m.addInvoiceForm.inputs[2].View()),
+		m.renderInvoiceRowText(invoiceFieldInvoiceDate, "Invoice date", m.addInvoiceForm.inputs[3].View()),
+		m.renderInvoiceRowText(invoiceFieldDueDate, "Due date", m.addInvoiceForm.inputs[4].View()),
+		m.renderInvoiceRowText(invoiceFieldURL, "URL", m.addInvoiceForm.inputs[5].View()),
+		m.renderInvoiceRowText(invoiceFieldDescription, "Description", m.addInvoiceForm.inputs[6].View()),
+		"",
+		mutedStyle.Render("Space toggles Paid when active."),
+	}
+
+	return panelStyle.Width(width).Render(strings.Join(lines, "\n"))
+}
+
+func (m model) renderInvoiceList(width int) string {
+	title := "Outgoing unpaid invoices"
+	if m.invoiceMode == invoiceListIncomingUnpaid {
+		title = "Incoming unpaid invoices"
+	}
+	if m.invoiceMode == invoiceListHistoryPaid {
+		title = "Invoice history (paid)"
+	}
+
+	lines := []string{lipgloss.JoinHorizontal(lipgloss.Center, sectionTitleStyle.Render(title), "  ", modeBadgeStyle.Render("Invoices")), hintStyle.Render("Use up/down to browse. Enter to edit invoice. Esc returns to menu."), ""}
+	filtered := m.filteredInvoices()
+	if len(filtered) == 0 {
+		lines = append(lines, mutedStyle.Render("No invoices found."))
+		return panelStyle.Width(width).Render(strings.Join(lines, "\n"))
+	}
+
+	lines = append(lines, m.renderInvoiceTableHeader(width))
+	for i, item := range filtered {
+		lines = append(lines, m.renderInvoiceTableRow(width, i, item))
+	}
+
+	return panelStyle.Width(width).Render(strings.Join(lines, "\n"))
+}
+
+func (m model) renderInvoiceEdit(width int) string {
+	typeIndex := 0
+	if !m.editInvoiceForm.isIncoming {
+		typeIndex = 1
+	}
+	paidMarker := "[ ]"
+	if m.editInvoiceForm.paid {
+		paidMarker = "[x]"
+	}
+
+	lines := []string{
+		headlineStyle.Render("Edit invoice"),
+		mutedStyle.Render("Edit any field and press Enter on Description to save."),
+		"",
+		m.renderEditInvoiceField(invoiceFieldTitle, "Title", m.editInvoiceForm.titleInput.View()),
+		m.renderEditInvoiceChoiceRow(invoiceFieldType, "Type", []string{"incoming (i must pay)", "outgoing (they pay me)"}, typeIndex),
+		m.renderEditInvoiceChoiceRow(invoiceFieldCurrency, "Currency", m.editInvoiceForm.currencyOptions, m.editInvoiceForm.currencyIndex),
+		m.renderEditInvoiceField(invoiceFieldAmount, "Amount", m.editInvoiceForm.amountInput.View()),
+		m.renderEditInvoiceField(invoiceFieldPaid, "Paid", paidMarker),
+		m.renderEditInvoiceField(invoiceFieldPeer, "Peer", m.editInvoiceForm.peerInput.View()),
+		m.renderEditInvoiceField(invoiceFieldInvoiceDate, "Invoice date", m.editInvoiceForm.invoiceDateInput.View()),
+		m.renderEditInvoiceField(invoiceFieldDueDate, "Due date", m.editInvoiceForm.dueDateInput.View()),
+		m.renderEditInvoiceField(invoiceFieldURL, "URL", m.editInvoiceForm.urlInput.View()),
+		m.renderEditInvoiceField(invoiceFieldDescription, "Description", m.editInvoiceForm.descriptionInput.View()),
+		"",
+		mutedStyle.Render("Space toggles Paid when active."),
+	}
+
+	return panelStyle.Width(width).Render(strings.Join(lines, "\n"))
+}
+
+func (m model) renderInvoiceRowText(field int, label string, value string) string {
+	prefix := "  "
+	if m.addInvoiceForm.active == field {
+		prefix = "> "
+	}
+	return prefix + fieldLabelStyle.Render(label) + "  " + value
+}
+
+func (m model) renderInvoiceChoiceRow(field int, label string, options []string, selected int) string {
+	prefix := "  "
+	if m.addInvoiceForm.active == field {
+		prefix = "> "
+	}
+
+	chips := make([]string, 0, len(options))
+	for i, option := range options {
+		style := buttonStyle
+		if i == selected {
+			style = buttonActiveStyle
+		}
+		chips = append(chips, style.Render(option))
+	}
+
+	return prefix + fieldLabelStyle.Render(label) + "  " + strings.Join(chips, " ")
+}
+
+func (m model) renderEditInvoiceField(field int, label string, value string) string {
+	prefix := "  "
+	if m.editInvoiceForm.activeField == field {
+		prefix = "> "
+	}
+	return prefix + fieldLabelStyle.Render(label) + "  " + value
+}
+
+func (m model) renderEditInvoiceChoiceRow(field int, label string, options []string, selected int) string {
+	prefix := "  "
+	if m.editInvoiceForm.activeField == field {
+		prefix = "> "
+	}
+
+	chips := make([]string, 0, len(options))
+	for i, option := range options {
+		style := buttonStyle
+		if i == selected {
+			style = buttonActiveStyle
+		}
+		chips = append(chips, style.Render(option))
+	}
+
+	return prefix + fieldLabelStyle.Render(label) + "  " + strings.Join(chips, " ")
+}
+
+func (m model) renderInvoiceTableHeader(width int) string {
+	titleWidth := 16
+	typeWidth := 8
+	currencyWidth := 7
+	amountWidth := 12
+	paidWidth := 6
+	peerWidth := 14
+	invDateWidth := 10
+	dueDateWidth := 10
+	descWidth := width - 14 - titleWidth - typeWidth - currencyWidth - amountWidth - paidWidth - peerWidth - invDateWidth - dueDateWidth - 18
+	if descWidth < 8 {
+		descWidth = 8
+	}
+	header := fmt.Sprintf("%-2s %-*s %-*s %-*s %-*s %-*s %-*s %-*s %-*s %-*s", "#", titleWidth, "Title", typeWidth, "Type", currencyWidth, "Curr", amountWidth, "Amount", paidWidth, "Paid", peerWidth, "Peer", invDateWidth, "Issued", dueDateWidth, "Due", descWidth, "Description")
+	return tableHeaderStyle.Render(header)
+}
+
+func (m model) renderInvoiceTableRow(width int, index int, item invoice) string {
+	titleWidth := 16
+	typeWidth := 8
+	currencyWidth := 7
+	amountWidth := 12
+	paidWidth := 6
+	peerWidth := 14
+	invDateWidth := 10
+	dueDateWidth := 10
+	descWidth := width - 14 - titleWidth - typeWidth - currencyWidth - amountWidth - paidWidth - peerWidth - invDateWidth - dueDateWidth - 18
+	if descWidth < 8 {
+		descWidth = 8
+	}
+
+	prefix := " "
+	style := rowStyle
+	if index == m.invoiceCursor {
+		prefix = ">"
+		style = selectedRowStyle
+	}
+
+	typeLabel := "in"
+	if !item.IsIncoming {
+		typeLabel = "out"
+	}
+	paidLabel := "no"
+	if item.Paid {
+		paidLabel = "yes"
+	}
+	issued := "-"
+	if item.InvoiceDate != nil {
+		issued = item.InvoiceDate.Local().Format("2006-01-02")
+	}
+	due := "-"
+	if item.DueDate != nil {
+		due = item.DueDate.Local().Format("2006-01-02")
+	}
+
+	row := fmt.Sprintf("%s %-*s %-*s %-*s %-*s %-*s %-*s %-*s %-*s %-*s", prefix, titleWidth, truncateText(item.Title, titleWidth), typeWidth, typeLabel, currencyWidth, truncateText(item.Currency, currencyWidth), amountWidth, renderMoneyWithCurrency(item.Currency, item.AmountCents), paidWidth, paidLabel, peerWidth, truncateText(item.Peer, peerWidth), invDateWidth, issued, dueDateWidth, due, descWidth, truncateText(item.Description, descWidth))
+	return style.Render(row)
+}
+
 func (m model) renderEditTaxField(field int, label string, value string) string {
 	prefix := "  "
 	if m.editTaxForm.activeField == field {
@@ -5741,6 +6575,21 @@ func paymentMethodSelectionOptions(settings appSettings) []string {
 	return options
 }
 
+func invoiceCurrencySelectionOptions(currencyOptions []string) []string {
+	options := []string{""}
+	seen := map[string]struct{}{"": {}}
+	for _, item := range currencyOptions {
+		value := strings.TrimSpace(item)
+		key := strings.ToLower(value)
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		options = append(options, value)
+	}
+	return options
+}
+
 func selectedCurrencyOption(options []string, index int) string {
 	if len(options) == 0 {
 		return "$"
@@ -5903,6 +6752,14 @@ func parseAmountCents(raw string) (int64, error) {
 	}
 
 	return int64(math.Round(amount * 100)), nil
+}
+
+func parseOptionalAmountCents(raw string) (int64, error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return 0, nil
+	}
+	return parseAmountCents(trimmed)
 }
 
 func parseOptionalDay(raw string, minValue int, maxValue int, label string) (*int, error) {
