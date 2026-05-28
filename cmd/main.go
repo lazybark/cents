@@ -7020,16 +7020,25 @@ func (m model) renderCashflowHistory(width int) string {
 
 	var incomeTotal int64
 	var expenseTotal int64
+	missingRates := 0
 	for _, item := range items {
+		amountBase, ok := m.convertToBaseCents(item.Currency, item.AmountCents)
+		if !ok {
+			missingRates++
+			continue
+		}
 		if item.IsIncome {
-			incomeTotal += item.AmountCents
+			incomeTotal += amountBase
 		} else {
-			expenseTotal += item.AmountCents
+			expenseTotal += amountBase
 		}
 	}
 	net := incomeTotal - expenseTotal
 	base := m.baseCurrencyLabel()
 	lines = append(lines, fmt.Sprintf("Income: %s  Expense: %s  Net: %s", renderMoneyWithCurrency(base, incomeTotal), renderMoneyWithCurrency(base, expenseTotal), renderMoneyWithCurrency(base, net)))
+	if missingRates > 0 {
+		lines = append(lines, mutedStyle.Render(fmt.Sprintf("%d record(s) excluded from summary due to missing conversion rate.", missingRates)))
+	}
 	lines = append(lines, "")
 
 	lines = append(lines, m.renderCashflowHistoryHeader(width))
