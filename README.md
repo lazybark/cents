@@ -2,7 +2,6 @@
 
 ## Plans
 
-- [ ] Invoice tracker (sent) (to track invoices with recepient, date, number, also optional link to the invoice file, and payment status)
 - [ ] Flow to rename currency and not lose the data for accounts & other entities related to the currency (like transactions, budgets, etc.)
 - [ ] Same flow for payment methods.
 - [ ] Store DB schema by versions once we have 0.0.1 release, to be able to track changes and update the DB schema on app updates without losing data.
@@ -23,3 +22,7 @@ Make sure app can init DB on first launch. And also can restore all tables in ca
 Store settings in JSON file? Then we can easily setup app. And we do not depend on any DB to actually store settings. We can keep there path to DB.
 
 Data importer (CSV, JSON)
+
+Credits: loaner (bank, other org), from date, due date, amount, currency, logs
+
+General data on main screen. Like monthly subscr cost, total money on all accounts, total debts, unpaid taxes, unpaid invoices, total goals progress.

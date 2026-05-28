@@ -655,6 +655,7 @@ var (
 	selectedRowStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#1F1A17")).Background(lipgloss.Color("#E7C96D"))
 	rowStyle          = lipgloss.NewStyle().Foreground(lipgloss.Color("#F4E9D8"))
 	inputBoxStyle     = lipgloss.NewStyle().Border(lipgloss.NormalBorder()).BorderForeground(lipgloss.Color("#6F5F47")).Padding(0, 1)
+	obligationStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("#FF6B6B")).Bold(true)
 )
 
 func main() {
@@ -5667,7 +5668,7 @@ func (m model) renderBody(width int) string {
 }
 
 func (m model) renderMenu(width int) string {
-	overview := m.renderReadOnlyAccountOverview(width)
+	dashboard := m.renderDashboard(width)
 	groups := appMenuGroups()
 	leftColumn := make([]string, 0, len(groups)/2+1)
 	rightColumn := make([]string, 0, len(groups)/2+1)
@@ -5687,7 +5688,7 @@ func (m model) renderMenu(width int) string {
 
 	content := lipgloss.JoinVertical(
 		lipgloss.Left,
-		overview,
+		dashboard,
 		"",
 		headlineStyle.Render("Menu"),
 		"",
@@ -5777,6 +5778,114 @@ func minInt(left int, right int) int {
 	}
 
 	return right
+}
+
+func (m model) renderDashboard(width int) string {
+	base := m.baseCurrencyLabel()
+	lines := []string{sectionTitleStyle.Render("Financial Summary")}
+
+	// Monthly net: income - expenses for current month
+	var monthlyIncome int64
+	var monthlyExpense int64
+	for _, item := range m.filteredCashflowsForMonth() {
+		amountBase, ok := m.convertToBaseCents(item.Currency, item.AmountCents)
+		if !ok {
+			continue
+		}
+		if item.IsIncome {
+			monthlyIncome += amountBase
+		} else {
+			monthlyExpense += amountBase
+		}
+	}
+	monthlyNet := monthlyIncome - monthlyExpense
+	lines = append(lines, fmt.Sprintf("Monthly net:        %s", renderMoneyWithCurrency(base, monthlyNet)))
+
+	// Subscription totals
+	activeSubscriptions := make([]subscription, 0)
+	for _, sub := range m.subscriptions {
+		if sub.IsActive {
+			activeSubscriptions = append(activeSubscriptions, sub)
+		}
+	}
+	monthlySubCost, yearlySubProjection := m.subscriptionTotalsInBaseCents(activeSubscriptions)
+	lines = append(lines, fmt.Sprintf("Monthly subscr:     %s", renderMoneyWithCurrency(base, monthlySubCost)))
+	lines = append(lines, fmt.Sprintf("Yearly subscr:      %s", renderMoneyWithCurrency(base, yearlySubProjection)))
+
+	// Total accounts
+	totalAccounts := m.sumAccountsInBaseCents()
+	lines = append(lines, fmt.Sprintf("Total accounts:     %s", renderMoneyWithCurrency(base, totalAccounts)))
+
+	// Unpaid debts (separate by direction)
+	var unPaidDebtToMe int64
+	var unPaidDebtByMe int64
+	for _, d := range m.debts {
+		if d.AmountPaidCents >= d.AmountCents {
+			continue
+		}
+		converted, ok := m.convertToBaseCents(d.Currency, d.AmountCents-d.AmountPaidCents)
+		if !ok {
+			continue
+		}
+		if d.IsOwedToUser {
+			unPaidDebtToMe += converted
+		} else {
+			unPaidDebtByMe += converted
+		}
+	}
+	incomingDebtStr := renderMoneyWithCurrency(base, unPaidDebtToMe)
+	outgoingDebtStr := obligationStyle.Render(renderMoneyWithCurrency(base, unPaidDebtByMe))
+	lines = append(lines, fmt.Sprintf("Unpaid debts (to):  %s", incomingDebtStr))
+	lines = append(lines, fmt.Sprintf("Unpaid debts (by):  %s", outgoingDebtStr))
+
+	// Unpaid taxes
+	var unpaidTaxes int64
+	for _, tax := range m.taxes {
+		if tax.AmountPaidCents < tax.AmountDueCents {
+			converted, ok := m.convertToBaseCents(base, tax.AmountDueCents-tax.AmountPaidCents)
+			if !ok {
+				continue
+			}
+			unpaidTaxes += converted
+		}
+	}
+	unpaidTaxesStr := obligationStyle.Render(renderMoneyWithCurrency(base, unpaidTaxes))
+	lines = append(lines, fmt.Sprintf("Unpaid taxes:       %s", unpaidTaxesStr))
+
+	// Unpaid invoices (separate by direction)
+	var unpaidInvoiceToMe int64
+	var unpaidInvoiceByMe int64
+	for _, inv := range m.invoices {
+		if inv.Paid {
+			continue
+		}
+		converted, ok := m.convertToBaseCents(inv.Currency, inv.AmountCents)
+		if !ok {
+			continue
+		}
+		if inv.IsIncoming {
+			unpaidInvoiceToMe += converted
+		} else {
+			unpaidInvoiceByMe += converted
+		}
+	}
+	incomingInvoiceStr := renderMoneyWithCurrency(base, unpaidInvoiceToMe)
+	outgoingInvoiceStr := obligationStyle.Render(renderMoneyWithCurrency(base, unpaidInvoiceByMe))
+	lines = append(lines, fmt.Sprintf("Unpaid invoices (to): %s", incomingInvoiceStr))
+	lines = append(lines, fmt.Sprintf("Unpaid invoices (by): %s", outgoingInvoiceStr))
+
+	// Goals progress
+	accumulatedBase, targetBase := m.goalProgressTotalsBase(m.goals)
+	var goalsProgressStr string
+	if targetBase > 0 {
+		percentage := (float64(accumulatedBase) / float64(targetBase)) * 100
+		goalsProgressStr = fmt.Sprintf("%s / %s (%.1f%%)", renderMoneyWithCurrency(base, accumulatedBase), renderMoneyWithCurrency(base, targetBase), percentage)
+	} else {
+		goalsProgressStr = fmt.Sprintf("%s / %s", renderMoneyWithCurrency(base, accumulatedBase), renderMoneyWithCurrency(base, targetBase))
+	}
+	lines = append(lines, fmt.Sprintf("Goals progress:     %s", goalsProgressStr))
+
+	return panelStyle.Width(width).Render(strings.Join(lines, "\n"))
 }
 
 func (m model) renderReadOnlyAccountOverview(width int) string {
