@@ -5780,9 +5780,16 @@ func minInt(left int, right int) int {
 	return right
 }
 
+func (m model) renderMoneyConditionalRed(base string, cents int64) string {
+	formatted := renderMoneyWithCurrency(base, cents)
+	if cents > 0 {
+		return obligationStyle.Render(formatted)
+	}
+	return formatted
+}
+
 func (m model) renderDashboard(width int) string {
 	base := m.baseCurrencyLabel()
-	lines := []string{sectionTitleStyle.Render("Financial Summary")}
 
 	// Monthly net: income - expenses for current month
 	var monthlyIncome int64
@@ -5799,7 +5806,6 @@ func (m model) renderDashboard(width int) string {
 		}
 	}
 	monthlyNet := monthlyIncome - monthlyExpense
-	lines = append(lines, fmt.Sprintf("Monthly net:        %s", renderMoneyWithCurrency(base, monthlyNet)))
 
 	// Subscription totals
 	activeSubscriptions := make([]subscription, 0)
@@ -5809,12 +5815,9 @@ func (m model) renderDashboard(width int) string {
 		}
 	}
 	monthlySubCost, yearlySubProjection := m.subscriptionTotalsInBaseCents(activeSubscriptions)
-	lines = append(lines, fmt.Sprintf("Monthly subscr:     %s", renderMoneyWithCurrency(base, monthlySubCost)))
-	lines = append(lines, fmt.Sprintf("Yearly subscr:      %s", renderMoneyWithCurrency(base, yearlySubProjection)))
 
 	// Total accounts
 	totalAccounts := m.sumAccountsInBaseCents()
-	lines = append(lines, fmt.Sprintf("Total accounts:     %s", renderMoneyWithCurrency(base, totalAccounts)))
 
 	// Unpaid debts (separate by direction)
 	var unPaidDebtToMe int64
@@ -5833,10 +5836,6 @@ func (m model) renderDashboard(width int) string {
 			unPaidDebtByMe += converted
 		}
 	}
-	incomingDebtStr := renderMoneyWithCurrency(base, unPaidDebtToMe)
-	outgoingDebtStr := obligationStyle.Render(renderMoneyWithCurrency(base, unPaidDebtByMe))
-	lines = append(lines, fmt.Sprintf("Unpaid debts (to):  %s", incomingDebtStr))
-	lines = append(lines, fmt.Sprintf("Unpaid debts (by):  %s", outgoingDebtStr))
 
 	// Unpaid taxes
 	var unpaidTaxes int64
@@ -5849,8 +5848,6 @@ func (m model) renderDashboard(width int) string {
 			unpaidTaxes += converted
 		}
 	}
-	unpaidTaxesStr := obligationStyle.Render(renderMoneyWithCurrency(base, unpaidTaxes))
-	lines = append(lines, fmt.Sprintf("Unpaid taxes:       %s", unpaidTaxesStr))
 
 	// Unpaid invoices (separate by direction)
 	var unpaidInvoiceToMe int64
@@ -5869,10 +5866,6 @@ func (m model) renderDashboard(width int) string {
 			unpaidInvoiceByMe += converted
 		}
 	}
-	incomingInvoiceStr := renderMoneyWithCurrency(base, unpaidInvoiceToMe)
-	outgoingInvoiceStr := obligationStyle.Render(renderMoneyWithCurrency(base, unpaidInvoiceByMe))
-	lines = append(lines, fmt.Sprintf("Unpaid invoices (to): %s", incomingInvoiceStr))
-	lines = append(lines, fmt.Sprintf("Unpaid invoices (by): %s", outgoingInvoiceStr))
 
 	// Goals progress
 	accumulatedBase, targetBase := m.goalProgressTotalsBase(m.goals)
@@ -5883,9 +5876,36 @@ func (m model) renderDashboard(width int) string {
 	} else {
 		goalsProgressStr = fmt.Sprintf("%s / %s", renderMoneyWithCurrency(base, accumulatedBase), renderMoneyWithCurrency(base, targetBase))
 	}
-	lines = append(lines, fmt.Sprintf("Goals progress:     %s", goalsProgressStr))
 
-	return panelStyle.Width(width).Render(strings.Join(lines, "\n"))
+	// Build left column
+	leftLines := []string{sectionTitleStyle.Render("Financial Summary")}
+	leftLines = append(leftLines,
+		fmt.Sprintf("Monthly net:        %s", renderMoneyWithCurrency(base, monthlyNet)),
+		fmt.Sprintf("Monthly subscr:     %s", renderMoneyWithCurrency(base, monthlySubCost)),
+		fmt.Sprintf("Yearly subscr:      %s", renderMoneyWithCurrency(base, yearlySubProjection)),
+		fmt.Sprintf("Total accounts:     %s", renderMoneyWithCurrency(base, totalAccounts)),
+	)
+	leftColumn := strings.Join(leftLines, "\n")
+
+	// Build right column
+	rightLines := []string{sectionTitleStyle.Render("Obligations")}
+	rightLines = append(rightLines,
+		fmt.Sprintf("Debts (to):         %s", renderMoneyWithCurrency(base, unPaidDebtToMe)),
+		fmt.Sprintf("Debts (by):         %s", m.renderMoneyConditionalRed(base, unPaidDebtByMe)),
+		fmt.Sprintf("Unpaid taxes:       %s", m.renderMoneyConditionalRed(base, unpaidTaxes)),
+		fmt.Sprintf("Invoices (to):      %s", renderMoneyWithCurrency(base, unpaidInvoiceToMe)),
+		fmt.Sprintf("Invoices (by):      %s", m.renderMoneyConditionalRed(base, unpaidInvoiceByMe)),
+		fmt.Sprintf("Goals progress:     %s", goalsProgressStr),
+	)
+	rightColumn := strings.Join(rightLines, "\n")
+
+	// Combine columns
+	columnWidth := (width - 8) / 2
+	leftView := lipgloss.NewStyle().Width(columnWidth).Render(leftColumn)
+	rightView := lipgloss.NewStyle().Width(columnWidth).Render(rightColumn)
+	twoColumnDashboard := lipgloss.JoinHorizontal(lipgloss.Top, leftView, "  ", rightView)
+
+	return panelStyle.Width(width).Render(twoColumnDashboard)
 }
 
 func (m model) renderReadOnlyAccountOverview(width int) string {
