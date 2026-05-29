@@ -330,6 +330,10 @@ type model struct {
 	settingsDeleteTargetID           uint
 	settingsDeleteTargetName         string
 	settingsDeleteChoice             int
+	deleteConfirmActive              bool
+	deleteConfirmType                string
+	deleteConfirmID                  uint
+	deleteConfirmName                string
 	status                           string
 	width                            int
 	height                           int
@@ -3835,6 +3839,208 @@ func (m model) deleteSelectedSubscription(filtered []subscription) (tea.Model, t
 	return m, nil
 }
 
+func (m model) beginDeleteConfirmation(targetType string, targetID uint, targetName string) model {
+	m.deleteConfirmActive = true
+	m.deleteConfirmType = targetType
+	m.deleteConfirmID = targetID
+	m.deleteConfirmName = strings.TrimSpace(targetName)
+	displayName := m.deleteConfirmName
+	if displayName == "" {
+		displayName = fmt.Sprintf("id=%d", targetID)
+	}
+	m.status = fmt.Sprintf("confirm delete %s %s? press y to confirm, n to cancel", targetType, displayName)
+	return m
+}
+
+func (m model) clearDeleteConfirmation(status string) model {
+	m.deleteConfirmActive = false
+	m.deleteConfirmType = ""
+	m.deleteConfirmID = 0
+	m.deleteConfirmName = ""
+	if strings.TrimSpace(status) != "" {
+		m.status = status
+	}
+	return m
+}
+
+func (m model) handleDeleteConfirmation(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
+	if !m.deleteConfirmActive {
+		return m, nil, false
+	}
+
+	switch strings.ToLower(msg.String()) {
+	case "y", "enter":
+		updatedModel, cmd := m.applyConfirmedDelete()
+		return updatedModel, cmd, true
+	case "n", "esc":
+		m = m.clearDeleteConfirmation("delete cancelled")
+		return m, nil, true
+	default:
+		return m, nil, true
+	}
+}
+
+func (m model) applyConfirmedDelete() (tea.Model, tea.Cmd) {
+	switch m.deleteConfirmType {
+	case "cashflow":
+		return m.confirmDeleteCashflow()
+	case "debt":
+		return m.confirmDeleteDebt()
+	case "goal":
+		return m.confirmDeleteGoal()
+	case "tax":
+		return m.confirmDeleteTax()
+	case "invoice":
+		return m.confirmDeleteInvoice()
+	default:
+		m = m.clearDeleteConfirmation("delete target is invalid")
+		return m, nil
+	}
+}
+
+func (m model) confirmDeleteCashflow() (tea.Model, tea.Cmd) {
+	index := -1
+	for i := range m.cashflows {
+		if m.cashflows[i].ID == m.deleteConfirmID {
+			index = i
+			break
+		}
+	}
+	if index < 0 {
+		m = m.clearDeleteConfirmation("entry not found")
+		return m, nil
+	}
+
+	selected := m.cashflows[index]
+	if err := m.db.Delete(&cashflowEntry{}, selected.ID).Error; err != nil {
+		m = m.clearDeleteConfirmation("delete failed: " + err.Error())
+		return m, nil
+	}
+
+	m.cashflows = append(m.cashflows[:index], m.cashflows[index+1:]...)
+	items := m.filteredCashflowsForMonth()
+	if len(items) == 0 {
+		m.cashflowCursor = 0
+	} else if m.cashflowCursor >= len(items) {
+		m.cashflowCursor = len(items) - 1
+	}
+
+	m = m.clearDeleteConfirmation("deleted cashflow entry")
+	return m, nil
+}
+
+func (m model) confirmDeleteDebt() (tea.Model, tea.Cmd) {
+	index := m.findDebtIndex(m.deleteConfirmID)
+	if index < 0 {
+		m = m.clearDeleteConfirmation("debt not found")
+		return m, nil
+	}
+
+	selected := m.debts[index]
+	if err := m.db.Where("debt_id = ?", selected.ID).Delete(&debtLog{}).Error; err != nil {
+		m = m.clearDeleteConfirmation("delete failed: " + err.Error())
+		return m, nil
+	}
+	if err := m.db.Delete(&debt{}, selected.ID).Error; err != nil {
+		m = m.clearDeleteConfirmation("delete failed: " + err.Error())
+		return m, nil
+	}
+
+	m.debts = append(m.debts[:index], m.debts[index+1:]...)
+	filteredAfter := m.filteredDebts()
+	if len(filteredAfter) == 0 {
+		m.debtCursor = 0
+	} else if m.debtCursor >= len(filteredAfter) {
+		m.debtCursor = len(filteredAfter) - 1
+	}
+
+	m = m.clearDeleteConfirmation("deleted debt " + selected.Peer)
+	return m, nil
+}
+
+func (m model) confirmDeleteGoal() (tea.Model, tea.Cmd) {
+	index := m.findGoalIndex(m.deleteConfirmID)
+	if index < 0 {
+		m = m.clearDeleteConfirmation("goal not found")
+		return m, nil
+	}
+
+	selected := m.goals[index]
+	if err := m.db.Where("goal_id = ?", selected.ID).Delete(&goalLog{}).Error; err != nil {
+		m = m.clearDeleteConfirmation("delete failed: " + err.Error())
+		return m, nil
+	}
+	if err := m.db.Delete(&goal{}, selected.ID).Error; err != nil {
+		m = m.clearDeleteConfirmation("delete failed: " + err.Error())
+		return m, nil
+	}
+
+	m.goals = append(m.goals[:index], m.goals[index+1:]...)
+	filteredAfter := m.filteredGoals()
+	if len(filteredAfter) == 0 {
+		m.goalCursor = 0
+	} else if m.goalCursor >= len(filteredAfter) {
+		m.goalCursor = len(filteredAfter) - 1
+	}
+
+	m = m.clearDeleteConfirmation("deleted goal " + selected.Name)
+	return m, nil
+}
+
+func (m model) confirmDeleteTax() (tea.Model, tea.Cmd) {
+	index := m.findTaxIndex(m.deleteConfirmID)
+	if index < 0 {
+		m = m.clearDeleteConfirmation("tax not found")
+		return m, nil
+	}
+
+	selected := m.taxes[index]
+	if err := m.db.Where("tax_id = ?", selected.ID).Delete(&taxLog{}).Error; err != nil {
+		m = m.clearDeleteConfirmation("delete failed: " + err.Error())
+		return m, nil
+	}
+	if err := m.db.Delete(&tax{}, selected.ID).Error; err != nil {
+		m = m.clearDeleteConfirmation("delete failed: " + err.Error())
+		return m, nil
+	}
+
+	m.taxes = append(m.taxes[:index], m.taxes[index+1:]...)
+	filteredAfter := m.filteredTaxes()
+	if len(filteredAfter) == 0 {
+		m.taxCursor = 0
+	} else if m.taxCursor >= len(filteredAfter) {
+		m.taxCursor = len(filteredAfter) - 1
+	}
+
+	m = m.clearDeleteConfirmation("deleted tax " + selected.TaxCountry + " / " + selected.TaxTypeName)
+	return m, nil
+}
+
+func (m model) confirmDeleteInvoice() (tea.Model, tea.Cmd) {
+	index := m.findInvoiceIndex(m.deleteConfirmID)
+	if index < 0 {
+		m = m.clearDeleteConfirmation("invoice not found")
+		return m, nil
+	}
+
+	selected := m.invoices[index]
+	if err := m.db.Delete(&invoice{}, selected.ID).Error; err != nil {
+		m = m.clearDeleteConfirmation("delete failed: " + err.Error())
+		return m, nil
+	}
+
+	m.invoices = append(m.invoices[:index], m.invoices[index+1:]...)
+	filteredAfter := m.filteredInvoices()
+	if len(filteredAfter) == 0 {
+		m.invoiceCursor = 0
+	} else if m.invoiceCursor >= len(filteredAfter) {
+		m.invoiceCursor = len(filteredAfter) - 1
+	}
+
+	m = m.clearDeleteConfirmation("deleted invoice " + selected.Title)
+	return m, nil
+}
+
 func (m model) updateDebtNew(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
@@ -3886,6 +4092,10 @@ func (m model) updateDebtNew(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) updateDebtList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if updatedModel, cmd, handled := m.handleDeleteConfirmation(msg); handled {
+		return updatedModel, cmd
+	}
+
 	filtered := m.filteredDebts()
 	if len(filtered) == 0 {
 		if msg.String() == "esc" {
@@ -3900,18 +4110,22 @@ func (m model) updateDebtList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.screen = screenMenu
 		m.status = databaseStatus(m.created, len(m.accounts), m.dbPath)
 		return m, nil
-	case "up", "k":
+	case "up":
 		if m.debtCursor > 0 {
 			m.debtCursor--
 		}
 		return m, nil
-	case "down", "j":
+	case "down":
 		if m.debtCursor < len(filtered)-1 {
 			m.debtCursor++
 		}
 		return m, nil
-	case "enter", "l":
+	case "enter":
 		m = m.openDebtEditor(filtered[m.debtCursor]).(model)
+		return m, nil
+	case "backspace", "delete":
+		selected := filtered[m.debtCursor]
+		m = m.beginDeleteConfirmation("debt", selected.ID, selected.Peer)
 		return m, nil
 	default:
 		return m, nil
@@ -4250,6 +4464,10 @@ func (m model) updateGoalNew(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) updateGoalList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if updatedModel, cmd, handled := m.handleDeleteConfirmation(msg); handled {
+		return updatedModel, cmd
+	}
+
 	filtered := m.filteredGoals()
 	if len(filtered) == 0 {
 		if msg.String() == "esc" {
@@ -4264,18 +4482,22 @@ func (m model) updateGoalList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.screen = screenMenu
 		m.status = databaseStatus(m.created, len(m.accounts), m.dbPath)
 		return m, nil
-	case "up", "k":
+	case "up":
 		if m.goalCursor > 0 {
 			m.goalCursor--
 		}
 		return m, nil
-	case "down", "j":
+	case "down":
 		if m.goalCursor < len(filtered)-1 {
 			m.goalCursor++
 		}
 		return m, nil
-	case "enter", "l":
+	case "enter":
 		m = m.openGoalEditor(filtered[m.goalCursor]).(model)
+		return m, nil
+	case "backspace", "delete":
+		selected := filtered[m.goalCursor]
+		m = m.beginDeleteConfirmation("goal", selected.ID, selected.Name)
 		return m, nil
 	default:
 		return m, nil
@@ -4666,6 +4888,10 @@ func (m model) updateTaxNew(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) updateTaxList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if updatedModel, cmd, handled := m.handleDeleteConfirmation(msg); handled {
+		return updatedModel, cmd
+	}
+
 	filtered := m.filteredTaxes()
 	if len(filtered) == 0 {
 		if msg.String() == "esc" {
@@ -4680,18 +4906,22 @@ func (m model) updateTaxList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.screen = screenMenu
 		m.status = databaseStatus(m.created, len(m.accounts), m.dbPath)
 		return m, nil
-	case "up", "k":
+	case "up":
 		if m.taxCursor > 0 {
 			m.taxCursor--
 		}
 		return m, nil
-	case "down", "j":
+	case "down":
 		if m.taxCursor < len(filtered)-1 {
 			m.taxCursor++
 		}
 		return m, nil
-	case "enter", "l":
+	case "enter":
 		m = m.openTaxEditor(filtered[m.taxCursor]).(model)
+		return m, nil
+	case "backspace", "delete":
+		selected := filtered[m.taxCursor]
+		m = m.beginDeleteConfirmation("tax", selected.ID, selected.TaxCountry+" / "+selected.TaxTypeName)
 		return m, nil
 	default:
 		return m, nil
@@ -5071,6 +5301,10 @@ func (m model) updateInvoiceNew(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) updateInvoiceList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if updatedModel, cmd, handled := m.handleDeleteConfirmation(msg); handled {
+		return updatedModel, cmd
+	}
+
 	filtered := m.filteredInvoices()
 	if len(filtered) == 0 {
 		if msg.String() == "esc" {
@@ -5085,18 +5319,22 @@ func (m model) updateInvoiceList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.screen = screenMenu
 		m.status = databaseStatus(m.created, len(m.accounts), m.dbPath)
 		return m, nil
-	case "up", "k":
+	case "up":
 		if m.invoiceCursor > 0 {
 			m.invoiceCursor--
 		}
 		return m, nil
-	case "down", "j":
+	case "down":
 		if m.invoiceCursor < len(filtered)-1 {
 			m.invoiceCursor++
 		}
 		return m, nil
-	case "enter", "l":
+	case "enter":
 		m = m.openInvoiceEditor(filtered[m.invoiceCursor]).(model)
+		return m, nil
+	case "backspace", "delete":
+		selected := filtered[m.invoiceCursor]
+		m = m.beginDeleteConfirmation("invoice", selected.ID, selected.Title)
 		return m, nil
 	default:
 		return m, nil
@@ -5457,29 +5695,42 @@ func (m model) saveCashflowFromForm() (tea.Model, tea.Cmd) {
 }
 
 func (m model) updateCashflowHistory(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if updatedModel, cmd, handled := m.handleDeleteConfirmation(msg); handled {
+		return updatedModel, cmd
+	}
+
 	items := m.filteredCashflowsForMonth()
 	switch msg.String() {
 	case "esc":
 		m.screen = screenMenu
 		m.status = databaseStatus(m.created, len(m.accounts), m.dbPath)
 		return m, nil
-	case "left", "h":
+	case "left":
 		m.cashflowHistoryMonth = monthShift(m.cashflowHistoryMonth, -1)
 		m.cashflowCursor = 0
 		return m, nil
-	case "right", "l":
+	case "right":
 		m.cashflowHistoryMonth = monthShift(m.cashflowHistoryMonth, 1)
 		m.cashflowCursor = 0
 		return m, nil
-	case "up", "k":
+	case "up":
 		if m.cashflowCursor > 0 {
 			m.cashflowCursor--
 		}
 		return m, nil
-	case "down", "j":
+	case "down":
 		if m.cashflowCursor < len(items)-1 {
 			m.cashflowCursor++
 		}
+		return m, nil
+	case "backspace", "delete":
+		if len(items) == 0 || m.cashflowCursor < 0 || m.cashflowCursor >= len(items) {
+			m.status = "no entry selected"
+			return m, nil
+		}
+		selected := items[m.cashflowCursor]
+		targetName := selected.EntryDate.Local().Format("2006-01-02") + " " + selected.Category
+		m = m.beginDeleteConfirmation("cashflow", selected.ID, targetName)
 		return m, nil
 	default:
 		return m, nil
@@ -6324,7 +6575,7 @@ func (m model) renderDebtList(width int) string {
 		title = "Debt history (paid)"
 	}
 
-	lines := []string{lipgloss.JoinHorizontal(lipgloss.Center, sectionTitleStyle.Render(title), "  ", modeBadgeStyle.Render("Debts")), hintStyle.Render("Use up/down to browse. Enter to edit debt and logs. Esc returns to menu."), ""}
+	lines := []string{lipgloss.JoinHorizontal(lipgloss.Center, sectionTitleStyle.Render(title), "  ", modeBadgeStyle.Render("Debts")), hintStyle.Render("Use up/down to browse. Enter edits debt. Delete/Backspace asks confirmation. Esc returns to menu."), ""}
 	filtered := m.filteredDebts()
 	if len(filtered) == 0 {
 		lines = append(lines, mutedStyle.Render("No debts found."))
@@ -6505,7 +6756,7 @@ func (m model) renderGoalList(width int) string {
 		title = "Goal history (completed)"
 	}
 
-	lines := []string{lipgloss.JoinHorizontal(lipgloss.Center, sectionTitleStyle.Render(title), "  ", modeBadgeStyle.Render("Goals")), hintStyle.Render("Use up/down to browse. Enter to edit goal and logs. Esc returns to menu."), ""}
+	lines := []string{lipgloss.JoinHorizontal(lipgloss.Center, sectionTitleStyle.Render(title), "  ", modeBadgeStyle.Render("Goals")), hintStyle.Render("Use up/down to browse. Enter edits goal. Delete/Backspace asks confirmation. Esc returns to menu."), ""}
 	filtered := m.filteredGoals()
 	if len(filtered) == 0 {
 		lines = append(lines, mutedStyle.Render("No goals found."))
@@ -6702,7 +6953,7 @@ func (m model) renderTaxList(width int) string {
 		title = "Tax history (paid)"
 	}
 
-	lines := []string{lipgloss.JoinHorizontal(lipgloss.Center, sectionTitleStyle.Render(title), "  ", modeBadgeStyle.Render("Taxes")), hintStyle.Render("Use up/down to browse. Enter to edit tax and logs. Esc returns to menu."), ""}
+	lines := []string{lipgloss.JoinHorizontal(lipgloss.Center, sectionTitleStyle.Render(title), "  ", modeBadgeStyle.Render("Taxes")), hintStyle.Render("Use up/down to browse. Enter edits tax. Delete/Backspace asks confirmation. Esc returns to menu."), ""}
 	filtered := m.filteredTaxes()
 	if len(filtered) == 0 {
 		lines = append(lines, mutedStyle.Render("No taxes found."))
@@ -6875,7 +7126,7 @@ func (m model) renderInvoiceList(width int) string {
 		title = "Invoice history (paid)"
 	}
 
-	lines := []string{lipgloss.JoinHorizontal(lipgloss.Center, sectionTitleStyle.Render(title), "  ", modeBadgeStyle.Render("Invoices")), hintStyle.Render("Use up/down to browse. Enter to edit invoice. Esc returns to menu."), ""}
+	lines := []string{lipgloss.JoinHorizontal(lipgloss.Center, sectionTitleStyle.Render(title), "  ", modeBadgeStyle.Render("Invoices")), hintStyle.Render("Use up/down to browse. Enter edits invoice. Delete/Backspace asks confirmation. Esc returns to menu."), ""}
 	filtered := m.filteredInvoices()
 	if len(filtered) == 0 {
 		lines = append(lines, mutedStyle.Render("No invoices found."))
@@ -7094,7 +7345,7 @@ func (m model) renderCashflowHistory(width int) string {
 	monthLabel := m.cashflowHistoryMonth.Format("January 2006")
 	lines := []string{
 		lipgloss.JoinHorizontal(lipgloss.Center, sectionTitleStyle.Render("Income/Expense history"), "  ", modeBadgeStyle.Render("Monthly")),
-		hintStyle.Render("Left/right changes month. Up/down scrolls rows. Esc returns to menu."),
+		hintStyle.Render("Left/right changes month. Up/down scrolls rows. Delete/Backspace asks confirmation. Esc returns to menu."),
 		"",
 		fieldLabelStyle.Render("Month") + "  " + buttonStyle.Render("<") + " " + buttonActiveStyle.Render(monthLabel) + " " + buttonStyle.Render(">"),
 		"",
