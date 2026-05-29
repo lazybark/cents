@@ -31,6 +31,15 @@ type account struct {
 	LeftoverCents int64
 }
 
+type accountValueLog struct {
+	ID         uint `gorm:"primaryKey"`
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
+	AccountID  uint      `gorm:"not null;index;uniqueIndex:idx_account_log_day"`
+	LogDate    time.Time `gorm:"not null;uniqueIndex:idx_account_log_day"`
+	ValueCents int64
+}
+
 type subscription struct {
 	ID                uint `gorm:"primaryKey"`
 	CreatedAt         time.Time
@@ -359,9 +368,22 @@ type model struct {
 	editingSubscriptionID            uint
 	editingSubscriptionMode          subscriptionListMode
 	editInput                        textinput.Model
+	editAmountLogDateInput           textinput.Model
+	editAmountLogValueInput          textinput.Model
+	editAmountActiveField            int
+	editAmountUpdateLog              bool
+	accountValueLogs                 []accountValueLog
 	help                             help.Model
 	keys                             keyMap
 }
+
+const (
+	editAmountFieldCurrent = iota
+	editAmountFieldUpdateLog
+	editAmountFieldLogDate
+	editAmountFieldLogValue
+	editAmountFieldCount
+)
 
 type keyMap struct {
 	Up       key.Binding
@@ -759,7 +781,7 @@ func openDatabase() (*gorm.DB, string, bool, error) {
 		return nil, "", false, err
 	}
 
-	if err := db.AutoMigrate(&account{}, &subscription{}, &debt{}, &debtLog{}, &goal{}, &goalLog{}, &tax{}, &taxLog{}, &invoice{}, &cashflowEntry{}, &settingRecord{}, &settingCurrency{}, &settingPaymentMethod{}, &settingTaxType{}, &settingIncomeCategory{}, &settingExpenseCategory{}); err != nil {
+	if err := db.AutoMigrate(&account{}, &accountValueLog{}, &subscription{}, &debt{}, &debtLog{}, &goal{}, &goalLog{}, &tax{}, &taxLog{}, &invoice{}, &cashflowEntry{}, &settingRecord{}, &settingCurrency{}, &settingPaymentMethod{}, &settingTaxType{}, &settingIncomeCategory{}, &settingExpenseCategory{}); err != nil {
 		return nil, "", false, err
 	}
 
@@ -2569,13 +2591,61 @@ func (m model) updateEditAmount(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.screen = screenAccountTable
 		m.status = "amount edit cancelled"
 		return m, nil
+	case "up", "shift+tab":
+		if m.editAmountActiveField > 0 {
+			m.editAmountActiveField--
+		}
+		return m.focusEditAmountField(), nil
+	case "down", "tab":
+		if m.editAmountActiveField < editAmountFieldCount-1 {
+			m.editAmountActiveField++
+		}
+		return m.focusEditAmountField(), nil
+	case " ":
+		if m.editAmountActiveField == editAmountFieldUpdateLog {
+			m.editAmountUpdateLog = !m.editAmountUpdateLog
+			return m, nil
+		}
 	case "enter":
-		return m.saveAmount()
+		switch m.editAmountActiveField {
+		case editAmountFieldCurrent:
+			return m.saveAmount()
+		case editAmountFieldLogValue:
+			return m.applyAccountLogValue()
+		default:
+			return m, nil
+		}
 	}
 
 	var cmd tea.Cmd
-	m.editInput, cmd = m.editInput.Update(msg)
+	switch m.editAmountActiveField {
+	case editAmountFieldCurrent:
+		m.editInput, cmd = m.editInput.Update(msg)
+	case editAmountFieldLogDate:
+		m.editAmountLogDateInput, cmd = m.editAmountLogDateInput.Update(msg)
+	case editAmountFieldLogValue:
+		m.editAmountLogValueInput, cmd = m.editAmountLogValueInput.Update(msg)
+	default:
+		return m, nil
+	}
 	return m, cmd
+}
+
+func (m model) focusEditAmountField() model {
+	m.editInput.Blur()
+	m.editAmountLogDateInput.Blur()
+	m.editAmountLogValueInput.Blur()
+
+	switch m.editAmountActiveField {
+	case editAmountFieldCurrent:
+		m.editInput.Focus()
+	case editAmountFieldLogDate:
+		m.editAmountLogDateInput.Focus()
+	case editAmountFieldLogValue:
+		m.editAmountLogValueInput.Focus()
+	}
+
+	return m
 }
 
 func (m model) updateSubscriptionNew(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -3805,9 +3875,27 @@ func (m model) beginEditAmount() tea.Model {
 	m.editInput.CharLimit = 24
 	m.editInput.Width = 20
 	m.editInput.SetValue(formatAmount(current.BalanceCents))
+
+	m.editAmountLogDateInput = textinput.New()
+	m.editAmountLogDateInput.Placeholder = "DD.MM.YYYY"
+	m.editAmountLogDateInput.CharLimit = 24
+	m.editAmountLogDateInput.Width = 20
+	m.editAmountLogDateInput.SetValue(time.Now().Format("02.01.2006"))
+
+	m.editAmountLogValueInput = textinput.New()
+	m.editAmountLogValueInput.Placeholder = "1234.56"
+	m.editAmountLogValueInput.CharLimit = 24
+	m.editAmountLogValueInput.Width = 20
+	m.editAmountLogValueInput.SetValue(formatAmount(current.BalanceCents))
+
+	m.editAmountActiveField = editAmountFieldCurrent
+	m.editAmountUpdateLog = false
 	m.editInput.Focus()
+	m.editAmountLogDateInput.Blur()
+	m.editAmountLogValueInput.Blur()
+	m.accountValueLogs = m.loadAccountValueLogs(current.ID)
 	m.screen = screenEditAmount
-	m.status = "editing amount only for " + current.Name
+	m.status = "editing account " + current.Name
 	return m
 }
 
@@ -3830,6 +3918,13 @@ func (m model) saveAmount() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	logWarn := ""
+	if m.editAmountUpdateLog {
+		if err := m.upsertAccountValueLog(selected.ID, now, amount); err != nil {
+			logWarn = " (log update failed: " + err.Error() + ")"
+		}
+	}
+
 	selected.BalanceCents = amount
 	selected.LeftoverCents = amount
 	selected.LastUpdatedAt = now
@@ -3840,7 +3935,41 @@ func (m model) saveAmount() (tea.Model, tea.Cmd) {
 		m.cursor = 0
 	}
 	m.screen = screenAccountTable
-	m.status = "updated amount for " + selected.Name
+	m.status = "updated amount for " + selected.Name + logWarn
+	return m, nil
+}
+
+func (m model) applyAccountLogValue() (tea.Model, tea.Cmd) {
+	if m.cursor < 0 || m.cursor >= len(m.accounts) {
+		m.status = "no account selected"
+		return m, nil
+	}
+
+	rawDay := strings.TrimSpace(m.editAmountLogDateInput.Value())
+	if rawDay == "" {
+		m.status = "log date is required"
+		return m, nil
+	}
+	day, err := time.ParseInLocation("02.01.2006", rawDay, time.Now().Location())
+	if err != nil {
+		m.status = "log date must use DD.MM.YYYY format"
+		return m, nil
+	}
+
+	value, err := parseAmountCents(strings.TrimSpace(m.editAmountLogValueInput.Value()))
+	if err != nil {
+		m.status = "log value error: " + err.Error()
+		return m, nil
+	}
+
+	selected := m.accounts[m.cursor]
+	if err := m.upsertAccountValueLog(selected.ID, day, value); err != nil {
+		m.status = "log save failed: " + err.Error()
+		return m, nil
+	}
+
+	m.accountValueLogs = m.loadAccountValueLogs(selected.ID)
+	m.status = "saved log value for " + accountLogDay(day).Format("2006-01-02")
 	return m, nil
 }
 
@@ -3851,6 +3980,10 @@ func (m model) deleteSelectedAccount() (tea.Model, tea.Cmd) {
 	}
 
 	selected := m.accounts[m.cursor]
+	if err := m.db.Where("account_id = ?", selected.ID).Delete(&accountValueLog{}).Error; err != nil {
+		m.status = "delete failed: " + err.Error()
+		return m, nil
+	}
 	if err := m.db.Delete(&account{}, selected.ID).Error; err != nil {
 		m.status = "delete failed: " + err.Error()
 		return m, nil
@@ -3975,6 +4108,10 @@ func (m model) confirmDeleteAccount() (tea.Model, tea.Cmd) {
 	}
 
 	selected := m.accounts[index]
+	if err := m.db.Where("account_id = ?", selected.ID).Delete(&accountValueLog{}).Error; err != nil {
+		m = m.clearDeleteConfirmation("delete failed: " + err.Error())
+		return m, nil
+	}
 	if err := m.db.Delete(&account{}, selected.ID).Error; err != nil {
 		m = m.clearDeleteConfirmation("delete failed: " + err.Error())
 		return m, nil
@@ -6461,6 +6598,50 @@ func findAccountIndex(accounts []account, id uint) int {
 	return -1
 }
 
+func accountLogDay(value time.Time) time.Time {
+	local := value.Local()
+	return time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, local.Location())
+}
+
+func (m model) loadAccountValueLogs(accountID uint) []accountValueLog {
+	if accountID == 0 {
+		return nil
+	}
+
+	logs := make([]accountValueLog, 0)
+	if err := m.db.Where("account_id = ?", accountID).Order("log_date desc, id desc").Find(&logs).Error; err != nil {
+		return nil
+	}
+	return logs
+}
+
+func (m model) upsertAccountValueLog(accountID uint, day time.Time, valueCents int64) error {
+	if accountID == 0 {
+		return errors.New("account is required")
+	}
+
+	normalizedDay := accountLogDay(day)
+	now := time.Now()
+	entry := accountValueLog{}
+	err := m.db.Where("account_id = ? AND log_date = ?", accountID, normalizedDay).First(&entry).Error
+	if err == nil {
+		entry.ValueCents = valueCents
+		entry.UpdatedAt = now
+		return m.db.Save(&entry).Error
+	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return err
+	}
+
+	entry = accountValueLog{
+		AccountID:  accountID,
+		LogDate:    normalizedDay,
+		ValueCents: valueCents,
+		UpdatedAt:  now,
+	}
+	return m.db.Create(&entry).Error
+}
+
 func (m model) renderAddAccount(width int) string {
 	lines := []string{
 		headlineStyle.Render("Add account"),
@@ -6572,14 +6753,56 @@ func (m model) renderEditAmount(width int) string {
 	}
 
 	acct := m.accounts[m.cursor]
+	currentPrefix := "  "
+	if m.editAmountActiveField == editAmountFieldCurrent {
+		currentPrefix = "> "
+	}
+	updateLogPrefix := "  "
+	if m.editAmountActiveField == editAmountFieldUpdateLog {
+		updateLogPrefix = "> "
+	}
+	logDatePrefix := "  "
+	if m.editAmountActiveField == editAmountFieldLogDate {
+		logDatePrefix = "> "
+	}
+	logValuePrefix := "  "
+	if m.editAmountActiveField == editAmountFieldLogValue {
+		logValuePrefix = "> "
+	}
+
+	updateLogMarker := "[ ]"
+	if m.editAmountUpdateLog {
+		updateLogMarker = "[x]"
+	}
+
 	lines := []string{
-		headlineStyle.Render("Edit amount only"),
+		headlineStyle.Render("Edit account amount"),
 		mutedStyle.Render("Account: " + acct.Name + " | " + acct.Currency + " | amount " + renderMoneyWithCurrency(acct.Currency, acct.BalanceCents)),
 		"",
-		fieldLabelStyle.Render("Amount"),
+		currentPrefix + fieldLabelStyle.Render("Amount"),
 		inputBoxStyle.Width(24).Render(m.editInput.View()),
+		updateLogPrefix + fieldLabelStyle.Render("Update log on save") + "  " + updateLogMarker,
 		"",
-		mutedStyle.Render("Enter saves, Esc cancels."),
+		fieldLabelStyle.Render("Add/Update historical value"),
+		logDatePrefix + fieldLabelStyle.Render("Date") + "  " + m.editAmountLogDateInput.View(),
+		logValuePrefix + fieldLabelStyle.Render("Value") + "  " + m.editAmountLogValueInput.View(),
+		"",
+		mutedStyle.Render("Enter on Amount saves account amount. Enter on Value saves log for Date."),
+		mutedStyle.Render("Use up/down or tab/shift+tab to move fields. Space toggles Update log on save. Esc cancels."),
+	}
+
+	lines = append(lines, "", fieldLabelStyle.Render("Value history"))
+	if len(m.accountValueLogs) == 0 {
+		lines = append(lines, mutedStyle.Render("No historical values yet."))
+	} else {
+		dateWidth := 12
+		valueWidth := 14
+		header := fmt.Sprintf("%-*s %-*s", dateWidth, "Date", valueWidth, "Value")
+		lines = append(lines, tableHeaderStyle.Render(header))
+		for _, entry := range m.accountValueLogs {
+			row := fmt.Sprintf("%-*s %-*s", dateWidth, entry.LogDate.Local().Format("2006-01-02"), valueWidth, renderMoneyWithCurrency(acct.Currency, entry.ValueCents))
+			lines = append(lines, rowStyle.Render(row))
+		}
 	}
 
 	return panelStyle.Width(width).Render(strings.Join(lines, "\n"))

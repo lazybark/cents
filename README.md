@@ -29,4 +29,8 @@ General data on main screen. Like monthly subscr cost, total money on all accoun
 
 How to make historical data NOT updated with currency changes? Need to store the resulting value at the moment of closing the debt
 
-Add deletion of debt & etc logs
+Page with historical account data, where all accounts are aggregated historically
+
+Net Worth page and menu record.
+
+Property menu section: properties, cars, etc.
