@@ -2436,6 +2436,12 @@ func (m model) updateAddAccount(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.screen = screenMenu
 		m.status = databaseStatus(m.created, len(m.accounts), m.dbPath)
 		return m, nil
+	case "up", "shift+tab":
+		m.addForm = m.addForm.prev()
+		return m, nil
+	case "down", "tab":
+		m.addForm = m.addForm.next()
+		return m, nil
 	case "left":
 		if m.addForm.active == 2 && m.addForm.currencyIndex > 0 {
 			m.addForm.currencyIndex--
@@ -2446,14 +2452,11 @@ func (m model) updateAddAccount(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.addForm.currencyIndex++
 		}
 		return m, nil
-	case "tab", "enter":
+	case "enter":
 		if m.addForm.active == len(m.addForm.fields)-1 && msg.String() == "enter" {
 			return m.saveAccountFromForm()
 		}
 		m.addForm = m.addForm.next()
-		return m, nil
-	case "shift+tab":
-		m.addForm = m.addForm.prev()
 		return m, nil
 	}
 
@@ -2602,17 +2605,17 @@ func (m model) updateSubscriptionList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.screen = screenMenu
 		m.status = databaseStatus(m.created, len(m.accounts), m.dbPath)
 		return m, nil
-	case "up", "k":
+	case "up":
 		if m.subscriptionCursor > 0 {
 			m.subscriptionCursor--
 		}
 		return m, nil
-	case "down", "j":
+	case "down":
 		if m.subscriptionCursor < len(filtered)-1 {
 			m.subscriptionCursor++
 		}
 		return m, nil
-	case "enter", "l":
+	case "enter":
 		m = m.openSubscriptionEditor(filtered[m.subscriptionCursor]).(model)
 		return m, nil
 	case "backspace", "delete":
