@@ -7625,7 +7625,12 @@ func (m model) renderCashflowOverviewRow(width int, row cashflowMonthlyOverviewR
 	}
 
 	netText := renderSignedMoneyWithCurrency(base, row.NetBase)
-	line := fmt.Sprintf("%-*s %-*s %-*s %-*s %-*s", monthWidth, row.Month.Format("2006-01"), incomeWidth, renderMoneyWithCurrency(base, row.IncomeBase), expenseWidth, renderMoneyWithCurrency(base, row.ExpenseBase), netWidth, netText, compareWidth, compareText)
+	monthCell := lipgloss.NewStyle().Width(monthWidth).Align(lipgloss.Left).Render(row.Month.Format("2006-01"))
+	incomeCell := lipgloss.NewStyle().Width(incomeWidth).Align(lipgloss.Left).Render(renderMoneyWithCurrency(base, row.IncomeBase))
+	expenseCell := lipgloss.NewStyle().Width(expenseWidth).Align(lipgloss.Left).Render(renderMoneyWithCurrency(base, row.ExpenseBase))
+	netCell := lipgloss.NewStyle().Width(netWidth).Align(lipgloss.Left).Render(netText)
+	compareCell := lipgloss.NewStyle().Width(compareWidth).Align(lipgloss.Left).Render(compareText)
+	line := strings.Join([]string{monthCell, incomeCell, expenseCell, netCell, compareCell}, " ")
 	return rowStyle.Render(line)
 }
 
