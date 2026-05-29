@@ -303,6 +303,7 @@ type model struct {
 	editingInvoiceID                 uint
 	cashflowHistoryMonth             time.Time
 	cashflowCursor                   int
+	cashflowOverviewPage             int
 	settings                         appSettings
 	settingsCursor                   int
 	settingsEditMode                 settingsEditMode
@@ -2319,6 +2320,7 @@ func (m model) activateMenuSelection() (tea.Model, tea.Cmd) {
 
 	if m.menuGroup == 0 && m.menuItem == 3 {
 		m.screen = screenCashflowOverview
+		m.cashflowOverviewPage = 0
 		m.status = "income/expense monthly overview"
 		return m, nil
 	}
@@ -5869,14 +5871,50 @@ func (m model) updateCashflowHistory(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) updateCashflowOverview(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	rows, _ := m.monthlyCashflowOverviewRows()
+	pageSize := m.cashflowOverviewPageSize()
+	totalPages := 1
+	if pageSize > 0 && len(rows) > 0 {
+		totalPages = (len(rows) + pageSize - 1) / pageSize
+	}
+	m.cashflowOverviewPage = clamp(m.cashflowOverviewPage, 0, totalPages-1)
+
 	switch msg.String() {
 	case "esc":
 		m.screen = screenMenu
 		m.status = databaseStatus(m.created, len(m.accounts), m.dbPath)
 		return m, nil
+	case "left", "h", "up", "k", "pgup":
+		if m.cashflowOverviewPage > 0 {
+			m.cashflowOverviewPage--
+		}
+		return m, nil
+	case "right", "l", "down", "j", "pgdown":
+		if m.cashflowOverviewPage < totalPages-1 {
+			m.cashflowOverviewPage++
+		}
+		return m, nil
+	case "home":
+		m.cashflowOverviewPage = 0
+		return m, nil
+	case "end":
+		m.cashflowOverviewPage = totalPages - 1
+		return m, nil
 	default:
 		return m, nil
 	}
+}
+
+func (m model) cashflowOverviewPageSize() int {
+	if m.height <= 0 {
+		return 18
+	}
+
+	size := m.height - 16
+	if size < 6 {
+		size = 6
+	}
+	return size
 }
 
 func (m model) filteredCashflowsForMonth() []cashflowEntry {
@@ -7604,7 +7642,7 @@ func (m model) renderCashflowOverview(width int) string {
 	base := m.baseCurrencyLabel()
 	lines := []string{
 		lipgloss.JoinHorizontal(lipgloss.Center, sectionTitleStyle.Render("Income/Expense overview"), "  ", modeBadgeStyle.Render("Monthly")),
-		hintStyle.Render("Month-by-month totals in base currency. Esc returns to menu."),
+		hintStyle.Render("Month-by-month totals in base currency (newest first). Up/down or left/right changes page. Esc returns to menu."),
 		"",
 	}
 
@@ -7617,9 +7655,22 @@ func (m model) renderCashflowOverview(width int) string {
 		return panelStyle.Width(width).Render(strings.Join(lines, "\n"))
 	}
 
+	pageSize := m.cashflowOverviewPageSize()
+	totalPages := (len(rows) + pageSize - 1) / pageSize
+	if totalPages < 1 {
+		totalPages = 1
+	}
+	currentPage := clamp(m.cashflowOverviewPage, 0, totalPages-1)
+	startFromEnd := len(rows) - currentPage*pageSize
+	endFromEnd := startFromEnd - pageSize
+	if endFromEnd < 0 {
+		endFromEnd = 0
+	}
+
+	lines = append(lines, fmt.Sprintf("Page %d/%d", currentPage+1, totalPages), "")
 	lines = append(lines, m.renderCashflowOverviewHeader(width, base))
-	for _, row := range rows {
-		lines = append(lines, m.renderCashflowOverviewRow(width, row, base))
+	for i := startFromEnd - 1; i >= endFromEnd; i-- {
+		lines = append(lines, m.renderCashflowOverviewRow(width, rows[i], base))
 	}
 
 	if missingRates > 0 {

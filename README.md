@@ -26,3 +26,7 @@ Data importer (CSV, JSON)
 Credits: loaner (bank, other org), from date, due date, amount, currency, logs
 
 General data on main screen. Like monthly subscr cost, total money on all accounts, total debts, unpaid taxes, unpaid invoices, total goals progress.
+
+How to make historical data NOT updated with currency changes? Need to store the resulting value at the moment of closing the debt
+
+Add deletion of debt & etc logs
