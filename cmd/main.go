@@ -136,6 +136,7 @@ type cashflowEntry struct {
 	AmountCents   int64
 	EntryDate     time.Time
 	Category      string
+	AccountName   string
 	Comment       string
 }
 
@@ -534,6 +535,8 @@ type addCashflowForm struct {
 	isIncome        bool
 	categoryOptions []string
 	categoryIndex   int
+	accountOptions  []string
+	accountIndex    int
 }
 
 const (
@@ -645,6 +648,7 @@ const (
 	cashflowFieldAmount
 	cashflowFieldDate
 	cashflowFieldCategory
+	cashflowFieldAccount
 	cashflowFieldComment
 	cashflowFieldCount
 )
@@ -950,7 +954,7 @@ func newModel(db *gorm.DB, dbPath string, created bool, accounts []account, subs
 	addGoalForm := newAddGoalForm(currencyOptions)
 	addTaxForm := newAddTaxForm(settings.TaxTypes)
 	addInvoiceForm := newAddInvoiceForm(currencyOptions)
-	addCashflowForm := newAddCashflowForm(currencyOptions, incomeCategorySelectionOptions(settings), true)
+	addCashflowForm := newAddCashflowForm(currencyOptions, incomeCategorySelectionOptions(settings), accountSelectionOptions(accounts), true)
 	editInput := textinput.New()
 	editInput.Placeholder = "1234.56"
 	editInput.CharLimit = 24
@@ -1904,7 +1908,7 @@ func (f editInvoiceForm) prev() editInvoiceForm {
 	return f.focusActive()
 }
 
-func newAddCashflowForm(currencyOptions []string, categoryOptions []string, isIncome bool) addCashflowForm {
+func newAddCashflowForm(currencyOptions []string, categoryOptions []string, accountOptions []string, isIncome bool) addCashflowForm {
 	today := time.Now().Format("02.01.2006")
 	inputs := make([]textinput.Model, 3)
 	placeholders := []string{"1000.00", today, "optional comment"}
@@ -1927,6 +1931,8 @@ func newAddCashflowForm(currencyOptions []string, categoryOptions []string, isIn
 		isIncome:        isIncome,
 		categoryOptions: append([]string(nil), categoryOptions...),
 		categoryIndex:   0,
+		accountOptions:  append([]string(nil), accountOptions...),
+		accountIndex:    0,
 	}
 
 	return form.focusActive()
@@ -1941,6 +1947,8 @@ func (f addCashflowForm) inputIndexForField(field int) int {
 	case cashflowFieldDate:
 		return 1
 	case cashflowFieldCategory:
+		return -1
+	case cashflowFieldAccount:
 		return -1
 	case cashflowFieldComment:
 		return 2
@@ -1990,6 +1998,30 @@ func expenseCategorySelectionOptions(settings appSettings) []string {
 		name := strings.TrimSpace(category.CategoryName)
 		if name != "" {
 			items = append(items, name)
+		}
+	}
+	return items
+}
+
+func accountSelectionOptions(accounts []account) []string {
+	items := make([]string, 0, len(accounts)+1)
+	items = append(items, "")
+	for _, acct := range accounts {
+		name := strings.TrimSpace(acct.Name)
+		if name != "" {
+			items = append(items, name)
+		}
+	}
+	return items
+}
+
+func cashflowAccountDisplayOptions(accountOptions []string) []string {
+	items := make([]string, len(accountOptions))
+	for i, option := range accountOptions {
+		if strings.TrimSpace(option) == "" {
+			items[i] = "(empty)"
+		} else {
+			items[i] = option
 		}
 	}
 	return items
@@ -2265,14 +2297,14 @@ func (m model) updateMenu(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m model) activateMenuSelection() (tea.Model, tea.Cmd) {
 	if m.menuGroup == 0 && m.menuItem == 0 {
 		m.screen = screenCashflowNew
-		m.addCashflowForm = newAddCashflowForm(currencySelectionOptions(m.settings), expenseCategorySelectionOptions(m.settings), false)
+		m.addCashflowForm = newAddCashflowForm(currencySelectionOptions(m.settings), expenseCategorySelectionOptions(m.settings), accountSelectionOptions(m.accounts), false)
 		m.status = "new expense"
 		return m, nil
 	}
 
 	if m.menuGroup == 0 && m.menuItem == 1 {
 		m.screen = screenCashflowNew
-		m.addCashflowForm = newAddCashflowForm(currencySelectionOptions(m.settings), incomeCategorySelectionOptions(m.settings), true)
+		m.addCashflowForm = newAddCashflowForm(currencySelectionOptions(m.settings), incomeCategorySelectionOptions(m.settings), accountSelectionOptions(m.accounts), true)
 		m.status = "new income"
 		return m, nil
 	}
@@ -5698,6 +5730,9 @@ func (m model) updateCashflowNew(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.addCashflowForm.active == cashflowFieldCategory && m.addCashflowForm.categoryIndex > 0 {
 			m.addCashflowForm.categoryIndex--
 		}
+		if m.addCashflowForm.active == cashflowFieldAccount && m.addCashflowForm.accountIndex > 0 {
+			m.addCashflowForm.accountIndex--
+		}
 		return m, nil
 	case "right":
 		if m.addCashflowForm.active == cashflowFieldCurrency && m.addCashflowForm.currencyIndex < len(m.addCashflowForm.currencyOptions)-1 {
@@ -5705,6 +5740,9 @@ func (m model) updateCashflowNew(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		if m.addCashflowForm.active == cashflowFieldCategory && m.addCashflowForm.categoryIndex < len(m.addCashflowForm.categoryOptions)-1 {
 			m.addCashflowForm.categoryIndex++
+		}
+		if m.addCashflowForm.active == cashflowFieldAccount && m.addCashflowForm.accountIndex < len(m.addCashflowForm.accountOptions)-1 {
+			m.addCashflowForm.accountIndex++
 		}
 		return m, nil
 	case "enter":
@@ -5763,6 +5801,7 @@ func (m model) saveCashflowFromForm() (tea.Model, tea.Cmd) {
 		AmountCents:   amount,
 		EntryDate:     entryDate,
 		Category:      category,
+		AccountName:   selectedStringOption(m.addCashflowForm.accountOptions, m.addCashflowForm.accountIndex),
 		Comment:       comment,
 		LastUpdatedAt: now,
 	}
@@ -5774,10 +5813,10 @@ func (m model) saveCashflowFromForm() (tea.Model, tea.Cmd) {
 
 	m.cashflows = append([]cashflowEntry{entry}, m.cashflows...)
 	if entry.IsIncome {
-		m.addCashflowForm = newAddCashflowForm(currencySelectionOptions(m.settings), incomeCategorySelectionOptions(m.settings), true)
+		m.addCashflowForm = newAddCashflowForm(currencySelectionOptions(m.settings), incomeCategorySelectionOptions(m.settings), accountSelectionOptions(m.accounts), true)
 		m.status = "saved income"
 	} else {
-		m.addCashflowForm = newAddCashflowForm(currencySelectionOptions(m.settings), expenseCategorySelectionOptions(m.settings), false)
+		m.addCashflowForm = newAddCashflowForm(currencySelectionOptions(m.settings), expenseCategorySelectionOptions(m.settings), accountSelectionOptions(m.accounts), false)
 		m.status = "saved expense"
 	}
 	m.screen = screenCashflowHistory
@@ -7462,7 +7501,7 @@ func (m model) renderCashflowNew(width int) string {
 
 	lines := []string{
 		headlineStyle.Render(title),
-		mutedStyle.Render("Currency, amount, date, category and comment. Date defaults to today."),
+		mutedStyle.Render("Currency, amount, date, category, optional account and comment. Date defaults to today."),
 		"",
 	}
 
@@ -7480,6 +7519,7 @@ func (m model) renderCashflowNew(width int) string {
 		m.renderCashflowTextRow(cashflowFieldAmount, "Amount", m.addCashflowForm.inputs[0].View()),
 		m.renderCashflowTextRow(cashflowFieldDate, "Date", m.addCashflowForm.inputs[1].View()),
 		m.renderCashflowChoiceRow(cashflowFieldCategory, "Category", m.addCashflowForm.categoryOptions, m.addCashflowForm.categoryIndex),
+		m.renderCashflowChoiceRow(cashflowFieldAccount, "Account (optional)", cashflowAccountDisplayOptions(m.addCashflowForm.accountOptions), m.addCashflowForm.accountIndex),
 		m.renderCashflowTextRow(cashflowFieldComment, "Comment", m.addCashflowForm.inputs[2].View()),
 	)
 
@@ -7640,11 +7680,12 @@ func (m model) renderCashflowHistoryHeader(width int) string {
 	currencyWidth := 8
 	amountWidth := 12
 	categoryWidth := 16
-	commentWidth := width - 14 - dateWidth - typeWidth - currencyWidth - amountWidth - categoryWidth - 18
+	accountWidth := 14
+	commentWidth := width - 14 - dateWidth - typeWidth - currencyWidth - amountWidth - categoryWidth - accountWidth - 18
 	if commentWidth < 12 {
 		commentWidth = 12
 	}
-	header := fmt.Sprintf("%-2s %-*s %-*s %-*s %-*s %-*s %-*s", "#", dateWidth, "Date", typeWidth, "Type", currencyWidth, "Curr", amountWidth, "Amount", categoryWidth, "Category", commentWidth, "Comment")
+	header := fmt.Sprintf("%-2s %-*s %-*s %-*s %-*s %-*s %-*s %-*s", "#", dateWidth, "Date", typeWidth, "Type", currencyWidth, "Curr", amountWidth, "Amount", categoryWidth, "Category", accountWidth, "Account", commentWidth, "Comment")
 	return tableHeaderStyle.Render(header)
 }
 
@@ -7654,7 +7695,8 @@ func (m model) renderCashflowHistoryRow(width int, index int, item cashflowEntry
 	currencyWidth := 8
 	amountWidth := 12
 	categoryWidth := 16
-	commentWidth := width - 14 - dateWidth - typeWidth - currencyWidth - amountWidth - categoryWidth - 18
+	accountWidth := 14
+	commentWidth := width - 14 - dateWidth - typeWidth - currencyWidth - amountWidth - categoryWidth - accountWidth - 18
 	if commentWidth < 12 {
 		commentWidth = 12
 	}
@@ -7670,8 +7712,12 @@ func (m model) renderCashflowHistoryRow(width int, index int, item cashflowEntry
 	if item.IsIncome {
 		typeLabel = "income"
 	}
+	accountLabel := strings.TrimSpace(item.AccountName)
+	if accountLabel == "" {
+		accountLabel = "-"
+	}
 
-	row := fmt.Sprintf("%s %-*s %-*s %-*s %-*s %-*s %-*s", prefix, dateWidth, item.EntryDate.Local().Format("2006-01-02"), typeWidth, typeLabel, currencyWidth, truncateText(item.Currency, currencyWidth), amountWidth, renderMoneyWithCurrency(item.Currency, item.AmountCents), categoryWidth, truncateText(item.Category, categoryWidth), commentWidth, truncateText(item.Comment, commentWidth))
+	row := fmt.Sprintf("%s %-*s %-*s %-*s %-*s %-*s %-*s %-*s", prefix, dateWidth, item.EntryDate.Local().Format("2006-01-02"), typeWidth, typeLabel, currencyWidth, truncateText(item.Currency, currencyWidth), amountWidth, renderMoneyWithCurrency(item.Currency, item.AmountCents), categoryWidth, truncateText(item.Category, categoryWidth), accountWidth, truncateText(accountLabel, accountWidth), commentWidth, truncateText(item.Comment, commentWidth))
 	return style.Render(row)
 }
 
