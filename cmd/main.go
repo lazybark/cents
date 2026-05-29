@@ -5908,35 +5908,6 @@ func (m model) renderDashboard(width int) string {
 	return panelStyle.Width(width).Render(twoColumnDashboard)
 }
 
-func (m model) renderReadOnlyAccountOverview(width int) string {
-	lines := []string{sectionTitleStyle.Render("Top 5 accounts by amount")}
-	if len(m.accounts) == 0 {
-		lines = append(lines, hintStyle.Render("No accounts yet. Add one to get started."))
-		return panelStyle.Width(width).Render(strings.Join(lines, "\n"))
-	}
-
-	lines = append(lines, m.renderAccountTableHeader(width))
-	for _, acct := range topAccountsByBaseAmount(m.accounts, 5, m.settings) {
-		lines = append(lines, m.renderReadOnlyAccountRow(width, acct))
-	}
-
-	return panelStyle.Width(width).Render(strings.Join(lines, "\n"))
-}
-
-func topAccountsByBaseAmount(accounts []account, maxCount int, settings appSettings) []account {
-	if maxCount <= 0 || len(accounts) == 0 {
-		return nil
-	}
-
-	cloned := sortAccountsByBaseAmount(accounts, settings)
-
-	if len(cloned) > maxCount {
-		cloned = cloned[:maxCount]
-	}
-
-	return cloned
-}
-
 func sortAccountsByBaseAmount(accounts []account, settings appSettings) []account {
 	if len(accounts) < 2 {
 		return accounts
@@ -5986,21 +5957,6 @@ func findAccountIndex(accounts []account, id uint) int {
 	}
 
 	return -1
-}
-
-func (m model) renderReadOnlyAccountRow(width int, acct account) string {
-	nameWidth := 18
-	currencyWidth := 10
-	amountWidth := 14
-	baseAmountWidth := 14
-	updatedWidth := 16
-	descWidth := width - 14 - nameWidth - currencyWidth - amountWidth - baseAmountWidth - updatedWidth - 12
-	if descWidth < 16 {
-		descWidth = 16
-	}
-
-	row := fmt.Sprintf("%-2s %-*s %-*s %-*s %-*s %-*s %-*s", "", nameWidth, truncateText(acct.Name, nameWidth), currencyWidth, truncateText(acct.Currency, currencyWidth), amountWidth, renderMoneyWithCurrency(acct.Currency, acct.BalanceCents), baseAmountWidth, m.convertedAmountForBase(acct.Currency, acct.BalanceCents), updatedWidth, formatUpdatedAt(acct.LastUpdatedAt), descWidth, truncateText(acct.Description, descWidth))
-	return rowStyle.Render(row)
 }
 
 func (m model) renderAddAccount(width int) string {
@@ -7795,12 +7751,15 @@ func truncateText(value string, limit int) string {
 	if limit <= 0 {
 		return ""
 	}
+
 	if len(value) <= limit {
 		return value
 	}
+
 	if limit <= 1 {
 		return value[:limit]
 	}
+
 	return value[:limit-1] + "…"
 }
 
@@ -7808,8 +7767,10 @@ func clamp(value, minimum, maximum int) int {
 	if value < minimum {
 		return minimum
 	}
+
 	if value > maximum {
 		return maximum
 	}
+
 	return value
 }
