@@ -231,6 +231,7 @@ const (
 	screenInvoiceEdit
 	screenCashflowNew
 	screenCashflowHistory
+	screenCashflowOverview
 )
 
 type subscriptionListMode int
@@ -389,6 +390,15 @@ func (k keyMap) FullHelp() [][]key.Binding {
 type menuGroup struct {
 	title string
 	items []string
+}
+
+type cashflowMonthlyOverviewRow struct {
+	Month         time.Time
+	IncomeBase    int64
+	ExpenseBase   int64
+	NetBase       int64
+	DeltaFromPrev int64
+	HasPrev       bool
 }
 
 type addAccountForm struct {
@@ -660,6 +670,7 @@ var (
 	rowStyle          = lipgloss.NewStyle().Foreground(lipgloss.Color("#F4E9D8"))
 	inputBoxStyle     = lipgloss.NewStyle().Border(lipgloss.NormalBorder()).BorderForeground(lipgloss.Color("#6F5F47")).Padding(0, 1)
 	obligationStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("#FF6B6B")).Bold(true)
+	positiveStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("#8EC07C")).Bold(true)
 )
 
 func main() {
@@ -2031,7 +2042,7 @@ func newKeyMap() keyMap {
 
 func appMenuGroups() []menuGroup {
 	return []menuGroup{
-		{title: "Incomes and Expences", items: []string{"New Expence", "New Income", "History"}},
+		{title: "Incomes and Expences", items: []string{"New Expence", "New Income", "History", "Overview"}},
 		{title: "Accounts", items: []string{"add account", "list accounts"}},
 		{title: "Subscriptions", items: []string{"new", "active", "all"}},
 		{title: "Invoices", items: []string{"new", "outgoing", "incoming", "history"}},
@@ -2159,6 +2170,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateCashflowNew(msg)
 		case screenCashflowHistory:
 			return m.updateCashflowHistory(msg)
+		case screenCashflowOverview:
+			return m.updateCashflowOverview(msg)
 		}
 	}
 
@@ -2269,6 +2282,12 @@ func (m model) activateMenuSelection() (tea.Model, tea.Cmd) {
 		m.cashflowHistoryMonth = beginningOfMonth(time.Now())
 		m.cashflowCursor = 0
 		m.status = "income/expense history"
+		return m, nil
+	}
+
+	if m.menuGroup == 0 && m.menuItem == 3 {
+		m.screen = screenCashflowOverview
+		m.status = "income/expense monthly overview"
 		return m, nil
 	}
 
@@ -2474,6 +2493,10 @@ func (m model) updateAddAccount(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) updateAccountTable(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if updatedModel, cmd, handled := m.handleDeleteConfirmation(msg); handled {
+		return updatedModel, cmd
+	}
+
 	if len(m.accounts) == 0 {
 		m.screen = screenMenu
 		m.status = "no accounts available"
@@ -2498,7 +2521,9 @@ func (m model) updateAccountTable(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "enter":
 		return m.beginEditAmount(), nil
 	case "backspace", "delete":
-		return m.deleteSelectedAccount()
+		selected := m.accounts[m.cursor]
+		m = m.beginDeleteConfirmation("account", selected.ID, selected.Name)
+		return m, nil
 	default:
 		return m, nil
 	}
@@ -2595,6 +2620,10 @@ func (m model) updateSubscriptionNew(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) updateSubscriptionList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if updatedModel, cmd, handled := m.handleDeleteConfirmation(msg); handled {
+		return updatedModel, cmd
+	}
+
 	filtered := m.filteredSubscriptions()
 	if len(filtered) == 0 {
 		if msg.String() == "esc" {
@@ -2623,7 +2652,9 @@ func (m model) updateSubscriptionList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m = m.openSubscriptionEditor(filtered[m.subscriptionCursor]).(model)
 		return m, nil
 	case "backspace", "delete":
-		return m.deleteSelectedSubscription(filtered)
+		selected := filtered[m.subscriptionCursor]
+		m = m.beginDeleteConfirmation("subscription", selected.ID, selected.Name)
+		return m, nil
 	default:
 		return m, nil
 	}
@@ -3882,6 +3913,10 @@ func (m model) handleDeleteConfirmation(msg tea.KeyMsg) (tea.Model, tea.Cmd, boo
 
 func (m model) applyConfirmedDelete() (tea.Model, tea.Cmd) {
 	switch m.deleteConfirmType {
+	case "account":
+		return m.confirmDeleteAccount()
+	case "subscription":
+		return m.confirmDeleteSubscription()
 	case "cashflow":
 		return m.confirmDeleteCashflow()
 	case "debt":
@@ -3896,6 +3931,63 @@ func (m model) applyConfirmedDelete() (tea.Model, tea.Cmd) {
 		m = m.clearDeleteConfirmation("delete target is invalid")
 		return m, nil
 	}
+}
+
+func (m model) confirmDeleteAccount() (tea.Model, tea.Cmd) {
+	index := findAccountIndex(m.accounts, m.deleteConfirmID)
+	if index < 0 {
+		m = m.clearDeleteConfirmation("account not found")
+		return m, nil
+	}
+
+	selected := m.accounts[index]
+	if err := m.db.Delete(&account{}, selected.ID).Error; err != nil {
+		m = m.clearDeleteConfirmation("delete failed: " + err.Error())
+		return m, nil
+	}
+
+	m.accounts = append(m.accounts[:index], m.accounts[index+1:]...)
+	if m.cursor >= len(m.accounts) && m.cursor > 0 {
+		m.cursor--
+	}
+	if len(m.accounts) == 0 {
+		m.screen = screenMenu
+		m.cursor = 0
+	}
+
+	m = m.clearDeleteConfirmation("deleted account " + selected.Name)
+	return m, nil
+}
+
+func (m model) confirmDeleteSubscription() (tea.Model, tea.Cmd) {
+	index := -1
+	for i := range m.subscriptions {
+		if m.subscriptions[i].ID == m.deleteConfirmID {
+			index = i
+			break
+		}
+	}
+	if index < 0 {
+		m = m.clearDeleteConfirmation("subscription not found")
+		return m, nil
+	}
+
+	selected := m.subscriptions[index]
+	if err := m.db.Delete(&subscription{}, selected.ID).Error; err != nil {
+		m = m.clearDeleteConfirmation("delete failed: " + err.Error())
+		return m, nil
+	}
+
+	m.subscriptions = append(m.subscriptions[:index], m.subscriptions[index+1:]...)
+	filteredAfter := m.filteredSubscriptions()
+	if len(filteredAfter) == 0 {
+		m.subscriptionCursor = 0
+	} else if m.subscriptionCursor >= len(filteredAfter) {
+		m.subscriptionCursor = len(filteredAfter) - 1
+	}
+
+	m = m.clearDeleteConfirmation("deleted subscription " + selected.Name)
+	return m, nil
 }
 
 func (m model) confirmDeleteCashflow() (tea.Model, tea.Cmd) {
@@ -5737,6 +5829,17 @@ func (m model) updateCashflowHistory(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 }
 
+func (m model) updateCashflowOverview(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.screen = screenMenu
+		m.status = databaseStatus(m.created, len(m.accounts), m.dbPath)
+		return m, nil
+	default:
+		return m, nil
+	}
+}
+
 func (m model) filteredCashflowsForMonth() []cashflowEntry {
 	month := beginningOfMonth(m.cashflowHistoryMonth)
 	filtered := make([]cashflowEntry, 0)
@@ -5753,6 +5856,72 @@ func (m model) filteredCashflowsForMonth() []cashflowEntry {
 		return filtered[i].EntryDate.After(filtered[j].EntryDate)
 	})
 	return filtered
+}
+
+func (m model) monthlyCashflowOverviewRows() ([]cashflowMonthlyOverviewRow, int) {
+	if len(m.cashflows) == 0 {
+		return nil, 0
+	}
+
+	totalsByMonth := make(map[time.Time]cashflowMonthlyOverviewRow)
+	missingRates := 0
+	for _, entry := range m.cashflows {
+		amountBase, ok := m.convertToBaseCents(entry.Currency, entry.AmountCents)
+		if !ok {
+			missingRates++
+			continue
+		}
+
+		month := beginningOfMonth(entry.EntryDate)
+		row := totalsByMonth[month]
+		row.Month = month
+		if entry.IsIncome {
+			row.IncomeBase += amountBase
+		} else {
+			row.ExpenseBase += amountBase
+		}
+		totalsByMonth[month] = row
+	}
+
+	if len(totalsByMonth) == 0 {
+		return nil, missingRates
+	}
+
+	minMonthSet := false
+	var minMonth time.Time
+	var maxMonth time.Time
+	for month := range totalsByMonth {
+		if !minMonthSet {
+			minMonth = month
+			maxMonth = month
+			minMonthSet = true
+			continue
+		}
+		if month.Before(minMonth) {
+			minMonth = month
+		}
+		if month.After(maxMonth) {
+			maxMonth = month
+		}
+	}
+
+	rows := make([]cashflowMonthlyOverviewRow, 0)
+	var prevNet int64
+	hasPrev := false
+	for month := minMonth; !month.After(maxMonth); month = monthShift(month, 1) {
+		row := totalsByMonth[month]
+		row.Month = month
+		row.NetBase = row.IncomeBase - row.ExpenseBase
+		if hasPrev {
+			row.HasPrev = true
+			row.DeltaFromPrev = row.NetBase - prevNet
+		}
+		rows = append(rows, row)
+		prevNet = row.NetBase
+		hasPrev = true
+	}
+
+	return rows, missingRates
 }
 
 func beginningOfMonth(value time.Time) time.Time {
@@ -5916,6 +6085,8 @@ func (m model) renderBody(width int) string {
 		return m.renderCashflowNew(width)
 	case screenCashflowHistory:
 		return m.renderCashflowHistory(width)
+	case screenCashflowOverview:
+		return m.renderCashflowOverview(width)
 	default:
 		return m.renderMenu(width)
 	}
@@ -6257,7 +6428,7 @@ func (m model) renderAccountCurrencyFieldRow(width int) string {
 
 func (m model) renderAccountTable(width int) string {
 	lines := []string{sectionTitleStyle.Render("Accounts")}
-	lines = append(lines, hintStyle.Render("Use up/down to move, Enter to edit amount, Delete/Backspace to delete, Esc to go back."))
+	lines = append(lines, hintStyle.Render("Use up/down to move, Enter to edit amount, Delete/Backspace asks confirmation, Esc to go back."))
 	lines = append(lines, "")
 
 	if len(m.accounts) == 0 {
@@ -6427,7 +6598,7 @@ func (m model) renderSubscriptionList(width int) string {
 		modeTitle = "Active subscriptions"
 	}
 
-	lines := []string{lipgloss.JoinHorizontal(lipgloss.Center, sectionTitleStyle.Render(modeTitle), "  ", modeBadgeStyle.Render("Subscriptions")), hintStyle.Render("Use up/down to browse. Enter edits the selected subscription. Delete/Backspace removes it. Esc returns to menu."), ""}
+	lines := []string{lipgloss.JoinHorizontal(lipgloss.Center, sectionTitleStyle.Render(modeTitle), "  ", modeBadgeStyle.Render("Subscriptions")), hintStyle.Render("Use up/down to browse. Enter edits the selected subscription. Delete/Backspace asks confirmation. Esc returns to menu."), ""}
 	filtered := m.filteredSubscriptions()
 	if len(filtered) == 0 {
 		lines = append(lines, mutedStyle.Render("No subscriptions found."))
@@ -7374,7 +7545,8 @@ func (m model) renderCashflowHistory(width int) string {
 	}
 	net := incomeTotal - expenseTotal
 	base := m.baseCurrencyLabel()
-	lines = append(lines, fmt.Sprintf("Income: %s  Expense: %s  Net: %s", renderMoneyWithCurrency(base, incomeTotal), renderMoneyWithCurrency(base, expenseTotal), renderMoneyWithCurrency(base, net)))
+	netLabel := renderSignedMoneyWithCurrency(base, net)
+	lines = append(lines, fmt.Sprintf("Income: %s  Expense: %s  Net: %s", renderMoneyWithCurrency(base, incomeTotal), renderMoneyWithCurrency(base, expenseTotal), netLabel))
 	if missingRates > 0 {
 		lines = append(lines, mutedStyle.Render(fmt.Sprintf("%d record(s) excluded from summary due to missing conversion rate.", missingRates)))
 	}
@@ -7386,6 +7558,75 @@ func (m model) renderCashflowHistory(width int) string {
 	}
 
 	return panelStyle.Width(width).Render(strings.Join(lines, "\n"))
+}
+
+func (m model) renderCashflowOverview(width int) string {
+	base := m.baseCurrencyLabel()
+	lines := []string{
+		lipgloss.JoinHorizontal(lipgloss.Center, sectionTitleStyle.Render("Income/Expense overview"), "  ", modeBadgeStyle.Render("Monthly")),
+		hintStyle.Render("Month-by-month totals in base currency. Esc returns to menu."),
+		"",
+	}
+
+	rows, missingRates := m.monthlyCashflowOverviewRows()
+	if len(rows) == 0 {
+		lines = append(lines, mutedStyle.Render("No records available for overview."))
+		if missingRates > 0 {
+			lines = append(lines, mutedStyle.Render(fmt.Sprintf("%d record(s) skipped due to missing conversion rate.", missingRates)))
+		}
+		return panelStyle.Width(width).Render(strings.Join(lines, "\n"))
+	}
+
+	lines = append(lines, m.renderCashflowOverviewHeader(width, base))
+	for _, row := range rows {
+		lines = append(lines, m.renderCashflowOverviewRow(width, row, base))
+	}
+
+	if missingRates > 0 {
+		lines = append(lines, "", mutedStyle.Render(fmt.Sprintf("%d record(s) skipped due to missing conversion rate.", missingRates)))
+	}
+
+	return panelStyle.Width(width).Render(strings.Join(lines, "\n"))
+}
+
+func (m model) renderCashflowOverviewHeader(width int, base string) string {
+	monthWidth := 14
+	incomeWidth := 14
+	expenseWidth := 14
+	netWidth := 14
+	compareWidth := width - 14 - monthWidth - incomeWidth - expenseWidth - netWidth - 12
+	if compareWidth < 16 {
+		compareWidth = 16
+	}
+
+	header := fmt.Sprintf("%-*s %-*s %-*s %-*s %-*s", monthWidth, "Month", incomeWidth, "Income ("+base+")", expenseWidth, "Expense ("+base+")", netWidth, "Net ("+base+")", compareWidth, "Net vs previous")
+	return tableHeaderStyle.Render(header)
+}
+
+func (m model) renderCashflowOverviewRow(width int, row cashflowMonthlyOverviewRow, base string) string {
+	monthWidth := 14
+	incomeWidth := 14
+	expenseWidth := 14
+	netWidth := 14
+	compareWidth := width - 14 - monthWidth - incomeWidth - expenseWidth - netWidth - 12
+	if compareWidth < 16 {
+		compareWidth = 16
+	}
+
+	compareText := "-"
+	if row.HasPrev {
+		compareText = renderMoneyWithCurrency(base, row.DeltaFromPrev)
+		if row.DeltaFromPrev > 0 {
+			compareText = "+" + compareText
+			compareText = positiveStyle.Render(compareText)
+		} else if row.DeltaFromPrev < 0 {
+			compareText = obligationStyle.Render(compareText)
+		}
+	}
+
+	netText := renderSignedMoneyWithCurrency(base, row.NetBase)
+	line := fmt.Sprintf("%-*s %-*s %-*s %-*s %-*s", monthWidth, row.Month.Format("2006-01"), incomeWidth, renderMoneyWithCurrency(base, row.IncomeBase), expenseWidth, renderMoneyWithCurrency(base, row.ExpenseBase), netWidth, netText, compareWidth, compareText)
+	return rowStyle.Render(line)
 }
 
 func (m model) renderCashflowHistoryHeader(width int) string {
@@ -7989,7 +8230,25 @@ func renderMoneyWithCurrency(currency string, cents int64) string {
 		return formatAmount(cents)
 	}
 
-	return currency + " " + formatAmount(cents)
+	sign := ""
+	absoluteCents := cents
+	if cents < 0 {
+		sign = "-"
+		absoluteCents = -cents
+	}
+
+	return sign + currency + " " + formatAmount(absoluteCents)
+}
+
+func renderSignedMoneyWithCurrency(currency string, cents int64) string {
+	formatted := renderMoneyWithCurrency(currency, cents)
+	if cents > 0 {
+		return positiveStyle.Render(formatted)
+	}
+	if cents < 0 {
+		return obligationStyle.Render(formatted)
+	}
+	return formatted
 }
 
 func formatUpdatedAt(value time.Time) string {
