@@ -3,9 +3,9 @@ package main
 import (
 	"errors"
 	"fmt"
+	"log"
 	"math"
 	"os"
-	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -16,373 +16,16 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"gorm.io/driver/sqlite"
+	"github.com/lazybark/cents/flows/account"
+	"github.com/lazybark/cents/flows/cashflow"
+	"github.com/lazybark/cents/flows/debt"
+	"github.com/lazybark/cents/flows/goal"
+	"github.com/lazybark/cents/flows/invoice"
+	"github.com/lazybark/cents/flows/settings"
+	"github.com/lazybark/cents/flows/subscription"
+	"github.com/lazybark/cents/flows/tax"
+	storage "github.com/lazybark/cents/storage/sqlite"
 	"gorm.io/gorm"
-)
-
-type account struct {
-	ID            uint `gorm:"primaryKey"`
-	CreatedAt     time.Time
-	LastUpdatedAt time.Time `gorm:"not null;default:1970-01-01 00:00:00"`
-	Name          string
-	Description   string
-	Currency      string
-	BalanceCents  int64
-	LeftoverCents int64
-}
-
-type accountValueLog struct {
-	ID         uint `gorm:"primaryKey"`
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
-	AccountID  uint      `gorm:"not null;index;uniqueIndex:idx_account_log_day"`
-	LogDate    time.Time `gorm:"not null;uniqueIndex:idx_account_log_day"`
-	ValueCents int64
-}
-
-type subscription struct {
-	ID                uint `gorm:"primaryKey"`
-	CreatedAt         time.Time
-	LastUpdatedAt     time.Time `gorm:"not null;default:1970-01-01 00:00:00"`
-	Name              string
-	Currency          string
-	AmountCents       int64
-	Period            string
-	PaymentMethod     string
-	Type              string
-	IsActive          bool
-	PaymentDateYearly string
-	PaymentDayMonthly *int
-}
-
-type debt struct {
-	ID              uint `gorm:"primaryKey"`
-	CreatedAt       time.Time
-	LastUpdatedAt   time.Time `gorm:"not null;default:1970-01-01 00:00:00"`
-	Peer            string
-	Currency        string
-	AmountCents     int64
-	AmountPaidCents int64
-	IsOwedToUser    bool
-	DebtCreatedAt   time.Time
-	DueDate         *time.Time
-	Comment         string
-}
-
-type debtLog struct {
-	ID             uint `gorm:"primaryKey"`
-	CreatedAt      time.Time
-	DebtID         uint `gorm:"index;not null"`
-	DeltaPaidCents int64
-	Note           string
-}
-
-type goal struct {
-	ID                     uint `gorm:"primaryKey"`
-	CreatedAt              time.Time
-	LastUpdatedAt          time.Time `gorm:"not null;default:1970-01-01 00:00:00"`
-	Name                   string
-	Currency               string
-	TargetAmountCents      int64
-	AmountAccumulatedCents int64
-	Description            string
-	DateStartedAt          time.Time
-	TargetDate             *time.Time
-}
-
-type goalLog struct {
-	ID                    uint `gorm:"primaryKey"`
-	CreatedAt             time.Time
-	GoalID                uint `gorm:"index;not null"`
-	DeltaAccumulatedCents int64
-	Note                  string
-}
-
-type tax struct {
-	ID              uint `gorm:"primaryKey"`
-	CreatedAt       time.Time
-	LastUpdatedAt   time.Time `gorm:"not null;default:1970-01-01 00:00:00"`
-	TaxTypeID       uint
-	TaxCountry      string
-	TaxTypeName     string
-	AmountDueCents  int64
-	AmountPaidCents int64
-	Period          string
-	DueDate         *time.Time
-	Comment         string
-}
-
-type taxLog struct {
-	ID             uint `gorm:"primaryKey"`
-	CreatedAt      time.Time
-	TaxID          uint `gorm:"index;not null"`
-	DeltaPaidCents int64
-	Note           string
-}
-
-type invoice struct {
-	ID            uint `gorm:"primaryKey"`
-	CreatedAt     time.Time
-	LastUpdatedAt time.Time `gorm:"not null;default:1970-01-01 00:00:00"`
-	Title         string
-	IsIncoming    bool
-	Currency      string
-	AmountCents   int64
-	Paid          bool
-	Peer          string
-	InvoiceDate   *time.Time
-	DueDate       *time.Time
-	URL           string
-	Description   string
-}
-
-type cashflowEntry struct {
-	ID            uint `gorm:"primaryKey"`
-	CreatedAt     time.Time
-	LastUpdatedAt time.Time `gorm:"not null;default:1970-01-01 00:00:00"`
-	IsIncome      bool
-	Currency      string
-	AmountCents   int64
-	EntryDate     time.Time
-	Category      string
-	AccountName   string
-	Comment       string
-}
-
-type settingRecord struct {
-	SettingID    string `gorm:"primaryKey"`
-	SettingValue string
-}
-
-type settingCurrency struct {
-	ID            uint `gorm:"primaryKey"`
-	CreatedAt     time.Time
-	LastUpdatedAt time.Time
-	CurrencyName  string  `gorm:"not null;uniqueIndex"`
-	RateToBase    float64 `gorm:"not null"`
-}
-
-type settingPaymentMethod struct {
-	ID                uint `gorm:"primaryKey"`
-	CreatedAt         time.Time
-	LastUpdatedAt     time.Time
-	PaymentMethodName string `gorm:"not null;uniqueIndex"`
-	PaymentMethodType string `gorm:"not null"`
-	IsDefault         bool   `gorm:"not null;default:false"`
-}
-
-type settingTaxType struct {
-	ID            uint `gorm:"primaryKey"`
-	CreatedAt     time.Time
-	LastUpdatedAt time.Time
-	Country       string `gorm:"not null;uniqueIndex:idx_tax_type_country_name"`
-	TaxTypeName   string `gorm:"not null;uniqueIndex:idx_tax_type_country_name"`
-	Description   string
-	URL           string
-}
-
-type settingIncomeCategory struct {
-	ID            uint `gorm:"primaryKey"`
-	CreatedAt     time.Time
-	LastUpdatedAt time.Time
-	CategoryName  string `gorm:"not null;uniqueIndex"`
-}
-
-type settingExpenseCategory struct {
-	ID            uint `gorm:"primaryKey"`
-	CreatedAt     time.Time
-	LastUpdatedAt time.Time
-	CategoryName  string `gorm:"not null;uniqueIndex"`
-}
-
-type appSettings struct {
-	BaseCurrency      string
-	Currencies        []settingCurrency
-	PaymentMethods    []settingPaymentMethod
-	TaxTypes          []settingTaxType
-	IncomeCategories  []settingIncomeCategory
-	ExpenseCategories []settingExpenseCategory
-}
-
-type settingsEditMode int
-
-const (
-	settingsEditNone settingsEditMode = iota
-	settingsEditBaseCurrency
-	settingsEditCurrency
-	settingsEditPaymentMethod
-	settingsEditTaxType
-	settingsEditIncomeCategory
-	settingsEditExpenseCategory
-)
-
-type screen int
-
-const (
-	screenMenu screen = iota
-	screenAddAccount
-	screenAccountTable
-	screenEditAmount
-	screenSubscriptionNew
-	screenSubscriptionEdit
-	screenSubscriptionList
-	screenSettings
-	screenDebtNew
-	screenDebtList
-	screenDebtEdit
-	screenGoalNew
-	screenGoalList
-	screenGoalEdit
-	screenTaxNew
-	screenTaxList
-	screenTaxEdit
-	screenInvoiceNew
-	screenInvoiceList
-	screenInvoiceEdit
-	screenCashflowNew
-	screenCashflowHistory
-	screenCashflowOverview
-)
-
-type subscriptionListMode int
-
-const (
-	subscriptionListActive subscriptionListMode = iota
-	subscriptionListAll
-)
-
-type debtListMode int
-
-const (
-	debtListOutgoing debtListMode = iota
-	debtListIncoming
-	debtListHistory
-)
-
-type goalListMode int
-
-const (
-	goalListActive goalListMode = iota
-	goalListHistory
-)
-
-type taxListMode int
-
-const (
-	taxListUnpaid taxListMode = iota
-	taxListHistory
-)
-
-type invoiceListMode int
-
-const (
-	invoiceListOutgoingUnpaid invoiceListMode = iota
-	invoiceListIncomingUnpaid
-	invoiceListHistoryPaid
-)
-
-type model struct {
-	db                               *gorm.DB
-	dbPath                           string
-	created                          bool
-	screen                           screen
-	accounts                         []account
-	subscriptions                    []subscription
-	debts                            []debt
-	goals                            []goal
-	taxes                            []tax
-	invoices                         []invoice
-	cashflows                        []cashflowEntry
-	subscriptionMode                 subscriptionListMode
-	subscriptionCursor               int
-	debtMode                         debtListMode
-	debtCursor                       int
-	debtLogs                         []debtLog
-	editingDebtID                    uint
-	goalMode                         goalListMode
-	goalCursor                       int
-	goalLogs                         []goalLog
-	editingGoalID                    uint
-	taxMode                          taxListMode
-	taxCursor                        int
-	taxLogs                          []taxLog
-	editingTaxID                     uint
-	invoiceMode                      invoiceListMode
-	invoiceCursor                    int
-	editingInvoiceID                 uint
-	cashflowHistoryMonth             time.Time
-	cashflowCursor                   int
-	cashflowOverviewPage             int
-	settings                         appSettings
-	settingsCursor                   int
-	settingsEditMode                 settingsEditMode
-	settingsEditInput                textinput.Model
-	settingsCurrencyNameInput        textinput.Model
-	settingsCurrencyRateInput        textinput.Model
-	settingsCurrencyField            int
-	settingsCurrencyEditingID        uint
-	settingsPaymentMethodNameInput   textinput.Model
-	settingsPaymentMethodField       int
-	settingsPaymentMethodEditingID   uint
-	settingsPaymentMethodTypeOptions []string
-	settingsPaymentMethodTypeIndex   int
-	settingsPaymentMethodIsDefault   bool
-	settingsTaxTypeCountryInput      textinput.Model
-	settingsTaxTypeNameInput         textinput.Model
-	settingsTaxTypeDescriptionInput  textinput.Model
-	settingsTaxTypeURLInput          textinput.Model
-	settingsTaxTypeField             int
-	settingsTaxTypeEditingID         uint
-	settingsIncomeCategoryNameInput  textinput.Model
-	settingsIncomeCategoryEditingID  uint
-	settingsExpenseCategoryNameInput textinput.Model
-	settingsExpenseCategoryEditingID uint
-	settingsDeleteConfirm            bool
-	settingsDeleteTargetType         string
-	settingsDeleteTargetID           uint
-	settingsDeleteTargetName         string
-	settingsDeleteChoice             int
-	deleteConfirmActive              bool
-	deleteConfirmType                string
-	deleteConfirmID                  uint
-	deleteConfirmName                string
-	status                           string
-	width                            int
-	height                           int
-	quitting                         bool
-	menuGroup                        int
-	menuItem                         int
-	cursor                           int
-	addForm                          addAccountForm
-	addSubscriptionForm              addSubscriptionForm
-	addDebtForm                      addDebtForm
-	addGoalForm                      addGoalForm
-	addTaxForm                       addTaxForm
-	addInvoiceForm                   addInvoiceForm
-	addCashflowForm                  addCashflowForm
-	editSubscriptionForm             editSubscriptionForm
-	editDebtForm                     editDebtForm
-	editGoalForm                     editGoalForm
-	editTaxForm                      editTaxForm
-	editInvoiceForm                  editInvoiceForm
-	editingSubscriptionID            uint
-	editingSubscriptionMode          subscriptionListMode
-	editInput                        textinput.Model
-	editAmountLogDateInput           textinput.Model
-	editAmountLogValueInput          textinput.Model
-	editAmountActiveField            int
-	editAmountUpdateLog              bool
-	accountValueLogs                 []accountValueLog
-	help                             help.Model
-	keys                             keyMap
-}
-
-const (
-	editAmountFieldCurrent = iota
-	editAmountFieldUpdateLog
-	editAmountFieldLogDate
-	editAmountFieldLogValue
-	editAmountFieldCount
 )
 
 type keyMap struct {
@@ -507,7 +150,7 @@ type editGoalForm struct {
 type addTaxForm struct {
 	inputs          []textinput.Model
 	active          int
-	taxTypeOptions  []settingTaxType
+	taxTypeOptions  []settings.SettingTaxType
 	taxTypeIndex    int
 	taxDisplayNames []string
 }
@@ -701,273 +344,70 @@ var (
 )
 
 func main() {
-	db, dbPath, created, err := openDatabase()
+	db, dbPath, created, err := storage.OpenDatabase()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "database init failed:", err)
+		log.Println("database init failed:", err)
 		os.Exit(1)
 	}
 
-	accounts, err := loadAccounts(db)
+	accounts, err := storage.LoadAccounts(db)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "database read failed:", err)
+		log.Println("database read failed:", err)
 		os.Exit(1)
 	}
 
-	subscriptions, err := loadSubscriptions(db)
+	subscriptions, err := storage.LoadSubscriptions(db)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "subscriptions read failed:", err)
+		log.Println("subscriptions read failed:", err)
 		os.Exit(1)
 	}
 
-	debts, err := loadDebts(db)
+	debts, err := storage.LoadDebts(db)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "debts read failed:", err)
+		log.Println("debts read failed:", err)
 		os.Exit(1)
 	}
 
-	goals, err := loadGoals(db)
+	goals, err := storage.LoadGoals(db)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "goals read failed:", err)
+		log.Println("goals read failed:", err)
 		os.Exit(1)
 	}
 
-	taxes, err := loadTaxes(db)
+	taxes, err := storage.LoadTaxes(db)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "taxes read failed:", err)
+		log.Println("taxes read failed:", err)
 		os.Exit(1)
 	}
 
-	invoices, err := loadInvoices(db)
+	invoices, err := storage.LoadInvoices(db)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "invoices read failed:", err)
+		log.Println("invoices read failed:", err)
 		os.Exit(1)
 	}
 
-	cashflows, err := loadCashflows(db)
+	cashflows, err := storage.LoadCashflows(db)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "cashflows read failed:", err)
+		log.Println("cashflows read failed:", err)
 		os.Exit(1)
 	}
 
-	settings, err := loadAppSettings(db)
+	settings, err := storage.LoadAppSettings(db)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "settings read failed:", err)
+		log.Println("settings read failed:", err)
 		os.Exit(1)
 	}
 
 	m := newModel(db, dbPath, created, accounts, subscriptions, debts, goals, taxes, invoices, cashflows, settings)
+
 	program := tea.NewProgram(m, tea.WithAltScreen())
 	if _, err := program.Run(); err != nil {
-		fmt.Fprintln(os.Stderr, "program failed:", err)
+		log.Println("program failed:", err)
 		os.Exit(1)
 	}
 }
 
-func openDatabase() (*gorm.DB, string, bool, error) {
-	workingDir, err := os.Getwd()
-	if err != nil {
-		return nil, "", false, err
-	}
-
-	dbPath := filepath.Join(workingDir, "cents.db")
-	_, statErr := os.Stat(dbPath)
-	created := os.IsNotExist(statErr)
-	if statErr != nil && !os.IsNotExist(statErr) {
-		return nil, "", false, statErr
-	}
-
-	db, err := gorm.Open(sqlite.Open(dbPath), &gorm.Config{})
-	if err != nil {
-		return nil, "", false, err
-	}
-
-	if err := db.AutoMigrate(&account{}, &accountValueLog{}, &subscription{}, &debt{}, &debtLog{}, &goal{}, &goalLog{}, &tax{}, &taxLog{}, &invoice{}, &cashflowEntry{}, &settingRecord{}, &settingCurrency{}, &settingPaymentMethod{}, &settingTaxType{}, &settingIncomeCategory{}, &settingExpenseCategory{}); err != nil {
-		return nil, "", false, err
-	}
-
-	if err := ensureSettingsDefaults(db); err != nil {
-		return nil, "", false, err
-	}
-
-	return db, dbPath, created, nil
-}
-
-func loadAccounts(db *gorm.DB) ([]account, error) {
-	var accounts []account
-	if err := db.Order("balance_cents desc, created_at desc, id desc").Find(&accounts).Error; err != nil {
-		return nil, err
-	}
-
-	return accounts, nil
-}
-
-func loadSubscriptions(db *gorm.DB) ([]subscription, error) {
-	var subscriptions []subscription
-	if err := db.Order("amount_cents desc, created_at desc, id desc").Find(&subscriptions).Error; err != nil {
-		return nil, err
-	}
-
-	return subscriptions, nil
-}
-
-func loadDebts(db *gorm.DB) ([]debt, error) {
-	var debts []debt
-	if err := db.Order("amount_cents desc, created_at desc, id desc").Find(&debts).Error; err != nil {
-		return nil, err
-	}
-	return debts, nil
-}
-
-func loadGoals(db *gorm.DB) ([]goal, error) {
-	var goals []goal
-	if err := db.Order("target_amount_cents desc, created_at desc, id desc").Find(&goals).Error; err != nil {
-		return nil, err
-	}
-	return goals, nil
-}
-
-func loadTaxes(db *gorm.DB) ([]tax, error) {
-	var taxes []tax
-	if err := db.Order("amount_due_cents desc, created_at desc, id desc").Find(&taxes).Error; err != nil {
-		return nil, err
-	}
-	return taxes, nil
-}
-
-func loadInvoices(db *gorm.DB) ([]invoice, error) {
-	var invoices []invoice
-	if err := db.Order("created_at desc, id desc").Find(&invoices).Error; err != nil {
-		return nil, err
-	}
-	return invoices, nil
-}
-
-func loadCashflows(db *gorm.DB) ([]cashflowEntry, error) {
-	var entries []cashflowEntry
-	if err := db.Order("entry_date desc, created_at desc, id desc").Find(&entries).Error; err != nil {
-		return nil, err
-	}
-	return entries, nil
-}
-
-func ensureSettingsDefaults(db *gorm.DB) error {
-	var count int64
-	if err := db.Model(&settingRecord{}).Where("setting_id = ?", "base_currency").Count(&count).Error; err != nil {
-		return err
-	}
-
-	if count == 0 {
-		if err := db.Create(&settingRecord{SettingID: "base_currency", SettingValue: "$"}).Error; err != nil {
-			return err
-		}
-	}
-
-	count = 0
-	if err := db.Model(&settingPaymentMethod{}).Where("is_default = ?", true).Count(&count).Error; err != nil {
-		return err
-	}
-	if count == 0 {
-		if err := db.Create(&settingPaymentMethod{PaymentMethodName: "Other", PaymentMethodType: "Other", IsDefault: true}).Error; err != nil {
-			return err
-		}
-	}
-
-	if err := ensurePaymentMethodDefaults(db); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func ensurePaymentMethodDefaults(db *gorm.DB) error {
-	var methods []settingPaymentMethod
-	if err := db.Order("created_at asc, id asc").Find(&methods).Error; err != nil {
-		return err
-	}
-
-	if len(methods) == 0 {
-		return db.Create(&settingPaymentMethod{PaymentMethodName: "Other", PaymentMethodType: "Other", IsDefault: true}).Error
-	}
-
-	defaultCount := 0
-	for _, method := range methods {
-		if method.IsDefault {
-			defaultCount++
-		}
-	}
-
-	if defaultCount == 0 {
-		return db.Model(&settingPaymentMethod{}).Where("id = ?", methods[0].ID).Update("is_default", true).Error
-	}
-
-	if defaultCount > 1 {
-		first := true
-		for _, method := range methods {
-			if method.IsDefault {
-				if first {
-					first = false
-					continue
-				}
-				if err := db.Model(&settingPaymentMethod{}).Where("id = ?", method.ID).Update("is_default", false).Error; err != nil {
-					return err
-				}
-			}
-		}
-	}
-
-	return nil
-}
-
-func loadAppSettings(db *gorm.DB) (appSettings, error) {
-	var rows []settingRecord
-	if err := db.Order("setting_id asc").Find(&rows).Error; err != nil {
-		return appSettings{}, err
-	}
-
-	settings := appSettings{BaseCurrency: "$"}
-	for _, row := range rows {
-		switch row.SettingID {
-		case "base_currency":
-			if strings.TrimSpace(row.SettingValue) != "" {
-				settings.BaseCurrency = row.SettingValue
-			}
-		}
-	}
-
-	var currencies []settingCurrency
-	if err := db.Order("currency_name asc, id asc").Find(&currencies).Error; err != nil {
-		return appSettings{}, err
-	}
-	settings.Currencies = currencies
-
-	var paymentMethods []settingPaymentMethod
-	if err := db.Order("is_default desc, payment_method_name asc, id asc").Find(&paymentMethods).Error; err != nil {
-		return appSettings{}, err
-	}
-	settings.PaymentMethods = paymentMethods
-
-	var taxTypes []settingTaxType
-	if err := db.Order("country asc, tax_type_name asc, id asc").Find(&taxTypes).Error; err != nil {
-		return appSettings{}, err
-	}
-	settings.TaxTypes = taxTypes
-
-	var incomeCategories []settingIncomeCategory
-	if err := db.Order("category_name asc, id asc").Find(&incomeCategories).Error; err != nil {
-		return appSettings{}, err
-	}
-	settings.IncomeCategories = incomeCategories
-
-	var expenseCategories []settingExpenseCategory
-	if err := db.Order("category_name asc, id asc").Find(&expenseCategories).Error; err != nil {
-		return appSettings{}, err
-	}
-	settings.ExpenseCategories = expenseCategories
-
-	return settings, nil
-}
-
-func newModel(db *gorm.DB, dbPath string, created bool, accounts []account, subscriptions []subscription, debts []debt, goals []goal, taxes []tax, invoices []invoice, cashflows []cashflowEntry, settings appSettings) model {
+func newModel(db *gorm.DB, dbPath string, created bool, accounts []account.Account, subscriptions []subscription.Subscription, debts []debt.Debt, goals []goal.Goal, taxes []tax.Tax, invoices []invoice.Invoice, cashflows []cashflow.CashflowEntry, settings settings.AppSettings) model {
 	accounts = sortAccountsByBaseAmount(accounts, settings)
 	currencyOptions := currencySelectionOptions(settings)
 	paymentMethodOptions := paymentMethodSelectionOptions(settings)
@@ -1237,6 +677,7 @@ func (f addSubscriptionForm) prev() addSubscriptionForm {
 func newAddDebtForm(currencyOptions []string) addDebtForm {
 	inputs := make([]textinput.Model, 6)
 	placeholders := []string{"John Doe", "1000.00", "0.00", time.Now().Format("02.01.2006"), "", "Optional comment"}
+
 	for i := range inputs {
 		field := textinput.New()
 		field.Placeholder = placeholders[i]
@@ -1283,9 +724,11 @@ func (f addDebtForm) focusActive() addDebtForm {
 	for i := range f.inputs {
 		f.inputs[i].Blur()
 	}
+
 	if inputIndex := f.inputIndexForField(f.active); inputIndex >= 0 {
 		f.inputs[inputIndex].Focus()
 	}
+
 	return f
 }
 
@@ -1293,6 +736,7 @@ func (f addDebtForm) next() addDebtForm {
 	if f.active < debtFieldCount-1 {
 		f.active++
 	}
+
 	return f.focusActive()
 }
 
@@ -1300,6 +744,7 @@ func (f addDebtForm) prev() addDebtForm {
 	if f.active > 0 {
 		f.active--
 	}
+
 	return f.focusActive()
 }
 
@@ -1401,6 +846,7 @@ func (f editDebtForm) prev() editDebtForm {
 	if f.activeField > 0 {
 		f.activeField--
 	}
+
 	return f.focusActive()
 }
 
@@ -1408,6 +854,7 @@ func newAddGoalForm(currencyOptions []string) addGoalForm {
 	today := time.Now().Format("02.01.2006")
 	inputs := make([]textinput.Model, 6)
 	placeholders := []string{"Emergency Fund", "10000.00", "0.00", "Optional description", today, "optional DD.MM.YYYY"}
+
 	for i := range inputs {
 		field := textinput.New()
 		field.Placeholder = placeholders[i]
@@ -1454,9 +901,11 @@ func (f addGoalForm) focusActive() addGoalForm {
 	for i := range f.inputs {
 		f.inputs[i].Blur()
 	}
+
 	if inputIndex := f.inputIndexForField(f.active); inputIndex >= 0 {
 		f.inputs[inputIndex].Focus()
 	}
+
 	return f
 }
 
@@ -1464,6 +913,7 @@ func (f addGoalForm) next() addGoalForm {
 	if f.active < goalFieldCount-1 {
 		f.active++
 	}
+
 	return f.focusActive()
 }
 
@@ -1471,6 +921,7 @@ func (f addGoalForm) prev() addGoalForm {
 	if f.active > 0 {
 		f.active--
 	}
+
 	return f.focusActive()
 }
 
@@ -1565,6 +1016,7 @@ func (f editGoalForm) next() editGoalForm {
 	if f.activeField < editGoalFieldCount-1 {
 		f.activeField++
 	}
+
 	return f.focusActive()
 }
 
@@ -1572,13 +1024,15 @@ func (f editGoalForm) prev() editGoalForm {
 	if f.activeField > 0 {
 		f.activeField--
 	}
+
 	return f.focusActive()
 }
 
-func newAddTaxForm(taxTypeOptions []settingTaxType) addTaxForm {
+func newAddTaxForm(taxTypeOptions []settings.SettingTaxType) addTaxForm {
 	today := time.Now().Format("02.01.2006")
 	inputs := make([]textinput.Model, 5)
 	placeholders := []string{"1000.00", "0.00", "Q1 2026", today, "Optional comment"}
+
 	for i := range inputs {
 		field := textinput.New()
 		field.Placeholder = placeholders[i]
@@ -1591,6 +1045,7 @@ func newAddTaxForm(taxTypeOptions []settingTaxType) addTaxForm {
 	}
 
 	display := make([]string, 0, len(taxTypeOptions))
+
 	for _, item := range taxTypeOptions {
 		label := strings.TrimSpace(item.Country)
 		name := strings.TrimSpace(item.TaxTypeName)
@@ -1606,7 +1061,7 @@ func newAddTaxForm(taxTypeOptions []settingTaxType) addTaxForm {
 	form := addTaxForm{
 		inputs:          inputs,
 		active:          0,
-		taxTypeOptions:  append([]settingTaxType(nil), taxTypeOptions...),
+		taxTypeOptions:  append([]settings.SettingTaxType(nil), taxTypeOptions...),
 		taxTypeIndex:    0,
 		taxDisplayNames: display,
 	}
@@ -1637,9 +1092,11 @@ func (f addTaxForm) focusActive() addTaxForm {
 	for i := range f.inputs {
 		f.inputs[i].Blur()
 	}
+
 	if inputIndex := f.inputIndexForField(f.active); inputIndex >= 0 {
 		f.inputs[inputIndex].Focus()
 	}
+
 	return f
 }
 
@@ -1647,6 +1104,7 @@ func (f addTaxForm) next() addTaxForm {
 	if f.active < taxFieldCount-1 {
 		f.active++
 	}
+
 	return f.focusActive()
 }
 
@@ -1654,6 +1112,7 @@ func (f addTaxForm) prev() addTaxForm {
 	if f.active > 0 {
 		f.active--
 	}
+
 	return f.focusActive()
 }
 
@@ -1748,6 +1207,7 @@ func (f editTaxForm) next() editTaxForm {
 	if f.activeField < editTaxFieldCount-1 {
 		f.activeField++
 	}
+
 	return f.focusActive()
 }
 
@@ -1755,6 +1215,7 @@ func (f editTaxForm) prev() editTaxForm {
 	if f.activeField > 0 {
 		f.activeField--
 	}
+
 	return f.focusActive()
 }
 
@@ -1763,6 +1224,7 @@ func newAddInvoiceForm(currencyOptions []string) addInvoiceForm {
 	today := time.Now().Format("02.01.2006")
 	inputs := make([]textinput.Model, 7)
 	placeholders := []string{"Invoice title", "1000.00", "Peer", today, "optional DD.MM.YYYY", "optional https://...", "optional description"}
+
 	for i := range inputs {
 		field := textinput.New()
 		field.Placeholder = placeholders[i]
@@ -1814,9 +1276,11 @@ func (f addInvoiceForm) focusActive() addInvoiceForm {
 	for i := range f.inputs {
 		f.inputs[i].Blur()
 	}
+
 	if inputIndex := f.inputIndexForField(f.active); inputIndex >= 0 {
 		f.inputs[inputIndex].Focus()
 	}
+
 	return f
 }
 
@@ -1824,6 +1288,7 @@ func (f addInvoiceForm) next() addInvoiceForm {
 	if f.active < invoiceFieldCount-1 {
 		f.active++
 	}
+
 	return f.focusActive()
 }
 
@@ -1831,6 +1296,7 @@ func (f addInvoiceForm) prev() addInvoiceForm {
 	if f.active > 0 {
 		f.active--
 	}
+
 	return f.focusActive()
 }
 
@@ -1921,6 +1387,7 @@ func (f editInvoiceForm) next() editInvoiceForm {
 	if f.activeField < invoiceFieldCount-1 {
 		f.activeField++
 	}
+
 	return f.focusActive()
 }
 
@@ -1928,6 +1395,7 @@ func (f editInvoiceForm) prev() editInvoiceForm {
 	if f.activeField > 0 {
 		f.activeField--
 	}
+
 	return f.focusActive()
 }
 
@@ -1935,6 +1403,7 @@ func newAddCashflowForm(currencyOptions []string, categoryOptions []string, acco
 	today := time.Now().Format("02.01.2006")
 	inputs := make([]textinput.Model, 3)
 	placeholders := []string{"1000.00", today, "optional comment"}
+
 	for i := range inputs {
 		field := textinput.New()
 		field.Placeholder = placeholders[i]
@@ -1984,9 +1453,11 @@ func (f addCashflowForm) focusActive() addCashflowForm {
 	for i := range f.inputs {
 		f.inputs[i].Blur()
 	}
+
 	if inputIndex := f.inputIndexForField(f.active); inputIndex >= 0 {
 		f.inputs[inputIndex].Focus()
 	}
+
 	return f
 }
 
@@ -1994,6 +1465,7 @@ func (f addCashflowForm) next() addCashflowForm {
 	if f.active < cashflowFieldCount-1 {
 		f.active++
 	}
+
 	return f.focusActive()
 }
 
@@ -2001,45 +1473,53 @@ func (f addCashflowForm) prev() addCashflowForm {
 	if f.active > 0 {
 		f.active--
 	}
+
 	return f.focusActive()
 }
 
-func incomeCategorySelectionOptions(settings appSettings) []string {
+func incomeCategorySelectionOptions(settings settings.AppSettings) []string {
 	items := make([]string, 0, len(settings.IncomeCategories))
+
 	for _, category := range settings.IncomeCategories {
 		name := strings.TrimSpace(category.CategoryName)
 		if name != "" {
 			items = append(items, name)
 		}
 	}
+
 	return items
 }
 
-func expenseCategorySelectionOptions(settings appSettings) []string {
+func expenseCategorySelectionOptions(settings settings.AppSettings) []string {
 	items := make([]string, 0, len(settings.ExpenseCategories))
+
 	for _, category := range settings.ExpenseCategories {
 		name := strings.TrimSpace(category.CategoryName)
 		if name != "" {
 			items = append(items, name)
 		}
 	}
+
 	return items
 }
 
-func accountSelectionOptions(accounts []account) []string {
+func accountSelectionOptions(accounts []account.Account) []string {
 	items := make([]string, 0, len(accounts)+1)
 	items = append(items, "")
+
 	for _, acct := range accounts {
 		name := strings.TrimSpace(acct.Name)
 		if name != "" {
 			items = append(items, name)
 		}
 	}
+
 	return items
 }
 
 func cashflowAccountDisplayOptions(accountOptions []string) []string {
 	items := make([]string, len(accountOptions))
+
 	for i, option := range accountOptions {
 		if strings.TrimSpace(option) == "" {
 			items[i] = "(empty)"
@@ -2047,6 +1527,7 @@ func cashflowAccountDisplayOptions(accountOptions []string) []string {
 			items[i] = option
 		}
 	}
+
 	return items
 }
 
@@ -2122,6 +1603,7 @@ func newAddAccountForm(currencyOptions []string) addAccountForm {
 	}
 
 	form := addAccountForm{fields: fields, labels: labels, currencyOptions: append([]string(nil), currencyOptions...), currencyIndex: 0}
+
 	return form.focusActive()
 }
 
@@ -2167,12 +1649,15 @@ func (m model) Init() tea.Cmd {
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
+
 	m.help, cmd = m.help.Update(msg)
+
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
 		m.help.Width = clamp(msg.Width-6, 60, 120)
+
 		return m, cmd
 	case tea.KeyMsg:
 		if msg.String() == "ctrl+c" {
@@ -2232,17 +1717,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	if m.screen == screenAddAccount {
 		m.addForm.fields[m.addForm.active], cmd = m.addForm.fields[m.addForm.active].Update(msg)
+
 		return m, cmd
 	}
 
 	if m.screen == screenEditAmount {
 		m.editInput, cmd = m.editInput.Update(msg)
+
 		return m, cmd
 	}
 
 	if m.screen == screenSubscriptionNew {
 		if inputIndex := m.addSubscriptionForm.inputIndexForField(m.addSubscriptionForm.active); inputIndex >= 0 {
 			m.addSubscriptionForm.inputs[inputIndex], cmd = m.addSubscriptionForm.inputs[inputIndex].Update(msg)
+
 			return m, cmd
 		}
 	}
@@ -2251,9 +1739,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch m.editSubscriptionForm.activeField {
 		case editSubFieldAmount:
 			m.editSubscriptionForm.amountInput, cmd = m.editSubscriptionForm.amountInput.Update(msg)
+
 			return m, cmd
 		case editSubFieldPaymentMethod:
 			m.editSubscriptionForm.paymentMethodInput, cmd = m.editSubscriptionForm.paymentMethodInput.Update(msg)
+
 			return m, cmd
 		}
 	}
@@ -2266,51 +1756,63 @@ func (m model) updateMenu(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "?":
 		m.help.ShowAll = !m.help.ShowAll
+
 		return m, nil
 	case "left", "h", "shift+tab":
 		if m.menuItem > 0 {
 			m.menuItem--
+
 			return m, nil
 		}
+
 		if targetGroup, ok := menuMoveAcrossColumns(m.menuGroup, -1); ok {
 			m.menuGroup = targetGroup
 			m.menuItem = 0
 		}
+
 		return m, nil
 	case "right", "tab":
 		if m.menuItem < len(groups[m.menuGroup].items)-1 {
 			m.menuItem++
+
 			return m, nil
 		}
+
 		if targetGroup, ok := menuMoveAcrossColumns(m.menuGroup, 1); ok {
 			m.menuGroup = targetGroup
 			m.menuItem = 0
 		}
+
 		return m, nil
 	case "up":
 		if targetGroup, ok := menuMoveWithinColumn(m.menuGroup, -1); ok {
 			m.menuGroup = targetGroup
 			m.menuItem = minInt(m.menuItem, len(groups[m.menuGroup].items)-1)
 		}
+
 		return m, nil
 	case "down", "j":
 		if targetGroup, ok := menuMoveWithinColumn(m.menuGroup, 1); ok {
 			m.menuGroup = targetGroup
 			m.menuItem = minInt(m.menuItem, len(groups[m.menuGroup].items)-1)
 		}
+
 		return m, nil
 	case "enter":
 		return m.activateMenuSelection()
 	case "a":
 		m.menuGroup = 1
 		m.menuItem = 0
+
 		return m.activateMenuSelection()
 	case "e":
 		m.menuGroup = 1
 		m.menuItem = 1
+
 		return m.activateMenuSelection()
 	case "q":
 		m.quitting = true
+
 		return m, tea.Quit
 	default:
 		return m, nil
@@ -2322,6 +1824,7 @@ func (m model) activateMenuSelection() (tea.Model, tea.Cmd) {
 		m.screen = screenCashflowNew
 		m.addCashflowForm = newAddCashflowForm(currencySelectionOptions(m.settings), expenseCategorySelectionOptions(m.settings), accountSelectionOptions(m.accounts), false)
 		m.status = "new expense"
+
 		return m, nil
 	}
 
@@ -2329,6 +1832,7 @@ func (m model) activateMenuSelection() (tea.Model, tea.Cmd) {
 		m.screen = screenCashflowNew
 		m.addCashflowForm = newAddCashflowForm(currencySelectionOptions(m.settings), incomeCategorySelectionOptions(m.settings), accountSelectionOptions(m.accounts), true)
 		m.status = "new income"
+
 		return m, nil
 	}
 
@@ -2337,6 +1841,7 @@ func (m model) activateMenuSelection() (tea.Model, tea.Cmd) {
 		m.cashflowHistoryMonth = beginningOfMonth(time.Now())
 		m.cashflowCursor = 0
 		m.status = "income/expense history"
+
 		return m, nil
 	}
 
@@ -2344,6 +1849,7 @@ func (m model) activateMenuSelection() (tea.Model, tea.Cmd) {
 		m.screen = screenCashflowOverview
 		m.cashflowOverviewPage = 0
 		m.status = "income/expense monthly overview"
+
 		return m, nil
 	}
 
@@ -2351,17 +1857,21 @@ func (m model) activateMenuSelection() (tea.Model, tea.Cmd) {
 		m.screen = screenAddAccount
 		m.addForm = newAddAccountForm(currencySelectionOptions(m.settings))
 		m.status = "add a new account"
+
 		return m, nil
 	}
 
 	if m.menuGroup == 1 && m.menuItem == 1 {
 		if len(m.accounts) == 0 {
 			m.status = "no accounts to list"
+
 			return m, nil
 		}
+
 		m.screen = screenAccountTable
 		m.cursor = 0
 		m.status = "accounts page: all accounts shown. use arrows to pick, enter to edit amount, delete/backspace to delete"
+
 		return m, nil
 	}
 
@@ -2369,6 +1879,7 @@ func (m model) activateMenuSelection() (tea.Model, tea.Cmd) {
 		m.screen = screenSubscriptionNew
 		m.addSubscriptionForm = newAddSubscriptionForm(currencySelectionOptions(m.settings), paymentMethodSelectionOptions(m.settings))
 		m.status = "new subscription"
+
 		return m, nil
 	}
 
@@ -2377,6 +1888,7 @@ func (m model) activateMenuSelection() (tea.Model, tea.Cmd) {
 		m.subscriptionMode = subscriptionListActive
 		m.subscriptionCursor = 0
 		m.status = "active subscriptions"
+
 		return m, nil
 	}
 
@@ -2385,6 +1897,7 @@ func (m model) activateMenuSelection() (tea.Model, tea.Cmd) {
 		m.subscriptionMode = subscriptionListAll
 		m.subscriptionCursor = 0
 		m.status = "all subscriptions"
+
 		return m, nil
 	}
 
@@ -2392,6 +1905,7 @@ func (m model) activateMenuSelection() (tea.Model, tea.Cmd) {
 		m.screen = screenInvoiceNew
 		m.addInvoiceForm = newAddInvoiceForm(currencySelectionOptions(m.settings))
 		m.status = "new invoice"
+
 		return m, nil
 	}
 
@@ -2400,6 +1914,7 @@ func (m model) activateMenuSelection() (tea.Model, tea.Cmd) {
 		m.invoiceMode = invoiceListOutgoingUnpaid
 		m.invoiceCursor = 0
 		m.status = "outgoing unpaid invoices"
+
 		return m, nil
 	}
 
@@ -2408,6 +1923,7 @@ func (m model) activateMenuSelection() (tea.Model, tea.Cmd) {
 		m.invoiceMode = invoiceListIncomingUnpaid
 		m.invoiceCursor = 0
 		m.status = "incoming unpaid invoices"
+
 		return m, nil
 	}
 
@@ -2416,6 +1932,7 @@ func (m model) activateMenuSelection() (tea.Model, tea.Cmd) {
 		m.invoiceMode = invoiceListHistoryPaid
 		m.invoiceCursor = 0
 		m.status = "invoice history"
+
 		return m, nil
 	}
 
@@ -2423,6 +1940,7 @@ func (m model) activateMenuSelection() (tea.Model, tea.Cmd) {
 		m.screen = screenDebtNew
 		m.addDebtForm = newAddDebtForm(currencySelectionOptions(m.settings))
 		m.status = "new debt"
+
 		return m, nil
 	}
 
@@ -2431,6 +1949,7 @@ func (m model) activateMenuSelection() (tea.Model, tea.Cmd) {
 		m.debtMode = debtListOutgoing
 		m.debtCursor = 0
 		m.status = "outgoing debts"
+
 		return m, nil
 	}
 
@@ -2439,6 +1958,7 @@ func (m model) activateMenuSelection() (tea.Model, tea.Cmd) {
 		m.debtMode = debtListIncoming
 		m.debtCursor = 0
 		m.status = "incoming debts"
+
 		return m, nil
 	}
 
@@ -2447,6 +1967,7 @@ func (m model) activateMenuSelection() (tea.Model, tea.Cmd) {
 		m.debtMode = debtListHistory
 		m.debtCursor = 0
 		m.status = "paid debt history"
+
 		return m, nil
 	}
 
@@ -2454,6 +1975,7 @@ func (m model) activateMenuSelection() (tea.Model, tea.Cmd) {
 		m.screen = screenGoalNew
 		m.addGoalForm = newAddGoalForm(currencySelectionOptions(m.settings))
 		m.status = "new goal"
+
 		return m, nil
 	}
 
@@ -2462,6 +1984,7 @@ func (m model) activateMenuSelection() (tea.Model, tea.Cmd) {
 		m.goalMode = goalListActive
 		m.goalCursor = 0
 		m.status = "active goals"
+
 		return m, nil
 	}
 
@@ -2470,6 +1993,7 @@ func (m model) activateMenuSelection() (tea.Model, tea.Cmd) {
 		m.goalMode = goalListHistory
 		m.goalCursor = 0
 		m.status = "goal history"
+
 		return m, nil
 	}
 
@@ -2477,6 +2001,7 @@ func (m model) activateMenuSelection() (tea.Model, tea.Cmd) {
 		m.screen = screenTaxNew
 		m.addTaxForm = newAddTaxForm(m.settings.TaxTypes)
 		m.status = "new tax"
+
 		return m, nil
 	}
 
@@ -2485,6 +2010,7 @@ func (m model) activateMenuSelection() (tea.Model, tea.Cmd) {
 		m.taxMode = taxListUnpaid
 		m.taxCursor = 0
 		m.status = "unpaid taxes"
+
 		return m, nil
 	}
 
@@ -2493,6 +2019,7 @@ func (m model) activateMenuSelection() (tea.Model, tea.Cmd) {
 		m.taxMode = taxListHistory
 		m.taxCursor = 0
 		m.status = "tax history"
+
 		return m, nil
 	}
 
@@ -2501,11 +2028,13 @@ func (m model) activateMenuSelection() (tea.Model, tea.Cmd) {
 		m.settingsCursor = 0
 		m.settingsEditMode = settingsEditNone
 		m.status = "settings"
+
 		return m, nil
 	}
 
 	groups := appMenuGroups()
 	m.status = strings.ToLower(groups[m.menuGroup].title) + " / " + groups[m.menuGroup].items[m.menuItem] + " is a template action (coming next)"
+
 	return m, nil
 }
 
@@ -2514,28 +2043,35 @@ func (m model) updateAddAccount(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "esc":
 		m.screen = screenMenu
 		m.status = databaseStatus(m.created, len(m.accounts), m.dbPath)
+
 		return m, nil
 	case "up", "shift+tab":
 		m.addForm = m.addForm.prev()
+
 		return m, nil
 	case "down", "tab":
 		m.addForm = m.addForm.next()
+
 		return m, nil
 	case "left":
 		if m.addForm.active == 2 && m.addForm.currencyIndex > 0 {
 			m.addForm.currencyIndex--
 		}
+
 		return m, nil
 	case "right":
 		if m.addForm.active == 2 && m.addForm.currencyIndex < len(m.addForm.currencyOptions)-1 {
 			m.addForm.currencyIndex++
 		}
+
 		return m, nil
 	case "enter":
 		if m.addForm.active == len(m.addForm.fields)-1 && msg.String() == "enter" {
 			return m.saveAccountFromForm()
 		}
+
 		m.addForm = m.addForm.next()
+
 		return m, nil
 	}
 
@@ -2544,7 +2080,9 @@ func (m model) updateAddAccount(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	var cmd tea.Cmd
+
 	m.addForm.fields[m.addForm.active], cmd = m.addForm.fields[m.addForm.active].Update(msg)
+
 	return m, cmd
 }
 
@@ -2556,6 +2094,7 @@ func (m model) updateAccountTable(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if len(m.accounts) == 0 {
 		m.screen = screenMenu
 		m.status = "no accounts available"
+
 		return m, nil
 	}
 
@@ -2563,22 +2102,26 @@ func (m model) updateAccountTable(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "esc":
 		m.screen = screenMenu
 		m.status = databaseStatus(m.created, len(m.accounts), m.dbPath)
+
 		return m, nil
 	case "up":
 		if m.cursor > 0 {
 			m.cursor--
 		}
+
 		return m, nil
 	case "down":
 		if m.cursor < len(m.accounts)-1 {
 			m.cursor++
 		}
+
 		return m, nil
 	case "enter":
 		return m.beginEditAmount(), nil
 	case "backspace", "delete":
 		selected := m.accounts[m.cursor]
 		m = m.beginDeleteConfirmation("account", selected.ID, selected.Name)
+
 		return m, nil
 	default:
 		return m, nil
@@ -2590,20 +2133,24 @@ func (m model) updateEditAmount(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "esc":
 		m.screen = screenAccountTable
 		m.status = "amount edit cancelled"
+
 		return m, nil
 	case "up", "shift+tab":
 		if m.editAmountActiveField > 0 {
 			m.editAmountActiveField--
 		}
+
 		return m.focusEditAmountField(), nil
 	case "down", "tab":
 		if m.editAmountActiveField < editAmountFieldCount-1 {
 			m.editAmountActiveField++
 		}
+
 		return m.focusEditAmountField(), nil
 	case " ":
 		if m.editAmountActiveField == editAmountFieldUpdateLog {
 			m.editAmountUpdateLog = !m.editAmountUpdateLog
+
 			return m, nil
 		}
 	case "enter":
@@ -2618,6 +2165,7 @@ func (m model) updateEditAmount(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	var cmd tea.Cmd
+
 	switch m.editAmountActiveField {
 	case editAmountFieldCurrent:
 		m.editInput, cmd = m.editInput.Update(msg)
@@ -2628,6 +2176,7 @@ func (m model) updateEditAmount(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	default:
 		return m, nil
 	}
+
 	return m, cmd
 }
 
@@ -2764,7 +2313,7 @@ func (m model) updateSubscriptionList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 }
 
-func (m model) openSubscriptionEditor(selected subscription) tea.Model {
+func (m model) openSubscriptionEditor(selected subscription.Subscription) tea.Model {
 	m.screen = screenSubscriptionEdit
 	m.editingSubscriptionID = selected.ID
 	m.editingSubscriptionMode = m.subscriptionMode
@@ -2790,34 +2339,45 @@ func (m model) updateSubscriptionEdit(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "esc":
 		m.screen = screenSubscriptionList
 		m.status = "edit cancelled"
+
 		return m, nil
 	case "up", "shift+tab":
 		m.editSubscriptionForm = m.editSubscriptionForm.prev()
+
 		return m, nil
 	case "down", "tab":
 		m.editSubscriptionForm = m.editSubscriptionForm.next()
+
 		return m, nil
 	case " ":
 		if m.editSubscriptionForm.activeField == editSubFieldIsActive {
 			m.editSubscriptionForm.isActive = !m.editSubscriptionForm.isActive
+
 			return m, nil
 		}
 	case "enter":
 		if m.editSubscriptionForm.activeField == editSubFieldCount-1 {
 			return m.saveSubscriptionEdit()
 		}
+
 		m.editSubscriptionForm = m.editSubscriptionForm.next()
+
 		return m, nil
 	}
 
 	if m.editSubscriptionForm.activeField == editSubFieldAmount {
 		var cmd tea.Cmd
+
 		m.editSubscriptionForm.amountInput, cmd = m.editSubscriptionForm.amountInput.Update(msg)
+
 		return m, cmd
 	}
+
 	if m.editSubscriptionForm.activeField == editSubFieldPaymentMethod {
 		var cmd tea.Cmd
+
 		m.editSubscriptionForm.paymentMethodInput, cmd = m.editSubscriptionForm.paymentMethodInput.Update(msg)
+
 		return m, cmd
 	}
 
@@ -2830,62 +2390,73 @@ func (m model) updateSettings(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "esc":
 			m.settingsDeleteConfirm = false
 			m.status = "delete cancelled"
+
 			return m, nil
 		case "left", "h", "shift+tab":
 			m.settingsDeleteChoice = 0
+
 			return m, nil
 		case "right", "l", "tab":
 			m.settingsDeleteChoice = 1
+
 			return m, nil
 		case "enter":
 			if m.settingsDeleteChoice == 1 {
 				m.settingsDeleteConfirm = false
 				m.status = "delete cancelled"
+
 				return m, nil
 			}
 
 			if m.settingsDeleteTargetType == "currency" {
-				if err := m.db.Delete(&settingCurrency{}, m.settingsDeleteTargetID).Error; err != nil {
+				if err := m.db.Delete(&settings.SettingCurrency{}, m.settingsDeleteTargetID).Error; err != nil {
 					m.status = "currency delete failed: " + err.Error()
+
 					return m, nil
 				}
 			}
 
 			if m.settingsDeleteTargetType == "payment_method" {
-				if err := m.db.Delete(&settingPaymentMethod{}, m.settingsDeleteTargetID).Error; err != nil {
+				if err := m.db.Delete(&settings.SettingPaymentMethod{}, m.settingsDeleteTargetID).Error; err != nil {
 					m.status = "payment method delete failed: " + err.Error()
+
 					return m, nil
 				}
-				if err := ensurePaymentMethodDefaults(m.db); err != nil {
+				if err := storage.EnsurePaymentMethodDefaults(m.db); err != nil {
 					m.status = "payment method default repair failed: " + err.Error()
+
 					return m, nil
 				}
 			}
 
 			if m.settingsDeleteTargetType == "tax_type" {
-				if err := m.db.Delete(&settingTaxType{}, m.settingsDeleteTargetID).Error; err != nil {
+				if err := m.db.Delete(&settings.SettingTaxType{}, m.settingsDeleteTargetID).Error; err != nil {
 					m.status = "tax type delete failed: " + err.Error()
+
 					return m, nil
 				}
 			}
 
 			if m.settingsDeleteTargetType == "income_category" {
-				if err := m.db.Delete(&settingIncomeCategory{}, m.settingsDeleteTargetID).Error; err != nil {
+				if err := m.db.Delete(&settings.SettingIncomeCategory{}, m.settingsDeleteTargetID).Error; err != nil {
 					m.status = "income category delete failed: " + err.Error()
+
 					return m, nil
 				}
 			}
 
 			if m.settingsDeleteTargetType == "expense_category" {
-				if err := m.db.Delete(&settingExpenseCategory{}, m.settingsDeleteTargetID).Error; err != nil {
+				if err := m.db.Delete(&settings.SettingExpenseCategory{}, m.settingsDeleteTargetID).Error; err != nil {
 					m.status = "expense category delete failed: " + err.Error()
+
 					return m, nil
 				}
 			}
 
-			updated, err := loadAppSettings(m.db)
+			updated, err := storage.LoadAppSettings(m.db)
 			if err != nil {
 				m.status = "settings reload failed: " + err.Error()
+
 				return m, nil
 			}
 
@@ -2900,6 +2471,7 @@ func (m model) updateSettings(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.settingsDeleteChoice = 1
 			m.settingsCursor = 0
 			m.status = "deleted " + deletedType + " " + deletedName
+
 			return m, nil
 		}
 
@@ -2913,23 +2485,27 @@ func (m model) updateSettings(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.settingsEditInput.Blur()
 			m.screen = screenMenu
 			m.status = databaseStatus(m.created, len(m.accounts), m.dbPath)
+
 			return m, nil
 		case "enter":
 			value := strings.TrimSpace(m.settingsEditInput.Value())
 			if value == "" {
 				m.status = "base currency cannot be empty"
+
 				return m, nil
 			}
 
-			record := settingRecord{SettingID: "base_currency", SettingValue: value}
+			record := settings.SettingRecord{SettingID: "base_currency", SettingValue: value}
 			if err := m.db.Save(&record).Error; err != nil {
 				m.status = "settings save failed: " + err.Error()
+
 				return m, nil
 			}
 
-			updated, err := loadAppSettings(m.db)
+			updated, err := storage.LoadAppSettings(m.db)
 			if err != nil {
 				m.status = "settings reload failed: " + err.Error()
+
 				return m, nil
 			}
 
@@ -2938,11 +2514,14 @@ func (m model) updateSettings(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.settingsEditMode = settingsEditNone
 			m.settingsEditInput.Blur()
 			m.status = "saved setting base_currency"
+
 			return m, nil
 		}
 
 		var cmd tea.Cmd
+
 		m.settingsEditInput, cmd = m.settingsEditInput.Update(msg)
+
 		return m, cmd
 	}
 
@@ -2954,19 +2533,23 @@ func (m model) updateSettings(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.settingsCurrencyRateInput.Blur()
 			m.screen = screenMenu
 			m.status = databaseStatus(m.created, len(m.accounts), m.dbPath)
+
 			return m, nil
 		case "tab", "down":
 			m.settingsCurrencyField = 1
 			m = m.focusCurrencyFormField()
+
 			return m, nil
 		case "shift+tab", "up":
 			m.settingsCurrencyField = 0
 			m = m.focusCurrencyFormField()
+
 			return m, nil
 		case "enter":
 			if m.settingsCurrencyField == 0 {
 				m.settingsCurrencyField = 1
 				m = m.focusCurrencyFormField()
+
 				return m, nil
 			}
 
@@ -2974,21 +2557,24 @@ func (m model) updateSettings(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			rateRaw := strings.TrimSpace(m.settingsCurrencyRateInput.Value())
 			if name == "" {
 				m.status = "currency name is required"
+
 				return m, nil
 			}
 
 			rate, err := strconv.ParseFloat(rateRaw, 64)
 			if err != nil {
 				m.status = "rate must be a number"
+
 				return m, nil
 			}
 			if rate <= 0 {
 				m.status = "rate must be greater than zero"
+
 				return m, nil
 			}
 
 			now := time.Now()
-			record := settingCurrency{
+			record := settings.SettingCurrency{
 				ID:            m.settingsCurrencyEditingID,
 				CurrencyName:  name,
 				RateToBase:    rate,
@@ -3000,12 +2586,14 @@ func (m model) updateSettings(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 			if err := m.db.Save(&record).Error; err != nil {
 				m.status = "currency save failed: " + err.Error()
+
 				return m, nil
 			}
 
-			updated, err := loadAppSettings(m.db)
+			updated, err := storage.LoadAppSettings(m.db)
 			if err != nil {
 				m.status = "settings reload failed: " + err.Error()
+
 				return m, nil
 			}
 
@@ -3018,15 +2606,20 @@ func (m model) updateSettings(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.settingsCurrencyField = 0
 			m.settingsCursor = settingsCursorByName(m.settings.Currencies, name)
 			m.status = "saved currency " + name
+
 			return m, nil
 		}
 
 		var cmd tea.Cmd
+
 		if m.settingsCurrencyField == 0 {
 			m.settingsCurrencyNameInput, cmd = m.settingsCurrencyNameInput.Update(msg)
+
 			return m, cmd
 		}
+
 		m.settingsCurrencyRateInput, cmd = m.settingsCurrencyRateInput.Update(msg)
+
 		return m, cmd
 	}
 
@@ -3037,46 +2630,55 @@ func (m model) updateSettings(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.settingsPaymentMethodNameInput.Blur()
 			m.screen = screenMenu
 			m.status = databaseStatus(m.created, len(m.accounts), m.dbPath)
+
 			return m, nil
 		case "tab", "down":
 			if m.settingsPaymentMethodField < 2 {
 				m.settingsPaymentMethodField++
 			}
 			m = m.focusPaymentMethodFormField()
+
 			return m, nil
 		case "shift+tab", "up":
 			if m.settingsPaymentMethodField > 0 {
 				m.settingsPaymentMethodField--
 			}
 			m = m.focusPaymentMethodFormField()
+
 			return m, nil
 		case "left":
 			if m.settingsPaymentMethodField == 1 && m.settingsPaymentMethodTypeIndex > 0 {
 				m.settingsPaymentMethodTypeIndex--
 			}
+
 			return m, nil
 		case "right":
 			if m.settingsPaymentMethodField == 1 && m.settingsPaymentMethodTypeIndex < len(m.settingsPaymentMethodTypeOptions)-1 {
 				m.settingsPaymentMethodTypeIndex++
 			}
+
 			return m, nil
 		case " ":
 			if m.settingsPaymentMethodField == 2 {
 				m.settingsPaymentMethodIsDefault = !m.settingsPaymentMethodIsDefault
+
 				return m, nil
 			}
 		case "enter":
 			if m.settingsPaymentMethodField < 2 {
 				m.settingsPaymentMethodField++
 				m = m.focusPaymentMethodFormField()
+
 				return m, nil
 			}
 
 			name := strings.TrimSpace(m.settingsPaymentMethodNameInput.Value())
 			if name == "" {
 				m.status = "payment method name is required"
+
 				return m, nil
 			}
+
 			methodType := selectedPaymentMethodType(m.settingsPaymentMethodTypeOptions, m.settingsPaymentMethodTypeIndex)
 			isDefault := m.settingsPaymentMethodIsDefault
 			if len(m.settings.PaymentMethods) == 0 && m.settingsPaymentMethodEditingID == 0 {
@@ -3084,7 +2686,8 @@ func (m model) updateSettings(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 
 			now := time.Now()
-			record := settingPaymentMethod{
+
+			record := settings.SettingPaymentMethod{
 				ID:                m.settingsPaymentMethodEditingID,
 				PaymentMethodName: name,
 				PaymentMethodType: methodType,
@@ -3096,25 +2699,29 @@ func (m model) updateSettings(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 
 			if record.IsDefault {
-				if err := m.db.Model(&settingPaymentMethod{}).Where("id <> ?", record.ID).Update("is_default", false).Error; err != nil {
+				if err := m.db.Model(&settings.SettingPaymentMethod{}).Where("id <> ?", record.ID).Update("is_default", false).Error; err != nil {
 					m.status = "payment method save failed: " + err.Error()
+
 					return m, nil
 				}
 			}
 
 			if err := m.db.Save(&record).Error; err != nil {
 				m.status = "payment method save failed: " + err.Error()
+
 				return m, nil
 			}
 
 			var defaultCount int64
-			if err := m.db.Model(&settingPaymentMethod{}).Where("is_default = ?", true).Count(&defaultCount).Error; err == nil && defaultCount == 0 {
-				_ = m.db.Model(&settingPaymentMethod{}).Where("id = ?", record.ID).Update("is_default", true).Error
+
+			if err := m.db.Model(&settings.SettingPaymentMethod{}).Where("is_default = ?", true).Count(&defaultCount).Error; err == nil && defaultCount == 0 {
+				_ = m.db.Model(&settings.SettingPaymentMethod{}).Where("id = ?", record.ID).Update("is_default", true).Error
 			}
 
-			updated, err := loadAppSettings(m.db)
+			updated, err := storage.LoadAppSettings(m.db)
 			if err != nil {
 				m.status = "settings reload failed: " + err.Error()
+
 				return m, nil
 			}
 
@@ -3125,14 +2732,18 @@ func (m model) updateSettings(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.settingsPaymentMethodField = 0
 			m.settingsCursor = settingsCursorByPaymentMethodName(m.settings, name)
 			m.status = "saved payment method " + name
+
 			return m, nil
 		}
 
 		var cmd tea.Cmd
+
 		if m.settingsPaymentMethodField == 0 {
 			m.settingsPaymentMethodNameInput, cmd = m.settingsPaymentMethodNameInput.Update(msg)
+
 			return m, cmd
 		}
+
 		return m, nil
 	}
 
@@ -3147,23 +2758,27 @@ func (m model) updateSettings(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.settingsTaxTypeEditingID = 0
 			m.settingsTaxTypeField = 0
 			m.status = "tax type edit cancelled"
+
 			return m, nil
 		case "down", "tab":
 			if m.settingsTaxTypeField < 3 {
 				m.settingsTaxTypeField++
 			}
 			m = m.focusTaxTypeFormField()
+
 			return m, nil
 		case "up", "shift+tab":
 			if m.settingsTaxTypeField > 0 {
 				m.settingsTaxTypeField--
 			}
 			m = m.focusTaxTypeFormField()
+
 			return m, nil
 		case "enter":
 			if m.settingsTaxTypeField < 3 {
 				m.settingsTaxTypeField++
 				m = m.focusTaxTypeFormField()
+
 				return m, nil
 			}
 
@@ -3173,15 +2788,19 @@ func (m model) updateSettings(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			url := strings.TrimSpace(m.settingsTaxTypeURLInput.Value())
 			if country == "" {
 				m.status = "country is required"
+
 				return m, nil
 			}
+
 			if name == "" {
 				m.status = "tax type name is required"
+
 				return m, nil
 			}
 
 			now := time.Now()
-			record := settingTaxType{
+
+			record := settings.SettingTaxType{
 				ID:            m.settingsTaxTypeEditingID,
 				Country:       country,
 				TaxTypeName:   name,
@@ -3195,12 +2814,14 @@ func (m model) updateSettings(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 			if err := m.db.Save(&record).Error; err != nil {
 				m.status = "tax type save failed: " + err.Error()
+
 				return m, nil
 			}
 
-			updated, err := loadAppSettings(m.db)
+			updated, err := storage.LoadAppSettings(m.db)
 			if err != nil {
 				m.status = "settings reload failed: " + err.Error()
+
 				return m, nil
 			}
 
@@ -3214,6 +2835,7 @@ func (m model) updateSettings(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.settingsTaxTypeField = 0
 			m.settingsCursor = settingsCursorByTaxTypeID(m.settings, record.ID, country, name)
 			m.status = "saved tax type " + country + " / " + name
+
 			return m, nil
 		}
 
@@ -3246,7 +2868,7 @@ func (m model) updateSettings(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			now := time.Now()
-			record := settingIncomeCategory{ID: m.settingsIncomeCategoryEditingID, CategoryName: name, LastUpdatedAt: now}
+			record := settings.SettingIncomeCategory{ID: m.settingsIncomeCategoryEditingID, CategoryName: name, LastUpdatedAt: now}
 			if record.ID == 0 {
 				record.CreatedAt = now
 			}
@@ -3254,7 +2876,7 @@ func (m model) updateSettings(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.status = "income category save failed: " + err.Error()
 				return m, nil
 			}
-			updated, err := loadAppSettings(m.db)
+			updated, err := storage.LoadAppSettings(m.db)
 			if err != nil {
 				m.status = "settings reload failed: " + err.Error()
 				return m, nil
@@ -3288,7 +2910,7 @@ func (m model) updateSettings(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			now := time.Now()
-			record := settingExpenseCategory{ID: m.settingsExpenseCategoryEditingID, CategoryName: name, LastUpdatedAt: now}
+			record := settings.SettingExpenseCategory{ID: m.settingsExpenseCategoryEditingID, CategoryName: name, LastUpdatedAt: now}
 			if record.ID == 0 {
 				record.CreatedAt = now
 			}
@@ -3296,7 +2918,7 @@ func (m model) updateSettings(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.status = "expense category save failed: " + err.Error()
 				return m, nil
 			}
-			updated, err := loadAppSettings(m.db)
+			updated, err := storage.LoadAppSettings(m.db)
 			if err != nil {
 				m.status = "settings reload failed: " + err.Error()
 				return m, nil
@@ -3570,7 +3192,7 @@ func (m model) focusTaxTypeFormField() model {
 	return m
 }
 
-func settingsCursorByName(currencies []settingCurrency, name string) int {
+func settingsCursorByName(currencies []settings.SettingCurrency, name string) int {
 	for index := range currencies {
 		if strings.EqualFold(currencies[index].CurrencyName, name) {
 			return index + 1
@@ -3579,15 +3201,15 @@ func settingsCursorByName(currencies []settingCurrency, name string) int {
 	return 0
 }
 
-func settingsPaymentMethodStartCursor(settings appSettings) int {
+func settingsPaymentMethodStartCursor(settings settings.AppSettings) int {
 	return len(settings.Currencies) + 2
 }
 
-func settingsPaymentMethodAddCursor(settings appSettings) int {
+func settingsPaymentMethodAddCursor(settings settings.AppSettings) int {
 	return settingsPaymentMethodStartCursor(settings) + len(settings.PaymentMethods)
 }
 
-func settingsCursorByPaymentMethodName(settings appSettings, name string) int {
+func settingsCursorByPaymentMethodName(settings settings.AppSettings, name string) int {
 	start := settingsPaymentMethodStartCursor(settings)
 	for index := range settings.PaymentMethods {
 		if strings.EqualFold(strings.TrimSpace(settings.PaymentMethods[index].PaymentMethodName), strings.TrimSpace(name)) {
@@ -3597,15 +3219,15 @@ func settingsCursorByPaymentMethodName(settings appSettings, name string) int {
 	return settingsPaymentMethodAddCursor(settings)
 }
 
-func settingsTaxTypeStartCursor(settings appSettings) int {
+func settingsTaxTypeStartCursor(settings settings.AppSettings) int {
 	return settingsPaymentMethodAddCursor(settings) + 1
 }
 
-func settingsTaxTypeAddCursor(settings appSettings) int {
+func settingsTaxTypeAddCursor(settings settings.AppSettings) int {
 	return settingsTaxTypeStartCursor(settings) + len(settings.TaxTypes)
 }
 
-func settingsCursorByTaxTypeID(settings appSettings, id uint, country string, name string) int {
+func settingsCursorByTaxTypeID(settings settings.AppSettings, id uint, country string, name string) int {
 	start := settingsTaxTypeStartCursor(settings)
 	for index := range settings.TaxTypes {
 		item := settings.TaxTypes[index]
@@ -3619,15 +3241,15 @@ func settingsCursorByTaxTypeID(settings appSettings, id uint, country string, na
 	return settingsTaxTypeAddCursor(settings)
 }
 
-func settingsIncomeCategoryStartCursor(settings appSettings) int {
+func settingsIncomeCategoryStartCursor(settings settings.AppSettings) int {
 	return settingsTaxTypeAddCursor(settings) + 1
 }
 
-func settingsIncomeCategoryAddCursor(settings appSettings) int {
+func settingsIncomeCategoryAddCursor(settings settings.AppSettings) int {
 	return settingsIncomeCategoryStartCursor(settings) + len(settings.IncomeCategories)
 }
 
-func settingsCursorByIncomeCategoryName(settings appSettings, name string) int {
+func settingsCursorByIncomeCategoryName(settings settings.AppSettings, name string) int {
 	start := settingsIncomeCategoryStartCursor(settings)
 	for index := range settings.IncomeCategories {
 		if strings.EqualFold(strings.TrimSpace(settings.IncomeCategories[index].CategoryName), strings.TrimSpace(name)) {
@@ -3637,15 +3259,15 @@ func settingsCursorByIncomeCategoryName(settings appSettings, name string) int {
 	return settingsIncomeCategoryAddCursor(settings)
 }
 
-func settingsExpenseCategoryStartCursor(settings appSettings) int {
+func settingsExpenseCategoryStartCursor(settings settings.AppSettings) int {
 	return settingsIncomeCategoryAddCursor(settings) + 1
 }
 
-func settingsExpenseCategoryAddCursor(settings appSettings) int {
+func settingsExpenseCategoryAddCursor(settings settings.AppSettings) int {
 	return settingsExpenseCategoryStartCursor(settings) + len(settings.ExpenseCategories)
 }
 
-func settingsCursorByExpenseCategoryName(settings appSettings, name string) int {
+func settingsCursorByExpenseCategoryName(settings settings.AppSettings, name string) int {
 	start := settingsExpenseCategoryStartCursor(settings)
 	for index := range settings.ExpenseCategories {
 		if strings.EqualFold(strings.TrimSpace(settings.ExpenseCategories[index].CategoryName), strings.TrimSpace(name)) {
@@ -3711,7 +3333,7 @@ func (m model) saveAccountFromForm() (tea.Model, tea.Cmd) {
 
 	now := time.Now()
 
-	newAccount := account{
+	newAccount := account.Account{
 		Name:          name,
 		Description:   description,
 		Currency:      currency,
@@ -3725,7 +3347,7 @@ func (m model) saveAccountFromForm() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	m.accounts = append([]account{newAccount}, m.accounts...)
+	m.accounts = append([]account.Account{newAccount}, m.accounts...)
 	m.accounts = sortAccountsByBaseAmount(m.accounts, m.settings)
 	m.addForm = newAddAccountForm(currencySelectionOptions(m.settings))
 	m.screen = screenMenu
@@ -3778,7 +3400,7 @@ func (m model) saveSubscriptionFromForm() (tea.Model, tea.Cmd) {
 	}
 
 	now := time.Now()
-	newSubscription := subscription{
+	newSubscription := subscription.Subscription{
 		Name:              name,
 		Currency:          currency,
 		AmountCents:       amount,
@@ -3796,7 +3418,7 @@ func (m model) saveSubscriptionFromForm() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	m.subscriptions = append([]subscription{newSubscription}, m.subscriptions...)
+	m.subscriptions = append([]subscription.Subscription{newSubscription}, m.subscriptions...)
 	m.subscriptions = sortSubscriptionsByAmount(m.subscriptions)
 	m.addSubscriptionForm = newAddSubscriptionForm(currencySelectionOptions(m.settings), paymentMethodSelectionOptions(m.settings))
 	m.screen = screenSubscriptionList
@@ -3913,7 +3535,7 @@ func (m model) saveAmount() (tea.Model, tea.Cmd) {
 
 	selected := m.accounts[m.cursor]
 	now := time.Now()
-	if err := m.db.Model(&account{}).Where("id = ?", selected.ID).Updates(map[string]any{"balance_cents": amount, "leftover_cents": amount, "last_updated_at": now}).Error; err != nil {
+	if err := m.db.Model(&account.Account{}).Where("id = ?", selected.ID).Updates(map[string]any{"balance_cents": amount, "leftover_cents": amount, "last_updated_at": now}).Error; err != nil {
 		m.status = "update failed: " + err.Error()
 		return m, nil
 	}
@@ -3978,11 +3600,13 @@ func (m model) beginDeleteConfirmation(targetType string, targetID uint, targetN
 	m.deleteConfirmType = targetType
 	m.deleteConfirmID = targetID
 	m.deleteConfirmName = strings.TrimSpace(targetName)
+
 	displayName := m.deleteConfirmName
 	if displayName == "" {
 		displayName = fmt.Sprintf("id=%d", targetID)
 	}
 	m.status = fmt.Sprintf("confirm delete %s %s? press y to confirm, n to cancel", targetType, displayName)
+
 	return m
 }
 
@@ -4044,11 +3668,11 @@ func (m model) confirmDeleteAccount() (tea.Model, tea.Cmd) {
 	}
 
 	selected := m.accounts[index]
-	if err := m.db.Where("account_id = ?", selected.ID).Delete(&accountValueLog{}).Error; err != nil {
+	if err := m.db.Where("account_id = ?", selected.ID).Delete(&account.AccountValueLog{}).Error; err != nil {
 		m = m.clearDeleteConfirmation("delete failed: " + err.Error())
 		return m, nil
 	}
-	if err := m.db.Delete(&account{}, selected.ID).Error; err != nil {
+	if err := m.db.Delete(&account.Account{}, selected.ID).Error; err != nil {
 		m = m.clearDeleteConfirmation("delete failed: " + err.Error())
 		return m, nil
 	}
@@ -4080,7 +3704,7 @@ func (m model) confirmDeleteSubscription() (tea.Model, tea.Cmd) {
 	}
 
 	selected := m.subscriptions[index]
-	if err := m.db.Delete(&subscription{}, selected.ID).Error; err != nil {
+	if err := m.db.Delete(&subscription.Subscription{}, selected.ID).Error; err != nil {
 		m = m.clearDeleteConfirmation("delete failed: " + err.Error())
 		return m, nil
 	}
@@ -4111,7 +3735,7 @@ func (m model) confirmDeleteCashflow() (tea.Model, tea.Cmd) {
 	}
 
 	selected := m.cashflows[index]
-	if err := m.db.Delete(&cashflowEntry{}, selected.ID).Error; err != nil {
+	if err := m.db.Delete(&cashflow.CashflowEntry{}, selected.ID).Error; err != nil {
 		m = m.clearDeleteConfirmation("delete failed: " + err.Error())
 		return m, nil
 	}
@@ -4136,11 +3760,11 @@ func (m model) confirmDeleteDebt() (tea.Model, tea.Cmd) {
 	}
 
 	selected := m.debts[index]
-	if err := m.db.Where("debt_id = ?", selected.ID).Delete(&debtLog{}).Error; err != nil {
+	if err := m.db.Where("debt_id = ?", selected.ID).Delete(&debt.DebtLog{}).Error; err != nil {
 		m = m.clearDeleteConfirmation("delete failed: " + err.Error())
 		return m, nil
 	}
-	if err := m.db.Delete(&debt{}, selected.ID).Error; err != nil {
+	if err := m.db.Delete(&debt.Debt{}, selected.ID).Error; err != nil {
 		m = m.clearDeleteConfirmation("delete failed: " + err.Error())
 		return m, nil
 	}
@@ -4165,11 +3789,11 @@ func (m model) confirmDeleteGoal() (tea.Model, tea.Cmd) {
 	}
 
 	selected := m.goals[index]
-	if err := m.db.Where("goal_id = ?", selected.ID).Delete(&goalLog{}).Error; err != nil {
+	if err := m.db.Where("goal_id = ?", selected.ID).Delete(&goal.GoalLog{}).Error; err != nil {
 		m = m.clearDeleteConfirmation("delete failed: " + err.Error())
 		return m, nil
 	}
-	if err := m.db.Delete(&goal{}, selected.ID).Error; err != nil {
+	if err := m.db.Delete(&goal.Goal{}, selected.ID).Error; err != nil {
 		m = m.clearDeleteConfirmation("delete failed: " + err.Error())
 		return m, nil
 	}
@@ -4194,11 +3818,11 @@ func (m model) confirmDeleteTax() (tea.Model, tea.Cmd) {
 	}
 
 	selected := m.taxes[index]
-	if err := m.db.Where("tax_id = ?", selected.ID).Delete(&taxLog{}).Error; err != nil {
+	if err := m.db.Where("tax_id = ?", selected.ID).Delete(&tax.TaxLog{}).Error; err != nil {
 		m = m.clearDeleteConfirmation("delete failed: " + err.Error())
 		return m, nil
 	}
-	if err := m.db.Delete(&tax{}, selected.ID).Error; err != nil {
+	if err := m.db.Delete(&tax.Tax{}, selected.ID).Error; err != nil {
 		m = m.clearDeleteConfirmation("delete failed: " + err.Error())
 		return m, nil
 	}
@@ -4223,7 +3847,7 @@ func (m model) confirmDeleteInvoice() (tea.Model, tea.Cmd) {
 	}
 
 	selected := m.invoices[index]
-	if err := m.db.Delete(&invoice{}, selected.ID).Error; err != nil {
+	if err := m.db.Delete(&invoice.Invoice{}, selected.ID).Error; err != nil {
 		m = m.clearDeleteConfirmation("delete failed: " + err.Error())
 		return m, nil
 	}
@@ -4331,7 +3955,7 @@ func (m model) updateDebtList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 }
 
-func (m model) openDebtEditor(selected debt) tea.Model {
+func (m model) openDebtEditor(selected debt.Debt) tea.Model {
 	m.screen = screenDebtEdit
 	m.editingDebtID = selected.ID
 	m.editDebtForm = newEditDebtForm()
@@ -4349,7 +3973,7 @@ func (m model) openDebtEditor(selected debt) tea.Model {
 	m.editDebtForm.directionLabel = debtDirectionLabel(selected.IsOwedToUser)
 	m.editDebtForm = m.editDebtForm.focusActive()
 
-	var logs []debtLog
+	var logs []debt.DebtLog
 	if err := m.db.Where("debt_id = ?", selected.ID).Order("created_at desc, id desc").Limit(20).Find(&logs).Error; err == nil {
 		m.debtLogs = logs
 	} else {
@@ -4448,7 +4072,7 @@ func (m model) saveDebtFromForm() (tea.Model, tea.Cmd) {
 	}
 
 	now := time.Now()
-	newDebt := debt{
+	newDebt := debt.Debt{
 		Peer:            peer,
 		Currency:        currency,
 		AmountCents:     amount,
@@ -4465,7 +4089,7 @@ func (m model) saveDebtFromForm() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	m.debts = append([]debt{newDebt}, m.debts...)
+	m.debts = append([]debt.Debt{newDebt}, m.debts...)
 	m.addDebtForm = newAddDebtForm(currencySelectionOptions(m.settings))
 	m.screen = screenDebtList
 	if newDebt.IsOwedToUser {
@@ -4571,7 +4195,7 @@ func (m model) applyDebtLogDelta() (tea.Model, tea.Cmd) {
 	if note == "" {
 		note = "manual paid adjustment"
 	}
-	entry := debtLog{
+	entry := debt.DebtLog{
 		DebtID:         selected.ID,
 		DeltaPaidCents: delta,
 		Note:           note,
@@ -4583,7 +4207,7 @@ func (m model) applyDebtLogDelta() (tea.Model, tea.Cmd) {
 	}
 
 	m.debts[index] = selected
-	m.debtLogs = append([]debtLog{entry}, m.debtLogs...)
+	m.debtLogs = append([]debt.DebtLog{entry}, m.debtLogs...)
 	m.editDebtForm.amountPaidInput.SetValue(formatAmount(selected.AmountPaidCents))
 	m.editDebtForm.logDeltaInput.SetValue("")
 	m.editDebtForm.logDateInput.SetValue(time.Now().Format("02.01.2006"))
@@ -4601,8 +4225,8 @@ func (m model) findDebtIndex(id uint) int {
 	return -1
 }
 
-func (m model) filteredDebts() []debt {
-	filtered := make([]debt, 0, len(m.debts))
+func (m model) filteredDebts() []debt.Debt {
+	filtered := make([]debt.Debt, 0, len(m.debts))
 	for _, item := range m.debts {
 		paid := item.AmountPaidCents >= item.AmountCents
 		switch m.debtMode {
@@ -4703,7 +4327,7 @@ func (m model) updateGoalList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 }
 
-func (m model) openGoalEditor(selected goal) tea.Model {
+func (m model) openGoalEditor(selected goal.Goal) tea.Model {
 	m.screen = screenGoalEdit
 	m.editingGoalID = selected.ID
 	m.editGoalForm = newEditGoalForm()
@@ -4720,7 +4344,7 @@ func (m model) openGoalEditor(selected goal) tea.Model {
 	m.editGoalForm.currencyLabel = selected.Currency
 	m.editGoalForm = m.editGoalForm.focusActive()
 
-	var logs []goalLog
+	var logs []goal.GoalLog
 	if err := m.db.Where("goal_id = ?", selected.ID).Order("created_at desc, id desc").Limit(20).Find(&logs).Error; err == nil {
 		m.goalLogs = logs
 	} else {
@@ -4823,7 +4447,7 @@ func (m model) saveGoalFromForm() (tea.Model, tea.Cmd) {
 	}
 
 	now := time.Now()
-	newGoal := goal{
+	newGoal := goal.Goal{
 		Name:                   name,
 		Currency:               currency,
 		TargetAmountCents:      target,
@@ -4839,7 +4463,7 @@ func (m model) saveGoalFromForm() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	m.goals = append([]goal{newGoal}, m.goals...)
+	m.goals = append([]goal.Goal{newGoal}, m.goals...)
 	m.addGoalForm = newAddGoalForm(currencySelectionOptions(m.settings))
 	m.screen = screenGoalList
 	if newGoal.AmountAccumulatedCents >= newGoal.TargetAmountCents {
@@ -4951,7 +4575,7 @@ func (m model) applyGoalLogDelta() (tea.Model, tea.Cmd) {
 	if note == "" {
 		note = "manual accumulated adjustment"
 	}
-	entry := goalLog{
+	entry := goal.GoalLog{
 		GoalID:                selected.ID,
 		DeltaAccumulatedCents: delta,
 		Note:                  note,
@@ -4963,7 +4587,7 @@ func (m model) applyGoalLogDelta() (tea.Model, tea.Cmd) {
 	}
 
 	m.goals[index] = selected
-	m.goalLogs = append([]goalLog{entry}, m.goalLogs...)
+	m.goalLogs = append([]goal.GoalLog{entry}, m.goalLogs...)
 	m.editGoalForm.accumulatedAmountInput.SetValue(formatAmount(selected.AmountAccumulatedCents))
 	m.editGoalForm.logDeltaInput.SetValue("")
 	m.editGoalForm.logDateInput.SetValue(time.Now().Format("02.01.2006"))
@@ -4981,8 +4605,8 @@ func (m model) findGoalIndex(id uint) int {
 	return -1
 }
 
-func (m model) filteredGoals() []goal {
-	filtered := make([]goal, 0, len(m.goals))
+func (m model) filteredGoals() []goal.Goal {
+	filtered := make([]goal.Goal, 0, len(m.goals))
 	for _, item := range m.goals {
 		done := item.AmountAccumulatedCents >= item.TargetAmountCents
 		switch m.goalMode {
@@ -4999,7 +4623,7 @@ func (m model) filteredGoals() []goal {
 	return filtered
 }
 
-func (m model) goalProgressTotalsBase(items []goal) (accumulated int64, target int64) {
+func (m model) goalProgressTotalsBase(items []goal.Goal) (accumulated int64, target int64) {
 	for _, item := range items {
 		itemTarget := item.TargetAmountCents
 		itemAccumulated := item.AmountAccumulatedCents
@@ -5127,7 +4751,7 @@ func (m model) updateTaxList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 }
 
-func (m model) openTaxEditor(selected tax) tea.Model {
+func (m model) openTaxEditor(selected tax.Tax) tea.Model {
 	m.screen = screenTaxEdit
 	m.editingTaxID = selected.ID
 	m.editTaxForm = newEditTaxForm()
@@ -5146,7 +4770,7 @@ func (m model) openTaxEditor(selected tax) tea.Model {
 	m.editTaxForm.countryLabel = selected.TaxCountry
 	m.editTaxForm = m.editTaxForm.focusActive()
 
-	var logs []taxLog
+	var logs []tax.TaxLog
 	if err := m.db.Where("tax_id = ?", selected.ID).Order("created_at desc, id desc").Limit(20).Find(&logs).Error; err == nil {
 		m.taxLogs = logs
 	} else {
@@ -5247,7 +4871,7 @@ func (m model) saveTaxFromForm() (tea.Model, tea.Cmd) {
 	}
 
 	now := time.Now()
-	newTax := tax{
+	newTax := tax.Tax{
 		TaxTypeID:       selectedType.ID,
 		TaxCountry:      strings.TrimSpace(selectedType.Country),
 		TaxTypeName:     strings.TrimSpace(selectedType.TaxTypeName),
@@ -5264,7 +4888,7 @@ func (m model) saveTaxFromForm() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	m.taxes = append([]tax{newTax}, m.taxes...)
+	m.taxes = append([]tax.Tax{newTax}, m.taxes...)
 	m.addTaxForm = newAddTaxForm(m.settings.TaxTypes)
 	m.screen = screenTaxList
 	if newTax.AmountPaidCents >= newTax.AmountDueCents {
@@ -5364,8 +4988,10 @@ func (m model) applyTaxLogDelta() (tea.Model, tea.Cmd) {
 	now := time.Now()
 	selected.AmountPaidCents = nextPaid
 	selected.LastUpdatedAt = now
+
 	if err := m.db.Save(&selected).Error; err != nil {
 		m.status = "tax update failed: " + err.Error()
+
 		return m, nil
 	}
 
@@ -5373,24 +4999,28 @@ func (m model) applyTaxLogDelta() (tea.Model, tea.Cmd) {
 	if note == "" {
 		note = "manual tax paid adjustment"
 	}
-	entry := taxLog{
+
+	entry := tax.TaxLog{
 		TaxID:          selected.ID,
 		DeltaPaidCents: delta,
 		Note:           note,
 		CreatedAt:      entryTime,
 	}
+
 	if err := m.db.Create(&entry).Error; err != nil {
 		m.status = "log save failed: " + err.Error()
+
 		return m, nil
 	}
 
 	m.taxes[index] = selected
-	m.taxLogs = append([]taxLog{entry}, m.taxLogs...)
+	m.taxLogs = append([]tax.TaxLog{entry}, m.taxLogs...)
 	m.editTaxForm.amountPaidInput.SetValue(formatAmount(selected.AmountPaidCents))
 	m.editTaxForm.logDeltaInput.SetValue("")
 	m.editTaxForm.logDateInput.SetValue(time.Now().Format("02.01.2006"))
 	m.editTaxForm.logCommentInput.SetValue("")
 	m.status = "applied tax log delta"
+
 	return m, nil
 }
 
@@ -5400,11 +5030,13 @@ func (m model) findTaxIndex(id uint) int {
 			return i
 		}
 	}
+
 	return -1
 }
 
-func (m model) filteredTaxes() []tax {
-	filtered := make([]tax, 0, len(m.taxes))
+func (m model) filteredTaxes() []tax.Tax {
+	filtered := make([]tax.Tax, 0, len(m.taxes))
+
 	for _, item := range m.taxes {
 		paid := item.AmountPaidCents >= item.AmountDueCents
 		switch m.taxMode {
@@ -5418,34 +5050,43 @@ func (m model) filteredTaxes() []tax {
 			}
 		}
 	}
+
 	return filtered
 }
 
-func taxProgressTotals(items []tax) (paid int64, total int64) {
+func taxProgressTotals(items []tax.Tax) (paid int64, total int64) {
 	for _, item := range items {
 		itemTotal := item.AmountDueCents
 		itemPaid := item.AmountPaidCents
+
 		if itemTotal < 0 {
 			itemTotal = 0
 		}
+
 		if itemPaid < 0 {
 			itemPaid = 0
 		}
+
 		if itemPaid > itemTotal {
 			itemPaid = itemTotal
 		}
+
 		total += itemTotal
 		paid += itemPaid
 	}
+
 	if paid > total {
 		paid = total
 	}
+
 	if paid < 0 {
 		paid = 0
 	}
+
 	if total < 0 {
 		total = 0
 	}
+
 	return paid, total
 }
 
@@ -5454,45 +5095,57 @@ func (m model) updateInvoiceNew(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "esc":
 		m.screen = screenMenu
 		m.status = databaseStatus(m.created, len(m.accounts), m.dbPath)
+
 		return m, nil
 	case "up", "shift+tab":
 		m.addInvoiceForm = m.addInvoiceForm.prev()
+
 		return m, nil
 	case "down", "tab":
 		m.addInvoiceForm = m.addInvoiceForm.next()
+
 		return m, nil
 	case "left":
 		if m.addInvoiceForm.active == invoiceFieldType {
 			m.addInvoiceForm.isIncoming = true
 		}
+
 		if m.addInvoiceForm.active == invoiceFieldCurrency && m.addInvoiceForm.currencyIndex > 0 {
 			m.addInvoiceForm.currencyIndex--
 		}
+
 		return m, nil
 	case "right":
 		if m.addInvoiceForm.active == invoiceFieldType {
 			m.addInvoiceForm.isIncoming = false
 		}
+
 		if m.addInvoiceForm.active == invoiceFieldCurrency && m.addInvoiceForm.currencyIndex < len(m.addInvoiceForm.currencyOptions)-1 {
 			m.addInvoiceForm.currencyIndex++
 		}
+
 		return m, nil
 	case " ":
 		if m.addInvoiceForm.active == invoiceFieldPaid {
 			m.addInvoiceForm.paid = !m.addInvoiceForm.paid
+
 			return m, nil
 		}
 	case "enter":
 		if m.addInvoiceForm.active == invoiceFieldCount-1 {
 			return m.saveInvoiceFromForm()
 		}
+
 		m.addInvoiceForm = m.addInvoiceForm.next()
+
 		return m, nil
 	}
 
 	if inputIndex := m.addInvoiceForm.inputIndexForField(m.addInvoiceForm.active); inputIndex >= 0 {
 		var cmd tea.Cmd
+
 		m.addInvoiceForm.inputs[inputIndex], cmd = m.addInvoiceForm.inputs[inputIndex].Update(msg)
+
 		return m, cmd
 	}
 
@@ -5505,11 +5158,13 @@ func (m model) updateInvoiceList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	filtered := m.filteredInvoices()
+
 	if len(filtered) == 0 {
 		if msg.String() == "esc" {
 			m.screen = screenMenu
 			m.status = databaseStatus(m.created, len(m.accounts), m.dbPath)
 		}
+
 		return m, nil
 	}
 
@@ -5517,23 +5172,28 @@ func (m model) updateInvoiceList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "esc":
 		m.screen = screenMenu
 		m.status = databaseStatus(m.created, len(m.accounts), m.dbPath)
+
 		return m, nil
 	case "up":
 		if m.invoiceCursor > 0 {
 			m.invoiceCursor--
 		}
+
 		return m, nil
 	case "down":
 		if m.invoiceCursor < len(filtered)-1 {
 			m.invoiceCursor++
 		}
+
 		return m, nil
 	case "enter":
 		m = m.openInvoiceEditor(filtered[m.invoiceCursor]).(model)
+
 		return m, nil
 	case "backspace", "delete":
 		selected := filtered[m.invoiceCursor]
 		m = m.beginDeleteConfirmation("invoice", selected.ID, selected.Title)
+
 		return m, nil
 	default:
 		return m, nil
@@ -5545,39 +5205,49 @@ func (m model) updateInvoiceEdit(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "esc":
 		m.screen = screenInvoiceList
 		m.status = "invoice edit cancelled"
+
 		return m, nil
 	case "up", "shift+tab":
 		m.editInvoiceForm = m.editInvoiceForm.prev()
+
 		return m, nil
 	case "down", "tab":
 		m.editInvoiceForm = m.editInvoiceForm.next()
+
 		return m, nil
 	case "left":
 		if m.editInvoiceForm.activeField == invoiceFieldType {
 			m.editInvoiceForm.isIncoming = true
 		}
+
 		if m.editInvoiceForm.activeField == invoiceFieldCurrency && m.editInvoiceForm.currencyIndex > 0 {
 			m.editInvoiceForm.currencyIndex--
 		}
+
 		return m, nil
 	case "right":
 		if m.editInvoiceForm.activeField == invoiceFieldType {
 			m.editInvoiceForm.isIncoming = false
 		}
+
 		if m.editInvoiceForm.activeField == invoiceFieldCurrency && m.editInvoiceForm.currencyIndex < len(m.editInvoiceForm.currencyOptions)-1 {
 			m.editInvoiceForm.currencyIndex++
 		}
+
 		return m, nil
 	case " ":
 		if m.editInvoiceForm.activeField == invoiceFieldPaid {
 			m.editInvoiceForm.paid = !m.editInvoiceForm.paid
+
 			return m, nil
 		}
 	case "enter":
 		if m.editInvoiceForm.activeField == invoiceFieldCount-1 {
 			return m.saveInvoiceEdit()
 		}
+
 		m.editInvoiceForm = m.editInvoiceForm.next()
+
 		return m, nil
 	}
 
@@ -5598,6 +5268,7 @@ func (m model) updateInvoiceEdit(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case invoiceFieldDescription:
 		m.editInvoiceForm.descriptionInput, cmd = m.editInvoiceForm.descriptionInput.Update(msg)
 	}
+
 	return m, cmd
 }
 
@@ -5613,29 +5284,33 @@ func (m model) saveInvoiceFromForm() (tea.Model, tea.Cmd) {
 
 	if title == "" {
 		m.status = "invoice title is required"
+
 		return m, nil
 	}
 
 	amount, err := parseOptionalAmountCents(amountRaw)
 	if err != nil {
 		m.status = "amount error: " + err.Error()
+
 		return m, nil
 	}
 
 	invoiceDate, err := parseOptionalDatePointer(invoiceDateRaw)
 	if err != nil {
 		m.status = "invoice date must use DD.MM.YYYY format"
+
 		return m, nil
 	}
 
 	dueDate, err := parseOptionalDatePointer(dueDateRaw)
 	if err != nil {
 		m.status = "due date must use DD.MM.YYYY format"
+
 		return m, nil
 	}
 
 	now := time.Now()
-	item := invoice{
+	item := invoice.Invoice{
 		Title:         title,
 		IsIncoming:    m.addInvoiceForm.isIncoming,
 		Currency:      currency,
@@ -5651,12 +5326,14 @@ func (m model) saveInvoiceFromForm() (tea.Model, tea.Cmd) {
 
 	if err := m.db.Create(&item).Error; err != nil {
 		m.status = "save failed: " + err.Error()
+
 		return m, nil
 	}
 
-	m.invoices = append([]invoice{item}, m.invoices...)
+	m.invoices = append([]invoice.Invoice{item}, m.invoices...)
 	m.addInvoiceForm = newAddInvoiceForm(currencySelectionOptions(m.settings))
 	m.screen = screenInvoiceList
+
 	if item.Paid {
 		m.invoiceMode = invoiceListHistoryPaid
 	} else if item.IsIncoming {
@@ -5664,34 +5341,42 @@ func (m model) saveInvoiceFromForm() (tea.Model, tea.Cmd) {
 	} else {
 		m.invoiceMode = invoiceListOutgoingUnpaid
 	}
+
 	m.invoiceCursor = 0
 	m.status = "saved invoice " + title
+
 	return m, nil
 }
 
-func (m model) openInvoiceEditor(item invoice) tea.Model {
+func (m model) openInvoiceEditor(item invoice.Invoice) tea.Model {
 	m.screen = screenInvoiceEdit
 	m.editingInvoiceID = item.ID
 	m.editInvoiceForm = newEditInvoiceForm(currencySelectionOptions(m.settings))
 	m.editInvoiceForm.titleInput.SetValue(item.Title)
+
 	if item.AmountCents != 0 {
 		m.editInvoiceForm.amountInput.SetValue(formatAmount(item.AmountCents))
 	} else {
 		m.editInvoiceForm.amountInput.SetValue("")
 	}
+
 	m.editInvoiceForm.peerInput.SetValue(item.Peer)
 	if item.InvoiceDate != nil {
 		m.editInvoiceForm.invoiceDateInput.SetValue(item.InvoiceDate.Local().Format("02.01.2006"))
 	}
+
 	if item.DueDate != nil {
 		m.editInvoiceForm.dueDateInput.SetValue(item.DueDate.Local().Format("02.01.2006"))
 	}
+
 	m.editInvoiceForm.urlInput.SetValue(item.URL)
 	m.editInvoiceForm.descriptionInput.SetValue(item.Description)
 	m.editInvoiceForm.currencyIndex = 0
+
 	for i := range m.editInvoiceForm.currencyOptions {
 		if strings.EqualFold(strings.TrimSpace(m.editInvoiceForm.currencyOptions[i]), strings.TrimSpace(item.Currency)) {
 			m.editInvoiceForm.currencyIndex = i
+
 			break
 		}
 	}
@@ -5699,6 +5384,7 @@ func (m model) openInvoiceEditor(item invoice) tea.Model {
 	m.editInvoiceForm.paid = item.Paid
 	m.editInvoiceForm = m.editInvoiceForm.focusActive()
 	m.status = "editing invoice " + item.Title
+
 	return m
 }
 
@@ -5706,29 +5392,34 @@ func (m model) saveInvoiceEdit() (tea.Model, tea.Cmd) {
 	index := m.findInvoiceIndex(m.editingInvoiceID)
 	if index < 0 {
 		m.status = "invoice not found"
+
 		return m, nil
 	}
 
 	title := strings.TrimSpace(m.editInvoiceForm.titleInput.Value())
 	if title == "" {
 		m.status = "invoice title is required"
+
 		return m, nil
 	}
 
 	amount, err := parseOptionalAmountCents(strings.TrimSpace(m.editInvoiceForm.amountInput.Value()))
 	if err != nil {
 		m.status = "amount error: " + err.Error()
+
 		return m, nil
 	}
 
 	invoiceDate, err := parseOptionalDatePointer(strings.TrimSpace(m.editInvoiceForm.invoiceDateInput.Value()))
 	if err != nil {
 		m.status = "invoice date must use DD.MM.YYYY format"
+
 		return m, nil
 	}
 	dueDate, err := parseOptionalDatePointer(strings.TrimSpace(m.editInvoiceForm.dueDateInput.Value()))
 	if err != nil {
 		m.status = "due date must use DD.MM.YYYY format"
+
 		return m, nil
 	}
 
@@ -5753,11 +5444,13 @@ func (m model) saveInvoiceEdit() (tea.Model, tea.Cmd) {
 	m.invoices[index] = selected
 	m.screen = screenInvoiceList
 	m.status = "updated invoice " + selected.Title
+
 	return m, nil
 }
 
-func (m model) filteredInvoices() []invoice {
-	filtered := make([]invoice, 0, len(m.invoices))
+func (m model) filteredInvoices() []invoice.Invoice {
+	filtered := make([]invoice.Invoice, 0, len(m.invoices))
+
 	for _, item := range m.invoices {
 		switch m.invoiceMode {
 		case invoiceListOutgoingUnpaid:
@@ -5774,6 +5467,7 @@ func (m model) filteredInvoices() []invoice {
 			}
 		}
 	}
+
 	return filtered
 }
 
@@ -5783,6 +5477,7 @@ func (m model) findInvoiceIndex(id uint) int {
 			return i
 		}
 	}
+
 	return -1
 }
 
@@ -5791,46 +5486,59 @@ func (m model) updateCashflowNew(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "esc":
 		m.screen = screenMenu
 		m.status = databaseStatus(m.created, len(m.accounts), m.dbPath)
+
 		return m, nil
 	case "up", "shift+tab":
 		m.addCashflowForm = m.addCashflowForm.prev()
+
 		return m, nil
 	case "down", "tab":
 		m.addCashflowForm = m.addCashflowForm.next()
+
 		return m, nil
 	case "left":
 		if m.addCashflowForm.active == cashflowFieldCurrency && m.addCashflowForm.currencyIndex > 0 {
 			m.addCashflowForm.currencyIndex--
 		}
+
 		if m.addCashflowForm.active == cashflowFieldCategory && m.addCashflowForm.categoryIndex > 0 {
 			m.addCashflowForm.categoryIndex--
 		}
+
 		if m.addCashflowForm.active == cashflowFieldAccount && m.addCashflowForm.accountIndex > 0 {
 			m.addCashflowForm.accountIndex--
 		}
+
 		return m, nil
 	case "right":
 		if m.addCashflowForm.active == cashflowFieldCurrency && m.addCashflowForm.currencyIndex < len(m.addCashflowForm.currencyOptions)-1 {
 			m.addCashflowForm.currencyIndex++
 		}
+
 		if m.addCashflowForm.active == cashflowFieldCategory && m.addCashflowForm.categoryIndex < len(m.addCashflowForm.categoryOptions)-1 {
 			m.addCashflowForm.categoryIndex++
 		}
+
 		if m.addCashflowForm.active == cashflowFieldAccount && m.addCashflowForm.accountIndex < len(m.addCashflowForm.accountOptions)-1 {
 			m.addCashflowForm.accountIndex++
 		}
+
 		return m, nil
 	case "enter":
 		if m.addCashflowForm.active == cashflowFieldCount-1 {
 			return m.saveCashflowFromForm()
 		}
+
 		m.addCashflowForm = m.addCashflowForm.next()
+
 		return m, nil
 	}
 
 	if inputIndex := m.addCashflowForm.inputIndexForField(m.addCashflowForm.active); inputIndex >= 0 {
 		var cmd tea.Cmd
+
 		m.addCashflowForm.inputs[inputIndex], cmd = m.addCashflowForm.inputs[inputIndex].Update(msg)
+
 		return m, cmd
 	}
 
@@ -5844,6 +5552,7 @@ func (m model) saveCashflowFromForm() (tea.Model, tea.Cmd) {
 		} else {
 			m.status = "no expense categories configured; add one in settings"
 		}
+
 		return m, nil
 	}
 
@@ -5854,23 +5563,26 @@ func (m model) saveCashflowFromForm() (tea.Model, tea.Cmd) {
 	amount, err := parseAmountCents(amountRaw)
 	if err != nil {
 		m.status = "amount error: " + err.Error()
+
 		return m, nil
 	}
 
 	entryDate, err := parseRequiredDate(dateRaw)
 	if err != nil {
 		m.status = "date must use DD.MM.YYYY format"
+
 		return m, nil
 	}
 
 	category := selectedStringOption(m.addCashflowForm.categoryOptions, m.addCashflowForm.categoryIndex)
 	if category == "" {
 		m.status = "category is required"
+
 		return m, nil
 	}
 
 	now := time.Now()
-	entry := cashflowEntry{
+	entry := cashflow.CashflowEntry{
 		IsIncome:      m.addCashflowForm.isIncome,
 		Currency:      selectedCurrencyOption(m.addCashflowForm.currencyOptions, m.addCashflowForm.currencyIndex),
 		AmountCents:   amount,
@@ -5883,10 +5595,11 @@ func (m model) saveCashflowFromForm() (tea.Model, tea.Cmd) {
 
 	if err := m.db.Create(&entry).Error; err != nil {
 		m.status = "save failed: " + err.Error()
+
 		return m, nil
 	}
 
-	m.cashflows = append([]cashflowEntry{entry}, m.cashflows...)
+	m.cashflows = append([]cashflow.CashflowEntry{entry}, m.cashflows...)
 	if entry.IsIncome {
 		m.addCashflowForm = newAddCashflowForm(currencySelectionOptions(m.settings), incomeCategorySelectionOptions(m.settings), accountSelectionOptions(m.accounts), true)
 		m.status = "saved income"
@@ -5894,9 +5607,11 @@ func (m model) saveCashflowFromForm() (tea.Model, tea.Cmd) {
 		m.addCashflowForm = newAddCashflowForm(currencySelectionOptions(m.settings), expenseCategorySelectionOptions(m.settings), accountSelectionOptions(m.accounts), false)
 		m.status = "saved expense"
 	}
+
 	m.screen = screenCashflowHistory
 	m.cashflowHistoryMonth = beginningOfMonth(entry.EntryDate)
 	m.cashflowCursor = 0
+
 	return m, nil
 }
 
@@ -5906,37 +5621,46 @@ func (m model) updateCashflowHistory(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	items := m.filteredCashflowsForMonth()
+
 	switch msg.String() {
 	case "esc":
 		m.screen = screenMenu
 		m.status = databaseStatus(m.created, len(m.accounts), m.dbPath)
+
 		return m, nil
 	case "left":
 		m.cashflowHistoryMonth = monthShift(m.cashflowHistoryMonth, -1)
 		m.cashflowCursor = 0
+
 		return m, nil
 	case "right":
 		m.cashflowHistoryMonth = monthShift(m.cashflowHistoryMonth, 1)
 		m.cashflowCursor = 0
+
 		return m, nil
 	case "up":
 		if m.cashflowCursor > 0 {
 			m.cashflowCursor--
 		}
+
 		return m, nil
 	case "down":
 		if m.cashflowCursor < len(items)-1 {
 			m.cashflowCursor++
 		}
+
 		return m, nil
 	case "backspace", "delete":
 		if len(items) == 0 || m.cashflowCursor < 0 || m.cashflowCursor >= len(items) {
 			m.status = "no entry selected"
+
 			return m, nil
 		}
+
 		selected := items[m.cashflowCursor]
 		targetName := selected.EntryDate.Local().Format("2006-01-02") + " " + selected.Category
 		m = m.beginDeleteConfirmation("cashflow", selected.ID, targetName)
+
 		return m, nil
 	default:
 		return m, nil
@@ -5947,31 +5671,38 @@ func (m model) updateCashflowOverview(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	rows, _ := m.monthlyCashflowOverviewRows()
 	pageSize := m.cashflowOverviewPageSize()
 	totalPages := 1
+
 	if pageSize > 0 && len(rows) > 0 {
 		totalPages = (len(rows) + pageSize - 1) / pageSize
 	}
+
 	m.cashflowOverviewPage = clamp(m.cashflowOverviewPage, 0, totalPages-1)
 
 	switch msg.String() {
 	case "esc":
 		m.screen = screenMenu
 		m.status = databaseStatus(m.created, len(m.accounts), m.dbPath)
+
 		return m, nil
 	case "left", "h", "up", "k", "pgup":
 		if m.cashflowOverviewPage > 0 {
 			m.cashflowOverviewPage--
 		}
+
 		return m, nil
 	case "right", "l", "down", "j", "pgdown":
 		if m.cashflowOverviewPage < totalPages-1 {
 			m.cashflowOverviewPage++
 		}
+
 		return m, nil
 	case "home":
 		m.cashflowOverviewPage = 0
+
 		return m, nil
 	case "end":
 		m.cashflowOverviewPage = totalPages - 1
+
 		return m, nil
 	default:
 		return m, nil
@@ -5987,24 +5718,29 @@ func (m model) cashflowOverviewPageSize() int {
 	if size < 6 {
 		size = 6
 	}
+
 	return size
 }
 
-func (m model) filteredCashflowsForMonth() []cashflowEntry {
+func (m model) filteredCashflowsForMonth() []cashflow.CashflowEntry {
 	month := beginningOfMonth(m.cashflowHistoryMonth)
-	filtered := make([]cashflowEntry, 0)
+	filtered := make([]cashflow.CashflowEntry, 0)
+
 	for _, entry := range m.cashflows {
 		itemMonth := beginningOfMonth(entry.EntryDate)
 		if itemMonth.Year() == month.Year() && itemMonth.Month() == month.Month() {
 			filtered = append(filtered, entry)
 		}
 	}
+
 	sort.SliceStable(filtered, func(i, j int) bool {
 		if filtered[i].EntryDate.Equal(filtered[j].EntryDate) {
 			return filtered[i].CreatedAt.After(filtered[j].CreatedAt)
 		}
+
 		return filtered[i].EntryDate.After(filtered[j].EntryDate)
 	})
+
 	return filtered
 }
 
@@ -6015,6 +5751,7 @@ func (m model) monthlyCashflowOverviewRows() ([]cashflowMonthlyOverviewRow, int)
 
 	totalsByMonth := make(map[time.Time]cashflowMonthlyOverviewRow)
 	missingRates := 0
+
 	for _, entry := range m.cashflows {
 		amountBase, ok := m.convertToBaseCents(entry.Currency, entry.AmountCents)
 		if !ok {
@@ -6025,11 +5762,13 @@ func (m model) monthlyCashflowOverviewRows() ([]cashflowMonthlyOverviewRow, int)
 		month := beginningOfMonth(entry.EntryDate)
 		row := totalsByMonth[month]
 		row.Month = month
+
 		if entry.IsIncome {
 			row.IncomeBase += amountBase
 		} else {
 			row.ExpenseBase += amountBase
 		}
+
 		totalsByMonth[month] = row
 	}
 
@@ -6038,26 +5777,34 @@ func (m model) monthlyCashflowOverviewRows() ([]cashflowMonthlyOverviewRow, int)
 	}
 
 	minMonthSet := false
+
 	var minMonth time.Time
 	var maxMonth time.Time
+
 	for month := range totalsByMonth {
 		if !minMonthSet {
 			minMonth = month
 			maxMonth = month
 			minMonthSet = true
+
 			continue
 		}
+
 		if month.Before(minMonth) {
 			minMonth = month
 		}
+
 		if month.After(maxMonth) {
 			maxMonth = month
 		}
 	}
 
 	rows := make([]cashflowMonthlyOverviewRow, 0)
+
 	var prevNet int64
+
 	hasPrev := false
+
 	for month := minMonth; !month.After(maxMonth); month = monthShift(month, 1) {
 		row := totalsByMonth[month]
 		row.Month = month
@@ -6076,11 +5823,13 @@ func (m model) monthlyCashflowOverviewRows() ([]cashflowMonthlyOverviewRow, int)
 
 func beginningOfMonth(value time.Time) time.Time {
 	local := value.Local()
+
 	return time.Date(local.Year(), local.Month(), 1, 0, 0, 0, 0, local.Location())
 }
 
 func monthShift(month time.Time, delta int) time.Time {
 	base := beginningOfMonth(month)
+
 	return base.AddDate(0, delta, 0)
 }
 
@@ -6088,28 +5837,34 @@ func debtDirectionLabel(isOwedToUser bool) string {
 	if isOwedToUser {
 		return "incoming (someone owes me)"
 	}
+
 	return "outgoing (i owe someone)"
 }
 
-func (m model) debtProgressTotalsBase(items []debt) (paid int64, total int64) {
+func (m model) debtProgressTotalsBase(items []debt.Debt) (paid int64, total int64) {
 	for _, item := range items {
 		itemTotal := item.AmountCents
 		itemPaid := item.AmountPaidCents
+
 		if itemTotal < 0 {
 			itemTotal = 0
 		}
+
 		if itemPaid < 0 {
 			itemPaid = 0
 		}
+
 		if itemPaid > itemTotal {
 			itemPaid = itemTotal
 		}
 
 		totalBase, totalOK := m.convertToBaseCents(item.Currency, itemTotal)
 		paidBase, paidOK := m.convertToBaseCents(item.Currency, itemPaid)
+
 		if totalOK && paidOK {
 			total += totalBase
 			paid += paidBase
+
 			continue
 		}
 
@@ -6120,9 +5875,11 @@ func (m model) debtProgressTotalsBase(items []debt) (paid int64, total int64) {
 	if paid > total {
 		paid = total
 	}
+
 	if paid < 0 {
 		paid = 0
 	}
+
 	if total < 0 {
 		total = 0
 	}
@@ -6134,27 +5891,33 @@ func (m model) renderProgressBar(paid int64, total int64, width int) string {
 	if width < 8 {
 		width = 8
 	}
+
 	if total <= 0 {
 		bar := progressRestStyle.Render(strings.Repeat("░", width))
 		return bar + " 0.0%"
 	}
+
 	if paid < 0 {
 		paid = 0
 	}
+
 	if paid > total {
 		paid = total
 	}
 
 	ratio := float64(paid) / float64(total)
+
 	filled := int(math.Round(ratio * float64(width)))
 	if filled < 0 {
 		filled = 0
 	}
+
 	if filled > width {
 		filled = width
 	}
 
 	bar := progressFillStyle.Render(strings.Repeat("█", filled)) + progressRestStyle.Render(strings.Repeat("░", width-filled))
+
 	return fmt.Sprintf("%s %5.1f%%", bar, ratio*100)
 }
 
@@ -6181,11 +5944,13 @@ func renderHeader(width int) string {
 	badge := badgeStyle.Render("Personal Finance TUI")
 	subtitle := hintStyle.Render("incomes, expenses, accounts, subscriptions, invoices, debts, goals, taxes and settings")
 	line := lipgloss.JoinVertical(lipgloss.Left, lipgloss.JoinHorizontal(lipgloss.Center, title, "  ", badge), subtitle)
+
 	return panelStyle.Width(width).Render(line)
 }
 
 func renderFooter(width int, status string) string {
 	content := lipgloss.JoinHorizontal(lipgloss.Center, statusLabelStyle.Render("STATUS"), " ", statusStyle.Render(status))
+
 	return panelStyle.Width(width).Render(content)
 }
 
@@ -6247,6 +6012,7 @@ func (m model) renderMenu(width int) string {
 	groups := appMenuGroups()
 	leftColumn := make([]string, 0, len(groups)/2+1)
 	rightColumn := make([]string, 0, len(groups)/2+1)
+
 	for gi, group := range groups {
 		block := m.renderMenuGroupBlock(gi, group)
 		if gi%2 == 0 {
@@ -6281,11 +6047,13 @@ func (m model) renderMenu(width int) string {
 
 func (m model) renderMenuGroupBlock(groupIndex int, group menuGroup) string {
 	buttons := make([]string, 0, len(group.items))
+
 	for itemIndex, label := range group.items {
 		style := buttonStyle
 		if groupIndex == m.menuGroup && itemIndex == m.menuItem {
 			style = buttonActiveStyle
 		}
+
 		buttons = append(buttons, style.Render(label))
 	}
 
@@ -6295,6 +6063,7 @@ func (m model) renderMenuGroupBlock(groupIndex int, group menuGroup) string {
 func menuColumnLayout(groups []menuGroup) ([]int, []int) {
 	leftColumn := make([]int, 0, len(groups)/2+1)
 	rightColumn := make([]int, 0, len(groups)/2+1)
+
 	for index := range groups {
 		if index%2 == 0 {
 			leftColumn = append(leftColumn, index)
@@ -6333,10 +6102,12 @@ func menuMoveWithinColumn(currentGroup int, direction int) (int, bool) {
 func menuMoveAcrossColumns(currentGroup int, direction int) (int, bool) {
 	leftColumn, rightColumn := menuColumnLayout(appMenuGroups())
 	column, row := menuColumnPosition(currentGroup)
+
 	if direction < 0 {
 		if column == 1 && row < len(leftColumn) {
 			return leftColumn[row], true
 		}
+
 		return 0, false
 	}
 
@@ -6360,6 +6131,7 @@ func (m model) renderMoneyConditionalRed(base string, cents int64) string {
 	if cents > 0 {
 		return obligationStyle.Render(formatted)
 	}
+
 	return formatted
 }
 
@@ -6369,42 +6141,50 @@ func (m model) renderDashboard(width int) string {
 	// Monthly net: income - expenses for current month
 	var monthlyIncome int64
 	var monthlyExpense int64
+
 	for _, item := range m.filteredCashflowsForMonth() {
 		amountBase, ok := m.convertToBaseCents(item.Currency, item.AmountCents)
 		if !ok {
 			continue
 		}
+
 		if item.IsIncome {
 			monthlyIncome += amountBase
 		} else {
 			monthlyExpense += amountBase
 		}
 	}
+
 	monthlyNet := monthlyIncome - monthlyExpense
 
-	// Subscription totals
-	activeSubscriptions := make([]subscription, 0)
+	// Subscription totals.
+	activeSubscriptions := make([]subscription.Subscription, 0)
 	for _, sub := range m.subscriptions {
 		if sub.IsActive {
 			activeSubscriptions = append(activeSubscriptions, sub)
 		}
 	}
+
 	monthlySubCost, yearlySubProjection := m.subscriptionTotalsInBaseCents(activeSubscriptions)
 
-	// Total accounts
+	// Total accounts.
 	totalAccounts := m.sumAccountsInBaseCents()
 
-	// Unpaid debts (separate by direction)
+	// Unpaid debts (separate by direction).
 	var unPaidDebtToMe int64
+
 	var unPaidDebtByMe int64
+
 	for _, d := range m.debts {
 		if d.AmountPaidCents >= d.AmountCents {
 			continue
 		}
+
 		converted, ok := m.convertToBaseCents(d.Currency, d.AmountCents-d.AmountPaidCents)
 		if !ok {
 			continue
 		}
+
 		if d.IsOwedToUser {
 			unPaidDebtToMe += converted
 		} else {
@@ -6412,29 +6192,36 @@ func (m model) renderDashboard(width int) string {
 		}
 	}
 
-	// Unpaid taxes
+	// Unpaid taxes.
 	var unpaidTaxes int64
+
 	for _, tax := range m.taxes {
 		if tax.AmountPaidCents < tax.AmountDueCents {
 			converted, ok := m.convertToBaseCents(base, tax.AmountDueCents-tax.AmountPaidCents)
+
 			if !ok {
 				continue
 			}
+
 			unpaidTaxes += converted
 		}
 	}
 
-	// Unpaid invoices (separate by direction)
+	// Unpaid invoices (separate by direction).
 	var unpaidInvoiceToMe int64
+
 	var unpaidInvoiceByMe int64
+
 	for _, inv := range m.invoices {
 		if inv.Paid {
 			continue
 		}
+
 		converted, ok := m.convertToBaseCents(inv.Currency, inv.AmountCents)
 		if !ok {
 			continue
 		}
+
 		if inv.IsIncoming {
 			unpaidInvoiceToMe += converted
 		} else {
@@ -6442,9 +6229,11 @@ func (m model) renderDashboard(width int) string {
 		}
 	}
 
-	// Goals progress
+	// Goals progress.
 	accumulatedBase, targetBase := m.goalProgressTotalsBase(m.goals)
+
 	var goalsProgressStr string
+
 	if targetBase > 0 {
 		percentage := (float64(accumulatedBase) / float64(targetBase)) * 100
 		goalsProgressStr = fmt.Sprintf("%s / %s (%.1f%%)", renderMoneyWithCurrency(base, accumulatedBase), renderMoneyWithCurrency(base, targetBase), percentage)
@@ -6483,29 +6272,32 @@ func (m model) renderDashboard(width int) string {
 	return panelStyle.Width(width).Render(twoColumnDashboard)
 }
 
-func sortAccountsByBaseAmount(accounts []account, settings appSettings) []account {
+func sortAccountsByBaseAmount(accounts []account.Account, settings settings.AppSettings) []account.Account {
 	if len(accounts) < 2 {
 		return accounts
 	}
 
-	cloned := make([]account, len(accounts))
+	cloned := make([]account.Account, len(accounts))
 	copy(cloned, accounts)
 	sort.SliceStable(cloned, func(i, j int) bool {
 		leftComparable := comparableAccountBaseCents(cloned[i], settings)
 		rightComparable := comparableAccountBaseCents(cloned[j], settings)
+
 		if leftComparable == rightComparable {
 			if cloned[i].CreatedAt.Equal(cloned[j].CreatedAt) {
 				return cloned[i].ID > cloned[j].ID
 			}
+
 			return cloned[i].CreatedAt.After(cloned[j].CreatedAt)
 		}
+
 		return leftComparable > rightComparable
 	})
 
 	return cloned
 }
 
-func comparableAccountBaseCents(acct account, settings appSettings) int64 {
+func comparableAccountBaseCents(acct account.Account, settings settings.AppSettings) int64 {
 	base := strings.TrimSpace(settings.BaseCurrency)
 	if base == "" {
 		base = "$"
@@ -6524,7 +6316,7 @@ func comparableAccountBaseCents(acct account, settings appSettings) int64 {
 	return acct.BalanceCents
 }
 
-func findAccountIndex(accounts []account, id uint) int {
+func findAccountIndex(accounts []account.Account, id uint) int {
 	for i := range accounts {
 		if accounts[i].ID == id {
 			return i
@@ -6536,18 +6328,20 @@ func findAccountIndex(accounts []account, id uint) int {
 
 func accountLogDay(value time.Time) time.Time {
 	local := value.Local()
+
 	return time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, local.Location())
 }
 
-func (m model) loadAccountValueLogs(accountID uint) []accountValueLog {
+func (m model) loadAccountValueLogs(accountID uint) []account.AccountValueLog {
 	if accountID == 0 {
 		return nil
 	}
 
-	logs := make([]accountValueLog, 0)
+	logs := make([]account.AccountValueLog, 0)
 	if err := m.db.Where("account_id = ?", accountID).Order("log_date desc, id desc").Find(&logs).Error; err != nil {
 		return nil
 	}
+
 	return logs
 }
 
@@ -6558,23 +6352,27 @@ func (m model) upsertAccountValueLog(accountID uint, day time.Time, valueCents i
 
 	normalizedDay := accountLogDay(day)
 	now := time.Now()
-	entry := accountValueLog{}
+	entry := account.AccountValueLog{}
+
 	err := m.db.Where("account_id = ? AND log_date = ?", accountID, normalizedDay).First(&entry).Error
 	if err == nil {
 		entry.ValueCents = valueCents
 		entry.UpdatedAt = now
+
 		return m.db.Save(&entry).Error
 	}
+
 	if !errors.Is(err, gorm.ErrRecordNotFound) {
 		return err
 	}
 
-	entry = accountValueLog{
+	entry = account.AccountValueLog{
 		AccountID:  accountID,
 		LogDate:    normalizedDay,
 		ValueCents: valueCents,
 		UpdatedAt:  now,
 	}
+
 	return m.db.Create(&entry).Error
 }
 
@@ -6588,8 +6386,10 @@ func (m model) renderAddAccount(width int) string {
 	for i := range m.addForm.fields {
 		if i == 2 {
 			lines = append(lines, m.renderAccountCurrencyFieldRow(width))
+
 			continue
 		}
+
 		label := fieldLabelStyle.Render(m.addForm.labels[i])
 		value := inputBoxStyle.Width(width - 18).Render(m.addForm.fields[i].View())
 		lines = append(lines, lipgloss.JoinHorizontal(lipgloss.Top, label, "  ", value))
@@ -6608,6 +6408,7 @@ func (m model) renderAccountCurrencyFieldRow(width int) string {
 		if index == m.addForm.currencyIndex {
 			style = buttonActiveStyle
 		}
+
 		options = append(options, style.Render(option))
 	}
 
@@ -6615,8 +6416,10 @@ func (m model) renderAccountCurrencyFieldRow(width int) string {
 	if m.addForm.active == 2 {
 		prefix = ">"
 	}
+
 	label := fieldLabelStyle.Render(prefix + " Currency")
 	value := inputBoxStyle.Width(width - 18).Render(strings.Join(options, " "))
+
 	return lipgloss.JoinHorizontal(lipgloss.Top, label, "  ", value)
 }
 
@@ -6635,6 +6438,7 @@ func (m model) renderAccountTable(width int) string {
 	lines = append(lines, fieldLabelStyle.Render("Total in "+baseLabel+":"), "  "+renderMoneyWithCurrency(baseLabel, accountBaseTotal), "")
 
 	lines = append(lines, m.renderAccountTableHeader(width))
+
 	for i, acct := range m.accounts {
 		lines = append(lines, m.renderAccountRow(width, i, acct))
 	}
@@ -6648,20 +6452,23 @@ func (m model) renderAccountTableHeader(width int) string {
 	amountWidth := 14
 	baseAmountWidth := 14
 	updatedWidth := 16
+
 	descWidth := width - 14 - nameWidth - currencyWidth - amountWidth - baseAmountWidth - updatedWidth - 12
 	if descWidth < 16 {
 		descWidth = 16
 	}
+
 	baseCurrencyTitle := strings.TrimSpace(m.settings.BaseCurrency)
 	if baseCurrencyTitle == "" {
 		baseCurrencyTitle = "$"
 	}
 
 	header := fmt.Sprintf("%-2s %-*s %-*s %-*s %-*s %-*s %-*s", "#", nameWidth, "Name", currencyWidth, "Currency", amountWidth, "Amount", baseAmountWidth, truncateText(baseCurrencyTitle, baseAmountWidth), updatedWidth, "Updated", descWidth, "Description")
+
 	return tableHeaderStyle.Render(header)
 }
 
-func (m model) renderAccountRow(width int, index int, acct account) string {
+func (m model) renderAccountRow(width int, index int, acct account.Account) string {
 	nameWidth := 18
 	currencyWidth := 10
 	amountWidth := 14
@@ -6680,6 +6487,7 @@ func (m model) renderAccountRow(width int, index int, acct account) string {
 	}
 
 	row := fmt.Sprintf("%s %-*s %-*s %-*s %-*s %-*s %-*s", prefix, nameWidth, truncateText(acct.Name, nameWidth), currencyWidth, truncateText(acct.Currency, currencyWidth), amountWidth, renderMoneyWithCurrency(acct.Currency, acct.BalanceCents), baseAmountWidth, m.convertedAmountForBase(acct.Currency, acct.BalanceCents), updatedWidth, formatUpdatedAt(acct.LastUpdatedAt), descWidth, truncateText(acct.Description, descWidth))
+
 	return style.Render(row)
 }
 
@@ -6689,18 +6497,22 @@ func (m model) renderEditAmount(width int) string {
 	}
 
 	acct := m.accounts[m.cursor]
+
 	currentPrefix := "  "
 	if m.editAmountActiveField == editAmountFieldCurrent {
 		currentPrefix = "> "
 	}
+
 	updateLogPrefix := "  "
 	if m.editAmountActiveField == editAmountFieldUpdateLog {
 		updateLogPrefix = "> "
 	}
+
 	logDatePrefix := "  "
 	if m.editAmountActiveField == editAmountFieldLogDate {
 		logDatePrefix = "> "
 	}
+
 	logValuePrefix := "  "
 	if m.editAmountActiveField == editAmountFieldLogValue {
 		logValuePrefix = "> "
@@ -6822,6 +6634,7 @@ func (m model) renderSubscriptionOptionRow(field int, label string, options []st
 		if idx == selected {
 			style = buttonActiveStyle
 		}
+
 		chips = append(chips, style.Render(option))
 	}
 
@@ -6838,6 +6651,7 @@ func (m model) renderSubscriptionList(width int) string {
 	filtered := m.filteredSubscriptions()
 	if len(filtered) == 0 {
 		lines = append(lines, mutedStyle.Render("No subscriptions found."))
+
 		return panelStyle.Width(width).Render(strings.Join(lines, "\n"))
 	}
 
@@ -6883,20 +6697,23 @@ func (m model) renderSubscriptionTableHeader(width int) string {
 	periodWidth := 7
 	typeWidth := 12
 	activeWidth := 7
+
 	descWidth := width - 12 - nameWidth - currencyWidth - amountWidth - baseAmountWidth - periodWidth - typeWidth - activeWidth - 14
 	if descWidth < 12 {
 		descWidth = 12
 	}
+
 	baseCurrencyTitle := strings.TrimSpace(m.settings.BaseCurrency)
 	if baseCurrencyTitle == "" {
 		baseCurrencyTitle = "$"
 	}
 
 	header := fmt.Sprintf("%-2s %-*s %-*s %-*s %-*s %-*s %-*s %-*s %-*s", "#", nameWidth, "Name", currencyWidth, "Curr", amountWidth, "Amount", baseAmountWidth, truncateText(baseCurrencyTitle, baseAmountWidth), periodWidth, "Period", typeWidth, "Type", activeWidth, "Active", descWidth, "Payment method")
+
 	return tableHeaderStyle.Render(header)
 }
 
-func (m model) renderSubscriptionRow(width int, index int, sub subscription) string {
+func (m model) renderSubscriptionRow(width int, index int, sub subscription.Subscription) string {
 	nameWidth := 16
 	currencyWidth := 8
 	amountWidth := 12
@@ -6922,6 +6739,7 @@ func (m model) renderSubscriptionRow(width int, index int, sub subscription) str
 	}
 
 	row := fmt.Sprintf("%s %-*s %-*s %-*s %-*s %-*s %-*s %-*s %-*s", prefix, nameWidth, truncateText(sub.Name, nameWidth), currencyWidth, truncateText(sub.Currency, currencyWidth), amountWidth, renderMoneyWithCurrency(sub.Currency, sub.AmountCents), baseAmountWidth, m.convertedAmountForBase(sub.Currency, sub.AmountCents), periodWidth, truncateText(sub.Period, periodWidth), typeWidth, truncateText(sub.Type, typeWidth), activeWidth, active, descWidth, truncateText(sub.PaymentMethod, descWidth))
+
 	return style.Render(row)
 }
 
@@ -6930,6 +6748,7 @@ func (m model) renderDebtNew(width int) string {
 	if m.addDebtForm.isOwedToUser {
 		directionIndex = 1
 	}
+
 	lines := []string{
 		headlineStyle.Render("New debt"),
 		mutedStyle.Render("Use up/down to move fields. Left/right changes direction and currency. Space also toggles direction. Enter on last field saves."),
@@ -6952,6 +6771,7 @@ func (m model) renderDebtRowText(field int, label string, value string) string {
 	if m.addDebtForm.active == field {
 		prefix = "> "
 	}
+
 	return prefix + fieldLabelStyle.Render(label) + "  " + value
 }
 
@@ -6964,9 +6784,11 @@ func (m model) renderDebtChoiceRow(field int, label string, options []string, se
 	chips := make([]string, 0, len(options))
 	for i, option := range options {
 		style := buttonStyle
+
 		if i == selected {
 			style = buttonActiveStyle
 		}
+
 		chips = append(chips, style.Render(option))
 	}
 
@@ -6978,12 +6800,14 @@ func (m model) renderDebtList(width int) string {
 	if m.debtMode == debtListIncoming {
 		title = "Incoming debts"
 	}
+
 	if m.debtMode == debtListHistory {
 		title = "Debt history (paid)"
 	}
 
 	lines := []string{lipgloss.JoinHorizontal(lipgloss.Center, sectionTitleStyle.Render(title), "  ", modeBadgeStyle.Render("Debts")), hintStyle.Render("Use up/down to browse. Enter edits debt. Delete/Backspace asks confirmation. Esc returns to menu."), ""}
 	filtered := m.filteredDebts()
+
 	if len(filtered) == 0 {
 		lines = append(lines, mutedStyle.Render("No debts found."))
 		return panelStyle.Width(width).Render(strings.Join(lines, "\n"))
@@ -6995,6 +6819,7 @@ func (m model) renderDebtList(width int) string {
 	lines = append(lines, "")
 
 	lines = append(lines, m.renderDebtTableHeader(width))
+
 	for i, item := range filtered {
 		lines = append(lines, m.renderDebtTableRow(width, i, item))
 	}
@@ -7014,11 +6839,13 @@ func (m model) renderDebtTableHeader(width int) string {
 	if commentWidth < 12 {
 		commentWidth = 12
 	}
+
 	header := fmt.Sprintf("%-2s %-*s %-*s %-*s %-*s %-*s %-*s %-*s %-*s", "#", peerWidth, "Peer", currencyWidth, "Curr", amountWidth, "Amount", paidWidth, "Paid", leftWidth, "Left", dueWidth, "Due", dirWidth, "Dir", commentWidth, "Comment")
+
 	return tableHeaderStyle.Render(header)
 }
 
-func (m model) renderDebtTableRow(width int, index int, item debt) string {
+func (m model) renderDebtTableRow(width int, index int, item debt.Debt) string {
 	peerWidth := 14
 	currencyWidth := 8
 	amountWidth := 12
@@ -7052,6 +6879,7 @@ func (m model) renderDebtTableRow(width int, index int, item debt) string {
 	}
 
 	row := fmt.Sprintf("%s %-*s %-*s %-*s %-*s %-*s %-*s %-*s %-*s", prefix, peerWidth, truncateText(item.Peer, peerWidth), currencyWidth, truncateText(item.Currency, currencyWidth), amountWidth, renderMoneyWithCurrency(item.Currency, item.AmountCents), paidWidth, renderMoneyWithCurrency(item.Currency, item.AmountPaidCents), leftWidth, renderMoneyWithCurrency(item.Currency, left), dueWidth, due, dirWidth, dir, commentWidth, truncateText(item.Comment, commentWidth))
+
 	return style.Render(row)
 }
 
@@ -7094,6 +6922,7 @@ func (m model) renderDebtEdit(width int) string {
 			if entry.DeltaPaidCents < 0 {
 				sign = ""
 			}
+
 			note := strings.TrimSpace(entry.Note)
 			if note != "" {
 				lines = append(lines, fmt.Sprintf("%s%s at %s | %s", sign, formatAmount(entry.DeltaPaidCents), entry.CreatedAt.Local().Format("2006-01-02 15:04"), note))
@@ -7111,6 +6940,7 @@ func (m model) renderEditDebtField(field int, label string, value string) string
 	if m.editDebtForm.activeField == field {
 		prefix = "> "
 	}
+
 	return prefix + fieldLabelStyle.Render(label) + "  " + value
 }
 
@@ -7136,6 +6966,7 @@ func (m model) renderGoalRowText(field int, label string, value string) string {
 	if m.addGoalForm.active == field {
 		prefix = "> "
 	}
+
 	return prefix + fieldLabelStyle.Render(label) + "  " + value
 }
 
@@ -7196,11 +7027,13 @@ func (m model) renderGoalTableHeader(width int) string {
 	if descWidth < 10 {
 		descWidth = 10
 	}
+
 	header := fmt.Sprintf("%-2s %-*s %-*s %-*s %-*s %-*s %-*s %-*s %-*s %-*s", "#", nameWidth, "Goal", currencyWidth, "Curr", targetWidth, "Target", accumWidth, "Saved", leftWidth, "Left", startedWidth, "Started", targetDateWidth, "Target dt", progressWidth, "Done", descWidth, "Description")
+
 	return tableHeaderStyle.Render(header)
 }
 
-func (m model) renderGoalTableRow(width int, index int, item goal) string {
+func (m model) renderGoalTableRow(width int, index int, item goal.Goal) string {
 	nameWidth := 14
 	currencyWidth := 8
 	targetWidth := 12
@@ -7225,10 +7058,12 @@ func (m model) renderGoalTableRow(width int, index int, item goal) string {
 	if left < 0 {
 		left = 0
 	}
+
 	targetDate := "-"
 	if item.TargetDate != nil {
 		targetDate = item.TargetDate.Local().Format("2006-01-02")
 	}
+
 	progressValue := 0.0
 	if item.TargetAmountCents > 0 {
 		progressValue = (float64(item.AmountAccumulatedCents) / float64(item.TargetAmountCents)) * 100
@@ -7241,6 +7076,7 @@ func (m model) renderGoalTableRow(width int, index int, item goal) string {
 	}
 
 	row := fmt.Sprintf("%s %-*s %-*s %-*s %-*s %-*s %-*s %-*s %-*s %-*s", prefix, nameWidth, truncateText(item.Name, nameWidth), currencyWidth, truncateText(item.Currency, currencyWidth), targetWidth, renderMoneyWithCurrency(item.Currency, item.TargetAmountCents), accumWidth, renderMoneyWithCurrency(item.Currency, item.AmountAccumulatedCents), leftWidth, renderMoneyWithCurrency(item.Currency, left), startedWidth, item.DateStartedAt.Local().Format("2006-01-02"), targetDateWidth, targetDate, progressWidth, fmt.Sprintf("%5.1f%%", progressValue), descWidth, truncateText(item.Description, descWidth))
+
 	return style.Render(row)
 }
 
@@ -7283,6 +7119,7 @@ func (m model) renderGoalEdit(width int) string {
 			if entry.DeltaAccumulatedCents < 0 {
 				sign = ""
 			}
+
 			note := strings.TrimSpace(entry.Note)
 			if note != "" {
 				lines = append(lines, fmt.Sprintf("%s%s at %s | %s", sign, formatAmount(entry.DeltaAccumulatedCents), entry.CreatedAt.Local().Format("2006-01-02 15:04"), note))
@@ -7300,6 +7137,7 @@ func (m model) renderEditGoalField(field int, label string, value string) string
 	if m.editGoalForm.activeField == field {
 		prefix = "> "
 	}
+
 	return prefix + fieldLabelStyle.Render(label) + "  " + value
 }
 
@@ -7313,6 +7151,7 @@ func (m model) renderTaxNew(width int) string {
 	if len(m.addTaxForm.taxTypeOptions) == 0 {
 		lines = append(lines, mutedStyle.Render("No tax types configured. Add one in Settings first."))
 		lines = append(lines, mutedStyle.Render("Press Esc to go back."))
+
 		return panelStyle.Width(width).Render(strings.Join(lines, "\n"))
 	}
 
@@ -7333,6 +7172,7 @@ func (m model) renderTaxRowText(field int, label string, value string) string {
 	if m.addTaxForm.active == field {
 		prefix = "> "
 	}
+
 	return prefix + fieldLabelStyle.Render(label) + "  " + value
 }
 
@@ -7348,6 +7188,7 @@ func (m model) renderTaxChoiceRow(field int, label string, options []string, sel
 		if i == selected {
 			style = buttonActiveStyle
 		}
+
 		chips = append(chips, style.Render(option))
 	}
 
@@ -7364,6 +7205,7 @@ func (m model) renderTaxList(width int) string {
 	filtered := m.filteredTaxes()
 	if len(filtered) == 0 {
 		lines = append(lines, mutedStyle.Render("No taxes found."))
+
 		return panelStyle.Width(width).Render(strings.Join(lines, "\n"))
 	}
 
@@ -7394,10 +7236,11 @@ func (m model) renderTaxTableHeader(width int) string {
 		commentWidth = 10
 	}
 	header := fmt.Sprintf("%-2s %-*s %-*s %-*s %-*s %-*s %-*s %-*s %-*s %-*s", "#", countryWidth, "Country", typeWidth, "Tax type", dueWidth, "Due", paidWidth, "Paid", leftWidth, "Left", periodWidth, "Period", dueDateWidth, "Due date", progressWidth, "Done", commentWidth, "Comment")
+
 	return tableHeaderStyle.Render(header)
 }
 
-func (m model) renderTaxTableRow(width int, index int, item tax) string {
+func (m model) renderTaxTableRow(width int, index int, item tax.Tax) string {
 	countryWidth := 12
 	typeWidth := 14
 	dueWidth := 12
@@ -7422,6 +7265,7 @@ func (m model) renderTaxTableRow(width int, index int, item tax) string {
 	if left < 0 {
 		left = 0
 	}
+
 	progressValue := 0.0
 	if item.AmountDueCents > 0 {
 		progressValue = (float64(item.AmountPaidCents) / float64(item.AmountDueCents)) * 100
@@ -7438,7 +7282,9 @@ func (m model) renderTaxTableRow(width int, index int, item tax) string {
 	if item.DueDate != nil {
 		dueDateLabel = item.DueDate.Local().Format("2006-01-02")
 	}
+
 	row := fmt.Sprintf("%s %-*s %-*s %-*s %-*s %-*s %-*s %-*s %-*s %-*s", prefix, countryWidth, truncateText(item.TaxCountry, countryWidth), typeWidth, truncateText(item.TaxTypeName, typeWidth), dueWidth, renderMoneyWithCurrency(base, item.AmountDueCents), paidWidth, renderMoneyWithCurrency(base, item.AmountPaidCents), leftWidth, renderMoneyWithCurrency(base, left), periodWidth, truncateText(item.Period, periodWidth), dueDateWidth, dueDateLabel, progressWidth, fmt.Sprintf("%5.1f%%", progressValue), commentWidth, truncateText(item.Comment, commentWidth))
+
 	return style.Render(row)
 }
 
@@ -7481,6 +7327,7 @@ func (m model) renderTaxEdit(width int) string {
 			if entry.DeltaPaidCents < 0 {
 				sign = ""
 			}
+
 			note := strings.TrimSpace(entry.Note)
 			if note != "" {
 				lines = append(lines, fmt.Sprintf("%s%s at %s | %s", sign, formatAmount(entry.DeltaPaidCents), entry.CreatedAt.Local().Format("2006-01-02 15:04"), note))
@@ -7498,6 +7345,7 @@ func (m model) renderInvoiceNew(width int) string {
 	if !m.addInvoiceForm.isIncoming {
 		typeIndex = 1
 	}
+
 	paidMarker := "[ ]"
 	if m.addInvoiceForm.paid {
 		paidMarker = "[x]"
@@ -7529,6 +7377,7 @@ func (m model) renderInvoiceList(width int) string {
 	if m.invoiceMode == invoiceListIncomingUnpaid {
 		title = "Incoming unpaid invoices"
 	}
+
 	if m.invoiceMode == invoiceListHistoryPaid {
 		title = "Invoice history (paid)"
 	}
@@ -7584,6 +7433,7 @@ func (m model) renderInvoiceRowText(field int, label string, value string) strin
 	if m.addInvoiceForm.active == field {
 		prefix = "> "
 	}
+
 	return prefix + fieldLabelStyle.Render(label) + "  " + value
 }
 
@@ -7610,6 +7460,7 @@ func (m model) renderEditInvoiceField(field int, label string, value string) str
 	if m.editInvoiceForm.activeField == field {
 		prefix = "> "
 	}
+
 	return prefix + fieldLabelStyle.Render(label) + "  " + value
 }
 
@@ -7625,6 +7476,7 @@ func (m model) renderEditInvoiceChoiceRow(field int, label string, options []str
 		if i == selected {
 			style = buttonActiveStyle
 		}
+
 		chips = append(chips, style.Render(option))
 	}
 
@@ -7641,14 +7493,17 @@ func (m model) renderInvoiceTableHeader(width int) string {
 	invDateWidth := 10
 	dueDateWidth := 10
 	descWidth := width - 14 - titleWidth - typeWidth - currencyWidth - amountWidth - paidWidth - peerWidth - invDateWidth - dueDateWidth - 18
+
 	if descWidth < 8 {
 		descWidth = 8
 	}
+
 	header := fmt.Sprintf("%-2s %-*s %-*s %-*s %-*s %-*s %-*s %-*s %-*s %-*s", "#", titleWidth, "Title", typeWidth, "Type", currencyWidth, "Curr", amountWidth, "Amount", paidWidth, "Paid", peerWidth, "Peer", invDateWidth, "Issued", dueDateWidth, "Due", descWidth, "Description")
+
 	return tableHeaderStyle.Render(header)
 }
 
-func (m model) renderInvoiceTableRow(width int, index int, item invoice) string {
+func (m model) renderInvoiceTableRow(width int, index int, item invoice.Invoice) string {
 	titleWidth := 16
 	typeWidth := 8
 	currencyWidth := 7
@@ -7673,20 +7528,24 @@ func (m model) renderInvoiceTableRow(width int, index int, item invoice) string 
 	if !item.IsIncoming {
 		typeLabel = "out"
 	}
+
 	paidLabel := "no"
 	if item.Paid {
 		paidLabel = "yes"
 	}
+
 	issued := "-"
 	if item.InvoiceDate != nil {
 		issued = item.InvoiceDate.Local().Format("2006-01-02")
 	}
+
 	due := "-"
 	if item.DueDate != nil {
 		due = item.DueDate.Local().Format("2006-01-02")
 	}
 
 	row := fmt.Sprintf("%s %-*s %-*s %-*s %-*s %-*s %-*s %-*s %-*s %-*s", prefix, titleWidth, truncateText(item.Title, titleWidth), typeWidth, typeLabel, currencyWidth, truncateText(item.Currency, currencyWidth), amountWidth, renderMoneyWithCurrency(item.Currency, item.AmountCents), paidWidth, paidLabel, peerWidth, truncateText(item.Peer, peerWidth), invDateWidth, issued, dueDateWidth, due, descWidth, truncateText(item.Description, descWidth))
+
 	return style.Render(row)
 }
 
@@ -7708,6 +7567,7 @@ func (m model) renderCashflowNew(width int) string {
 		} else {
 			lines = append(lines, mutedStyle.Render("No expense categories configured. Add one in Settings first."))
 		}
+
 		return panelStyle.Width(width).Render(strings.Join(lines, "\n"))
 	}
 
@@ -7728,6 +7588,7 @@ func (m model) renderCashflowTextRow(field int, label string, value string) stri
 	if m.addCashflowForm.active == field {
 		prefix = "> "
 	}
+
 	return prefix + fieldLabelStyle.Render(label) + "  " + value
 }
 
@@ -7738,11 +7599,13 @@ func (m model) renderCashflowChoiceRow(field int, label string, options []string
 	}
 
 	chips := make([]string, 0, len(options))
+
 	for i, option := range options {
 		style := buttonStyle
 		if i == selected {
 			style = buttonActiveStyle
 		}
+
 		chips = append(chips, style.Render(option))
 	}
 
@@ -7762,34 +7625,42 @@ func (m model) renderCashflowHistory(width int) string {
 	items := m.filteredCashflowsForMonth()
 	if len(items) == 0 {
 		lines = append(lines, mutedStyle.Render("No records for this month."))
+
 		return panelStyle.Width(width).Render(strings.Join(lines, "\n"))
 	}
 
 	var incomeTotal int64
 	var expenseTotal int64
+
 	missingRates := 0
 	for _, item := range items {
 		amountBase, ok := m.convertToBaseCents(item.Currency, item.AmountCents)
 		if !ok {
 			missingRates++
+
 			continue
 		}
+
 		if item.IsIncome {
 			incomeTotal += amountBase
 		} else {
 			expenseTotal += amountBase
 		}
 	}
+
 	net := incomeTotal - expenseTotal
 	base := m.baseCurrencyLabel()
 	netLabel := renderSignedMoneyWithCurrency(base, net)
 	lines = append(lines, fmt.Sprintf("Income: %s  Expense: %s  Net: %s", renderMoneyWithCurrency(base, incomeTotal), renderMoneyWithCurrency(base, expenseTotal), netLabel))
+
 	if missingRates > 0 {
 		lines = append(lines, mutedStyle.Render(fmt.Sprintf("%d record(s) excluded from summary due to missing conversion rate.", missingRates)))
 	}
+
 	lines = append(lines, "")
 
 	lines = append(lines, m.renderCashflowHistoryHeader(width))
+
 	for i, item := range items {
 		lines = append(lines, m.renderCashflowHistoryRow(width, i, item))
 	}
@@ -7811,6 +7682,7 @@ func (m model) renderCashflowOverview(width int) string {
 		if missingRates > 0 {
 			lines = append(lines, mutedStyle.Render(fmt.Sprintf("%d record(s) skipped due to missing conversion rate.", missingRates)))
 		}
+
 		return panelStyle.Width(width).Render(strings.Join(lines, "\n"))
 	}
 
@@ -7828,6 +7700,7 @@ func (m model) renderCashflowOverview(width int) string {
 
 	lines = append(lines, fmt.Sprintf("Page %d/%d", currentPage+1, totalPages), "")
 	lines = append(lines, m.renderCashflowOverviewHeader(width, base))
+
 	for i := startFromEnd - 1; i >= endFromEnd; i-- {
 		lines = append(lines, m.renderCashflowOverviewRow(width, rows[i], base))
 	}
@@ -7845,11 +7718,13 @@ func (m model) renderCashflowOverviewHeader(width int, base string) string {
 	expenseWidth := 14
 	netWidth := 14
 	compareWidth := width - 14 - monthWidth - incomeWidth - expenseWidth - netWidth - 12
+
 	if compareWidth < 16 {
 		compareWidth = 16
 	}
 
 	header := fmt.Sprintf("%-*s %-*s %-*s %-*s %-*s", monthWidth, "Month", incomeWidth, "Income ("+base+")", expenseWidth, "Expense ("+base+")", netWidth, "Net ("+base+")", compareWidth, "Net vs previous")
+
 	return tableHeaderStyle.Render(header)
 }
 
@@ -7858,12 +7733,10 @@ func (m model) renderCashflowOverviewRow(width int, row cashflowMonthlyOverviewR
 	incomeWidth := 14
 	expenseWidth := 14
 	netWidth := 14
-	compareWidth := width - 14 - monthWidth - incomeWidth - expenseWidth - netWidth - 12
-	if compareWidth < 16 {
-		compareWidth = 16
-	}
+	compareWidth := max(width-14-monthWidth-incomeWidth-expenseWidth-netWidth-12, 16)
 
 	compareText := "-"
+
 	if row.HasPrev {
 		compareText = renderMoneyWithCurrency(base, row.DeltaFromPrev)
 		if row.DeltaFromPrev > 0 {
@@ -7881,6 +7754,7 @@ func (m model) renderCashflowOverviewRow(width int, row cashflowMonthlyOverviewR
 	netCell := lipgloss.NewStyle().Width(netWidth).Align(lipgloss.Left).Render(netText)
 	compareCell := lipgloss.NewStyle().Width(compareWidth).Align(lipgloss.Left).Render(compareText)
 	line := strings.Join([]string{monthCell, incomeCell, expenseCell, netCell, compareCell}, " ")
+
 	return rowStyle.Render(line)
 }
 
@@ -7892,14 +7766,17 @@ func (m model) renderCashflowHistoryHeader(width int) string {
 	categoryWidth := 16
 	accountWidth := 14
 	commentWidth := width - 14 - dateWidth - typeWidth - currencyWidth - amountWidth - categoryWidth - accountWidth - 18
+
 	if commentWidth < 12 {
 		commentWidth = 12
 	}
+
 	header := fmt.Sprintf("%-2s %-*s %-*s %-*s %-*s %-*s %-*s %-*s", "#", dateWidth, "Date", typeWidth, "Type", currencyWidth, "Curr", amountWidth, "Amount", categoryWidth, "Category", accountWidth, "Account", commentWidth, "Comment")
+
 	return tableHeaderStyle.Render(header)
 }
 
-func (m model) renderCashflowHistoryRow(width int, index int, item cashflowEntry) string {
+func (m model) renderCashflowHistoryRow(width int, index int, item cashflow.CashflowEntry) string {
 	dateWidth := 10
 	typeWidth := 8
 	currencyWidth := 8
@@ -7907,35 +7784,42 @@ func (m model) renderCashflowHistoryRow(width int, index int, item cashflowEntry
 	categoryWidth := 16
 	accountWidth := 14
 	commentWidth := width - 14 - dateWidth - typeWidth - currencyWidth - amountWidth - categoryWidth - accountWidth - 18
+
 	if commentWidth < 12 {
 		commentWidth = 12
 	}
 
 	prefix := " "
 	style := rowStyle
+
 	if index == m.cashflowCursor {
 		prefix = ">"
 		style = selectedRowStyle
 	}
 
 	typeLabel := "expense"
+
 	if item.IsIncome {
 		typeLabel = "income"
 	}
+
 	accountLabel := strings.TrimSpace(item.AccountName)
 	if accountLabel == "" {
 		accountLabel = "-"
 	}
 
 	row := fmt.Sprintf("%s %-*s %-*s %-*s %-*s %-*s %-*s %-*s", prefix, dateWidth, item.EntryDate.Local().Format("2006-01-02"), typeWidth, typeLabel, currencyWidth, truncateText(item.Currency, currencyWidth), amountWidth, renderMoneyWithCurrency(item.Currency, item.AmountCents), categoryWidth, truncateText(item.Category, categoryWidth), accountWidth, truncateText(accountLabel, accountWidth), commentWidth, truncateText(item.Comment, commentWidth))
+
 	return style.Render(row)
 }
 
 func (m model) renderEditTaxField(field int, label string, value string) string {
 	prefix := "  "
+
 	if m.editTaxForm.activeField == field {
 		prefix = "> "
 	}
+
 	return prefix + fieldLabelStyle.Render(label) + "  " + value
 }
 
@@ -7947,7 +7831,9 @@ func (m model) renderSettings(width int) string {
 	if m.settingsCursor == 0 {
 		basePrefix = ">"
 	}
+
 	baseCurrencyValue := m.settings.BaseCurrency
+
 	if m.settingsEditMode == settingsEditBaseCurrency {
 		baseCurrencyValue = m.settingsEditInput.View()
 	}
@@ -7959,6 +7845,7 @@ func (m model) renderSettings(width int) string {
 		if m.settingsCursor == index+1 {
 			prefix = ">"
 		}
+
 		rows = append(rows, fmt.Sprintf("%s %-16s rate=%s", prefix, truncateText(currency.CurrencyName, 16), formatRate(currency.RateToBase)))
 	}
 
@@ -7966,41 +7853,50 @@ func (m model) renderSettings(width int) string {
 	if m.settingsCursor == len(m.settings.Currencies)+1 {
 		addPrefix = ">"
 	}
-	rows = append(rows, fmt.Sprintf("%s + add currency", addPrefix))
 
+	rows = append(rows, fmt.Sprintf("%s + add currency", addPrefix))
 	rows = append(rows, "", sectionTitleStyle.Render("Payment methods"))
 	paymentStart := settingsPaymentMethodStartCursor(m.settings)
+
 	for index, method := range m.settings.PaymentMethods {
 		prefix := " "
 		cursor := paymentStart + index
+
 		if m.settingsCursor == cursor {
 			prefix = ">"
 		}
+
 		defaultTag := ""
+
 		if method.IsDefault {
 			defaultTag = " [default]"
 		}
+
 		rows = append(rows, fmt.Sprintf("%s %-16s %-10s%s", prefix, truncateText(method.PaymentMethodName, 16), truncateText(method.PaymentMethodType, 10), defaultTag))
 	}
 
 	methodAddPrefix := " "
+
 	if m.settingsCursor == settingsPaymentMethodAddCursor(m.settings) {
 		methodAddPrefix = ">"
 	}
-	rows = append(rows, fmt.Sprintf("%s + add payment method", methodAddPrefix))
 
+	rows = append(rows, fmt.Sprintf("%s + add payment method", methodAddPrefix))
 	rows = append(rows, "", sectionTitleStyle.Render("Tax types"))
 	taxStart := settingsTaxTypeStartCursor(m.settings)
+
 	for index, taxType := range m.settings.TaxTypes {
 		prefix := " "
 		cursor := taxStart + index
 		if m.settingsCursor == cursor {
 			prefix = ">"
 		}
+
 		description := strings.TrimSpace(taxType.Description)
 		if description == "" {
 			description = "-"
 		}
+
 		rows = append(rows, fmt.Sprintf("%s %-14s %-16s %s", prefix, truncateText(taxType.Country, 14), truncateText(taxType.TaxTypeName, 16), truncateText(description, 26)))
 	}
 
@@ -8008,10 +7904,11 @@ func (m model) renderSettings(width int) string {
 	if m.settingsCursor == settingsTaxTypeAddCursor(m.settings) {
 		taxAddPrefix = ">"
 	}
-	rows = append(rows, fmt.Sprintf("%s + add tax type", taxAddPrefix))
 
+	rows = append(rows, fmt.Sprintf("%s + add tax type", taxAddPrefix))
 	rows = append(rows, "", sectionTitleStyle.Render("Income categories"))
 	incomeStart := settingsIncomeCategoryStartCursor(m.settings)
+
 	for index, category := range m.settings.IncomeCategories {
 		prefix := " "
 		cursor := incomeStart + index
@@ -8020,26 +7917,34 @@ func (m model) renderSettings(width int) string {
 		}
 		rows = append(rows, fmt.Sprintf("%s %-24s", prefix, truncateText(category.CategoryName, 24)))
 	}
+
 	incomeAddPrefix := " "
+
 	if m.settingsCursor == settingsIncomeCategoryAddCursor(m.settings) {
 		incomeAddPrefix = ">"
 	}
-	rows = append(rows, fmt.Sprintf("%s + add income category", incomeAddPrefix))
 
+	rows = append(rows, fmt.Sprintf("%s + add income category", incomeAddPrefix))
 	rows = append(rows, "", sectionTitleStyle.Render("Expense categories"))
 	expenseStart := settingsExpenseCategoryStartCursor(m.settings)
+
 	for index, category := range m.settings.ExpenseCategories {
 		prefix := " "
 		cursor := expenseStart + index
+
 		if m.settingsCursor == cursor {
 			prefix = ">"
 		}
+
 		rows = append(rows, fmt.Sprintf("%s %-24s", prefix, truncateText(category.CategoryName, 24)))
 	}
+
 	expenseAddPrefix := " "
+
 	if m.settingsCursor == settingsExpenseCategoryAddCursor(m.settings) {
 		expenseAddPrefix = ">"
 	}
+
 	rows = append(rows, fmt.Sprintf("%s + add expense category", expenseAddPrefix))
 
 	if m.settingsEditMode == settingsEditBaseCurrency {
@@ -8049,11 +7954,13 @@ func (m model) renderSettings(width int) string {
 	if m.settingsEditMode == settingsEditCurrency {
 		namePrefix := " "
 		ratePrefix := " "
+
 		if m.settingsCurrencyField == 0 {
 			namePrefix = ">"
 		} else {
 			ratePrefix = ">"
 		}
+
 		rows = append(rows, "")
 		rows = append(rows, fieldLabelStyle.Render("Currency form"))
 		rows = append(rows, fmt.Sprintf("%s Name  %s", namePrefix, m.settingsCurrencyNameInput.View()))
@@ -8065,12 +7972,15 @@ func (m model) renderSettings(width int) string {
 		namePrefix := " "
 		typePrefix := " "
 		defaultPrefix := " "
+
 		if m.settingsPaymentMethodField == 0 {
 			namePrefix = ">"
 		}
+
 		if m.settingsPaymentMethodField == 1 {
 			typePrefix = ">"
 		}
+
 		if m.settingsPaymentMethodField == 2 {
 			defaultPrefix = ">"
 		}
@@ -8081,6 +7991,7 @@ func (m model) renderSettings(width int) string {
 			if i == m.settingsPaymentMethodTypeIndex {
 				style = buttonActiveStyle
 			}
+
 			typeOptions = append(typeOptions, style.Render(option))
 		}
 
@@ -8102,15 +8013,19 @@ func (m model) renderSettings(width int) string {
 		namePrefix := " "
 		descPrefix := " "
 		urlPrefix := " "
+
 		if m.settingsTaxTypeField == 0 {
 			countryPrefix = ">"
 		}
+
 		if m.settingsTaxTypeField == 1 {
 			namePrefix = ">"
 		}
+
 		if m.settingsTaxTypeField == 2 {
 			descPrefix = ">"
 		}
+
 		if m.settingsTaxTypeField == 3 {
 			urlPrefix = ">"
 		}
@@ -8141,11 +8056,13 @@ func (m model) renderSettings(width int) string {
 	if m.settingsDeleteConfirm {
 		yesStyle := buttonStyle
 		noStyle := buttonStyle
+
 		if m.settingsDeleteChoice == 0 {
 			yesStyle = buttonActiveStyle
 		} else {
 			noStyle = buttonActiveStyle
 		}
+
 		rows = append(rows, "")
 		rows = append(rows, fieldLabelStyle.Render("Confirm delete"))
 		rows = append(rows, fmt.Sprintf("Are you sure you want to delete %s?", m.settingsDeleteTargetName))
@@ -8154,6 +8071,7 @@ func (m model) renderSettings(width int) string {
 	}
 
 	content := append(header, rows...)
+
 	return panelStyle.Width(width).Render(strings.Join(content, "\n"))
 }
 
@@ -8161,7 +8079,7 @@ func formatRate(value float64) string {
 	return strings.TrimRight(strings.TrimRight(fmt.Sprintf("%.6f", value), "0"), ".")
 }
 
-func currencySelectionOptions(settings appSettings) []string {
+func currencySelectionOptions(settings settings.AppSettings) []string {
 	base := strings.TrimSpace(settings.BaseCurrency)
 	if base == "" {
 		base = "$"
@@ -8169,15 +8087,18 @@ func currencySelectionOptions(settings appSettings) []string {
 
 	options := []string{base}
 	seen := map[string]struct{}{strings.ToLower(base): {}}
+
 	for _, currency := range settings.Currencies {
 		name := strings.TrimSpace(currency.CurrencyName)
 		if name == "" {
 			continue
 		}
+
 		key := strings.ToLower(name)
 		if _, exists := seen[key]; exists {
 			continue
 		}
+
 		seen[key] = struct{}{}
 		options = append(options, name)
 	}
@@ -8185,7 +8106,7 @@ func currencySelectionOptions(settings appSettings) []string {
 	return options
 }
 
-func paymentMethodSelectionOptions(settings appSettings) []string {
+func paymentMethodSelectionOptions(settings settings.AppSettings) []string {
 	if len(settings.PaymentMethods) == 0 {
 		return []string{"Other"}
 	}
@@ -8196,30 +8117,38 @@ func paymentMethodSelectionOptions(settings appSettings) []string {
 		if name == "" {
 			continue
 		}
+
 		if method.IsDefault {
 			options = append([]string{name}, options...)
+
 			continue
 		}
+
 		options = append(options, name)
 	}
+
 	if len(options) == 0 {
 		return []string{"Other"}
 	}
+
 	return options
 }
 
 func invoiceCurrencySelectionOptions(currencyOptions []string) []string {
 	options := []string{""}
 	seen := map[string]struct{}{"": {}}
+
 	for _, item := range currencyOptions {
 		value := strings.TrimSpace(item)
 		key := strings.ToLower(value)
 		if _, exists := seen[key]; exists {
 			continue
 		}
+
 		seen[key] = struct{}{}
 		options = append(options, value)
 	}
+
 	return options
 }
 
@@ -8227,9 +8156,11 @@ func selectedCurrencyOption(options []string, index int) string {
 	if len(options) == 0 {
 		return "$"
 	}
+
 	if index < 0 || index >= len(options) {
 		return options[0]
 	}
+
 	return options[index]
 }
 
@@ -8237,9 +8168,11 @@ func selectedPaymentMethodOption(options []string, index int) string {
 	if len(options) == 0 {
 		return "Other"
 	}
+
 	if index < 0 || index >= len(options) {
 		return options[0]
 	}
+
 	return options[index]
 }
 
@@ -8263,6 +8196,7 @@ func (m model) baseCurrencyLabel() string {
 	if base == "" {
 		return "$"
 	}
+
 	return base
 }
 
@@ -8282,17 +8216,20 @@ func (m model) convertToBaseCents(currency string, cents int64) (int64, bool) {
 
 func (m model) sumAccountsInBaseCents() int64 {
 	var total int64
+
 	for _, acct := range m.accounts {
 		converted, ok := m.convertToBaseCents(acct.Currency, acct.BalanceCents)
 		if !ok {
 			continue
 		}
+
 		total += converted
 	}
+
 	return total
 }
 
-func (m model) subscriptionTotalsInBaseCents(subs []subscription) (monthlyTotal int64, yearlyProjection int64) {
+func (m model) subscriptionTotalsInBaseCents(subs []subscription.Subscription) (monthlyTotal int64, yearlyProjection int64) {
 	var yearlyOnly int64
 	for _, sub := range subs {
 		converted, ok := m.convertToBaseCents(sub.Currency, sub.AmountCents)
@@ -8302,6 +8239,7 @@ func (m model) subscriptionTotalsInBaseCents(subs []subscription) (monthlyTotal 
 
 		if strings.EqualFold(strings.TrimSpace(sub.Period), "month") {
 			monthlyTotal += converted
+
 			continue
 		}
 
@@ -8311,19 +8249,24 @@ func (m model) subscriptionTotalsInBaseCents(subs []subscription) (monthlyTotal 
 	}
 
 	yearlyProjection = yearlyOnly + monthlyTotal*12
+
 	return monthlyTotal, yearlyProjection
 }
 
-func splitSubscriptionsByActivity(subs []subscription) (active []subscription, inactive []subscription) {
-	active = make([]subscription, 0, len(subs))
-	inactive = make([]subscription, 0, len(subs))
+func splitSubscriptionsByActivity(subs []subscription.Subscription) (active []subscription.Subscription, inactive []subscription.Subscription) {
+	active = make([]subscription.Subscription, 0, len(subs))
+	inactive = make([]subscription.Subscription, 0, len(subs))
+
 	for _, sub := range subs {
 		if sub.IsActive {
 			active = append(active, sub)
+
 			continue
 		}
+
 		inactive = append(inactive, sub)
 	}
+
 	return active, inactive
 }
 
@@ -8342,12 +8285,13 @@ func (m model) rateToBase(currency string) (float64, bool) {
 	return 0, false
 }
 
-func (m model) filteredSubscriptions() []subscription {
+func (m model) filteredSubscriptions() []subscription.Subscription {
 	if m.subscriptionMode == subscriptionListAll {
 		return m.subscriptions
 	}
 
-	filtered := make([]subscription, 0, len(m.subscriptions))
+	filtered := make([]subscription.Subscription, 0, len(m.subscriptions))
+
 	for _, sub := range m.subscriptions {
 		if sub.IsActive {
 			filtered = append(filtered, sub)
@@ -8357,17 +8301,20 @@ func (m model) filteredSubscriptions() []subscription {
 	return filtered
 }
 
-func sortSubscriptionsByAmount(values []subscription) []subscription {
+func sortSubscriptionsByAmount(values []subscription.Subscription) []subscription.Subscription {
 	if len(values) < 2 {
 		return values
 	}
 
-	cloned := make([]subscription, len(values))
+	cloned := make([]subscription.Subscription, len(values))
+
 	copy(cloned, values)
+
 	sort.SliceStable(cloned, func(i, j int) bool {
 		if cloned[i].AmountCents == cloned[j].AmountCents {
 			return cloned[i].CreatedAt.After(cloned[j].CreatedAt)
 		}
+
 		return cloned[i].AmountCents > cloned[j].AmountCents
 	})
 
@@ -8392,6 +8339,7 @@ func parseOptionalAmountCents(raw string) (int64, error) {
 	if trimmed == "" {
 		return 0, nil
 	}
+
 	return parseAmountCents(trimmed)
 }
 
@@ -8405,6 +8353,7 @@ func parseOptionalDay(raw string, minValue int, maxValue int, label string) (*in
 	if err != nil {
 		return nil, errors.New(label + " day must be an integer")
 	}
+
 	if value < minValue || value > maxValue {
 		return nil, fmt.Errorf("%s day must be between %d and %d", label, minValue, maxValue)
 	}
@@ -8430,10 +8379,12 @@ func parseRequiredDate(raw string) (time.Time, error) {
 	if trimmed == "" {
 		return time.Time{}, errors.New("created date is required")
 	}
+
 	value, err := time.Parse("02.01.2006", trimmed)
 	if err != nil {
 		return time.Time{}, errors.New("created date must use DD.MM.YYYY format")
 	}
+
 	return value, nil
 }
 
@@ -8442,10 +8393,12 @@ func parseOptionalDatePointer(raw string) (*time.Time, error) {
 	if trimmed == "" {
 		return nil, nil
 	}
+
 	value, err := time.Parse("02.01.2006", trimmed)
 	if err != nil {
 		return nil, errors.New("due date must use DD.MM.YYYY format")
 	}
+
 	return &value, nil
 }
 
@@ -8454,18 +8407,22 @@ func parseSignedAmountCents(raw string) (int64, error) {
 	if trimmed == "" {
 		return 0, errors.New("delta is required")
 	}
+
 	sign := int64(1)
 	if strings.HasPrefix(trimmed, "+") {
 		trimmed = strings.TrimSpace(strings.TrimPrefix(trimmed, "+"))
 	}
+
 	if strings.HasPrefix(trimmed, "-") {
 		sign = -1
 		trimmed = strings.TrimSpace(strings.TrimPrefix(trimmed, "-"))
 	}
+
 	amount, err := parseAmountCents(trimmed)
 	if err != nil {
 		return 0, err
 	}
+
 	return sign * amount, nil
 }
 
@@ -8474,11 +8431,14 @@ func parseLogDateOrToday(raw string) (time.Time, error) {
 	if trimmed == "" {
 		return time.Now(), nil
 	}
+
 	value, err := time.Parse("02.01.2006", trimmed)
 	if err != nil {
 		return time.Time{}, errors.New("log date must use DD.MM.YYYY format")
 	}
+
 	now := time.Now()
+
 	return time.Date(value.Year(), value.Month(), value.Day(), now.Hour(), now.Minute(), now.Second(), 0, now.Location()), nil
 }
 
