@@ -121,6 +121,7 @@ type model struct {
 	editingTaxID                     uint
 	invoiceMode                      invoiceListMode
 	invoiceCursor                    int
+	invoicePage                      int
 	editingInvoiceID                 uint
 	cashflowHistoryMonth             time.Time
 	cashflowCursor                   int

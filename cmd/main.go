@@ -505,6 +505,7 @@ func newModel(db *gorm.DB, dbPath string, created bool, accounts []account.Accou
 		editingTaxID:                     0,
 		invoiceMode:                      invoiceListOutgoingUnpaid,
 		invoiceCursor:                    0,
+		invoicePage:                      0,
 		editingInvoiceID:                 0,
 		cashflowHistoryMonth:             beginningOfMonth(time.Now()),
 		cashflowCursor:                   0,
@@ -1938,6 +1939,7 @@ func (m model) activateMenuSelection() (tea.Model, tea.Cmd) {
 		m.screen = screenInvoiceList
 		m.invoiceMode = invoiceListOutgoingUnpaid
 		m.invoiceCursor = 0
+		m.invoicePage = 0
 		m.status = "outgoing unpaid invoices"
 
 		return m, nil
@@ -1947,6 +1949,7 @@ func (m model) activateMenuSelection() (tea.Model, tea.Cmd) {
 		m.screen = screenInvoiceList
 		m.invoiceMode = invoiceListIncomingUnpaid
 		m.invoiceCursor = 0
+		m.invoicePage = 0
 		m.status = "incoming unpaid invoices"
 
 		return m, nil
@@ -1956,6 +1959,7 @@ func (m model) activateMenuSelection() (tea.Model, tea.Cmd) {
 		m.screen = screenInvoiceList
 		m.invoiceMode = invoiceListHistoryPaid
 		m.invoiceCursor = 0
+		m.invoicePage = 0
 		m.status = "invoice history"
 
 		return m, nil
@@ -5191,6 +5195,33 @@ func (m model) updateInvoiceList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	filtered := m.filteredInvoices()
+	pageSize := m.invoiceListPageSize()
+	totalPages := 1
+	if pageSize > 0 && len(filtered) > 0 {
+		totalPages = (len(filtered) + pageSize - 1) / pageSize
+	}
+	m.invoicePage = clamp(m.invoicePage, 0, totalPages-1)
+
+	pageStart := m.invoicePage * pageSize
+	if pageStart < 0 {
+		pageStart = 0
+	}
+	if pageStart > len(filtered) {
+		pageStart = len(filtered)
+	}
+	pageEnd := pageStart + pageSize
+	if pageEnd > len(filtered) {
+		pageEnd = len(filtered)
+	}
+
+	if len(filtered) > 0 {
+		if m.invoiceCursor < pageStart {
+			m.invoiceCursor = pageStart
+		}
+		if m.invoiceCursor >= pageEnd {
+			m.invoiceCursor = pageEnd - 1
+		}
+	}
 
 	if len(filtered) == 0 {
 		if msg.String() == "esc" {
@@ -5208,14 +5239,55 @@ func (m model) updateInvoiceList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 		return m, nil
 	case "up":
-		if m.invoiceCursor > 0 {
+		if m.invoiceCursor > pageStart {
 			m.invoiceCursor--
 		}
 
 		return m, nil
 	case "down":
-		if m.invoiceCursor < len(filtered)-1 {
+		if m.invoiceCursor < pageEnd-1 {
 			m.invoiceCursor++
+		}
+
+		return m, nil
+	case "left", "h", "pgup":
+		if m.invoicePage > 0 {
+			m.invoicePage--
+			pageStart = m.invoicePage * pageSize
+			if pageStart >= len(filtered) {
+				pageStart = len(filtered) - 1
+			}
+			if pageStart < 0 {
+				pageStart = 0
+			}
+			m.invoiceCursor = pageStart
+		}
+
+		return m, nil
+	case "right", "l", "pgdown":
+		if m.invoicePage < totalPages-1 {
+			m.invoicePage++
+			pageStart = m.invoicePage * pageSize
+			if pageStart >= len(filtered) {
+				pageStart = len(filtered) - 1
+			}
+			if pageStart < 0 {
+				pageStart = 0
+			}
+			m.invoiceCursor = pageStart
+		}
+
+		return m, nil
+	case "home":
+		m.invoicePage = 0
+		m.invoiceCursor = 0
+
+		return m, nil
+	case "end":
+		m.invoicePage = totalPages - 1
+		m.invoiceCursor = m.invoicePage * pageSize
+		if m.invoiceCursor >= len(filtered) {
+			m.invoiceCursor = len(filtered) - 1
 		}
 
 		return m, nil
@@ -5391,6 +5463,7 @@ func (m model) saveInvoiceFromForm() (tea.Model, tea.Cmd) {
 	}
 
 	m.invoiceCursor = 0
+	m.invoicePage = 0
 	m.status = "saved invoice " + title
 
 	return m, nil
@@ -5531,7 +5604,51 @@ func (m model) filteredInvoices() []invoice.Invoice {
 		}
 	}
 
+	sort.SliceStable(filtered, func(i int, j int) bool {
+		left := filtered[i]
+		right := filtered[j]
+
+		if left.DueDate == nil && right.DueDate == nil {
+			if left.CreatedAt.Equal(right.CreatedAt) {
+				return left.ID > right.ID
+			}
+
+			return left.CreatedAt.After(right.CreatedAt)
+		}
+
+		if left.DueDate == nil {
+			return false
+		}
+
+		if right.DueDate == nil {
+			return true
+		}
+
+		if left.DueDate.Equal(*right.DueDate) {
+			if left.CreatedAt.Equal(right.CreatedAt) {
+				return left.ID > right.ID
+			}
+
+			return left.CreatedAt.After(right.CreatedAt)
+		}
+
+		return left.DueDate.After(*right.DueDate)
+	})
+
 	return filtered
+}
+
+func (m model) invoiceListPageSize() int {
+	if m.height <= 0 {
+		return 12
+	}
+
+	size := m.height - 18
+	if size < 5 {
+		size = 5
+	}
+
+	return size
 }
 
 func (m model) findInvoiceIndex(id uint) int {
@@ -7447,16 +7564,38 @@ func (m model) renderInvoiceList(width int) string {
 		title = "Invoice history (paid)"
 	}
 
-	lines := []string{lipgloss.JoinHorizontal(lipgloss.Center, sectionTitleStyle.Render(title), "  ", modeBadgeStyle.Render("Invoices")), hintStyle.Render("Use up/down to browse. Enter edits invoice. Delete/Backspace asks confirmation. Esc returns to menu."), ""}
+	lines := []string{lipgloss.JoinHorizontal(lipgloss.Center, sectionTitleStyle.Render(title), "  ", modeBadgeStyle.Render("Invoices")), hintStyle.Render("Up/down selects row. Left/right or PgUp/PgDn changes page. Enter edits invoice. Delete/Backspace asks confirmation. Esc returns to menu."), ""}
 	filtered := m.filteredInvoices()
 	if len(filtered) == 0 {
 		lines = append(lines, mutedStyle.Render("No invoices found."))
 		return panelStyle.Width(width).Render(strings.Join(lines, "\n"))
 	}
 
+	pageSize := m.invoiceListPageSize()
+	totalPages := (len(filtered) + pageSize - 1) / pageSize
+	if totalPages < 1 {
+		totalPages = 1
+	}
+
+	currentPage := clamp(m.invoicePage, 0, totalPages-1)
+	start := currentPage * pageSize
+	if start < 0 {
+		start = 0
+	}
+	if start > len(filtered) {
+		start = len(filtered)
+	}
+
+	end := start + pageSize
+	if end > len(filtered) {
+		end = len(filtered)
+	}
+
+	lines = append(lines, fmt.Sprintf("Page %d/%d", currentPage+1, totalPages), "")
+
 	lines = append(lines, m.renderInvoiceTableHeader(width))
-	for i, item := range filtered {
-		lines = append(lines, m.renderInvoiceTableRow(width, i, item))
+	for i := start; i < end; i++ {
+		lines = append(lines, m.renderInvoiceTableRow(width, i, filtered[i]))
 	}
 
 	return panelStyle.Width(width).Render(strings.Join(lines, "\n"))
