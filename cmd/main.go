@@ -6633,15 +6633,15 @@ func (m model) renderAccountTable(width int) string {
 }
 
 func (m model) renderAccountTableHeader(width int) string {
-	nameWidth := 18
+	nameWidth := 16
 	currencyWidth := 10
 	amountWidth := 14
 	baseAmountWidth := 14
-	updatedWidth := 16
+	updatedWidth := 14
 
 	descWidth := width - 14 - nameWidth - currencyWidth - amountWidth - baseAmountWidth - updatedWidth - 12
-	if descWidth < 16 {
-		descWidth = 16
+	if descWidth < 20 {
+		descWidth = 20
 	}
 
 	baseCurrencyTitle := strings.TrimSpace(m.settings.BaseCurrency)
@@ -6655,14 +6655,14 @@ func (m model) renderAccountTableHeader(width int) string {
 }
 
 func (m model) renderAccountRow(width int, index int, acct account.Account) string {
-	nameWidth := 18
+	nameWidth := 16
 	currencyWidth := 10
 	amountWidth := 14
 	baseAmountWidth := 14
-	updatedWidth := 16
+	updatedWidth := 14
 	descWidth := width - 14 - nameWidth - currencyWidth - amountWidth - baseAmountWidth - updatedWidth - 12
-	if descWidth < 16 {
-		descWidth = 16
+	if descWidth < 20 {
+		descWidth = 20
 	}
 
 	prefix := " "
@@ -6876,7 +6876,7 @@ func (m model) renderSubscriptionList(width int) string {
 }
 
 func (m model) renderSubscriptionTableHeader(width int) string {
-	nameWidth := 16
+	nameWidth := 14
 	currencyWidth := 8
 	amountWidth := 12
 	baseAmountWidth := 12
@@ -6885,8 +6885,8 @@ func (m model) renderSubscriptionTableHeader(width int) string {
 	activeWidth := 7
 
 	descWidth := width - 12 - nameWidth - currencyWidth - amountWidth - baseAmountWidth - periodWidth - typeWidth - activeWidth - 14
-	if descWidth < 12 {
-		descWidth = 12
+	if descWidth < 18 {
+		descWidth = 18
 	}
 
 	baseCurrencyTitle := strings.TrimSpace(m.settings.BaseCurrency)
@@ -6900,7 +6900,7 @@ func (m model) renderSubscriptionTableHeader(width int) string {
 }
 
 func (m model) renderSubscriptionRow(width int, index int, sub subscription.Subscription) string {
-	nameWidth := 16
+	nameWidth := 14
 	currencyWidth := 8
 	amountWidth := 12
 	baseAmountWidth := 12
@@ -6908,8 +6908,8 @@ func (m model) renderSubscriptionRow(width int, index int, sub subscription.Subs
 	typeWidth := 12
 	activeWidth := 7
 	descWidth := width - 12 - nameWidth - currencyWidth - amountWidth - baseAmountWidth - periodWidth - typeWidth - activeWidth - 14
-	if descWidth < 12 {
-		descWidth = 12
+	if descWidth < 18 {
+		descWidth = 18
 	}
 
 	prefix := " "
@@ -7014,16 +7014,16 @@ func (m model) renderDebtList(width int) string {
 }
 
 func (m model) renderDebtTableHeader(width int) string {
-	peerWidth := 14
+	peerWidth := 12
 	currencyWidth := 8
 	amountWidth := 12
 	paidWidth := 12
 	leftWidth := 12
-	dueWidth := 12
-	dirWidth := 8
+	dueWidth := 10
+	dirWidth := 6
 	commentWidth := width - 14 - peerWidth - currencyWidth - amountWidth - paidWidth - leftWidth - dueWidth - dirWidth - 18
-	if commentWidth < 12 {
-		commentWidth = 12
+	if commentWidth < 18 {
+		commentWidth = 18
 	}
 
 	header := fmt.Sprintf("%-2s %-*s %-*s %-*s %-*s %-*s %-*s %-*s %-*s", "#", peerWidth, "Peer", currencyWidth, "Curr", amountWidth, "Amount", paidWidth, "Paid", leftWidth, "Left", dueWidth, "Due", dirWidth, "Dir", commentWidth, "Comment")
@@ -7032,16 +7032,16 @@ func (m model) renderDebtTableHeader(width int) string {
 }
 
 func (m model) renderDebtTableRow(width int, index int, item debt.Debt) string {
-	peerWidth := 14
+	peerWidth := 12
 	currencyWidth := 8
 	amountWidth := 12
 	paidWidth := 12
 	leftWidth := 12
-	dueWidth := 12
-	dirWidth := 8
+	dueWidth := 10
+	dirWidth := 6
 	commentWidth := width - 14 - peerWidth - currencyWidth - amountWidth - paidWidth - leftWidth - dueWidth - dirWidth - 18
-	if commentWidth < 12 {
-		commentWidth = 12
+	if commentWidth < 18 {
+		commentWidth = 18
 	}
 
 	prefix := " "
@@ -7201,17 +7201,17 @@ func (m model) renderGoalList(width int) string {
 }
 
 func (m model) renderGoalTableHeader(width int) string {
-	nameWidth := 14
+	nameWidth := 12
 	currencyWidth := 8
 	targetWidth := 12
 	accumWidth := 12
 	leftWidth := 12
-	startedWidth := 12
-	targetDateWidth := 12
+	startedWidth := 10
+	targetDateWidth := 10
 	progressWidth := 8
 	descWidth := width - 14 - nameWidth - currencyWidth - targetWidth - accumWidth - leftWidth - startedWidth - targetDateWidth - progressWidth - 18
-	if descWidth < 10 {
-		descWidth = 10
+	if descWidth < 18 {
+		descWidth = 18
 	}
 
 	header := fmt.Sprintf("%-2s %-*s %-*s %-*s %-*s %-*s %-*s %-*s %-*s %-*s", "#", nameWidth, "Goal", currencyWidth, "Curr", targetWidth, "Target", accumWidth, "Saved", leftWidth, "Left", startedWidth, "Started", targetDateWidth, "Target dt", progressWidth, "Done", descWidth, "Description")
@@ -7220,17 +7220,17 @@ func (m model) renderGoalTableHeader(width int) string {
 }
 
 func (m model) renderGoalTableRow(width int, index int, item goal.Goal) string {
-	nameWidth := 14
+	nameWidth := 12
 	currencyWidth := 8
 	targetWidth := 12
 	accumWidth := 12
 	leftWidth := 12
-	startedWidth := 12
-	targetDateWidth := 12
+	startedWidth := 10
+	targetDateWidth := 10
 	progressWidth := 8
 	descWidth := width - 14 - nameWidth - currencyWidth - targetWidth - accumWidth - leftWidth - startedWidth - targetDateWidth - progressWidth - 18
-	if descWidth < 10 {
-		descWidth = 10
+	if descWidth < 18 {
+		descWidth = 18
 	}
 
 	prefix := " "
@@ -7409,17 +7409,17 @@ func (m model) renderTaxList(width int) string {
 }
 
 func (m model) renderTaxTableHeader(width int) string {
-	countryWidth := 12
-	typeWidth := 14
-	dueWidth := 12
+	countryWidth := 10
+	typeWidth := 12
+	dueWidth := 10
 	paidWidth := 12
 	leftWidth := 12
-	periodWidth := 12
-	dueDateWidth := 12
+	periodWidth := 10
+	dueDateWidth := 10
 	progressWidth := 8
 	commentWidth := width - 14 - countryWidth - typeWidth - dueWidth - paidWidth - leftWidth - periodWidth - dueDateWidth - progressWidth - 18
-	if commentWidth < 10 {
-		commentWidth = 10
+	if commentWidth < 18 {
+		commentWidth = 18
 	}
 	header := fmt.Sprintf("%-2s %-*s %-*s %-*s %-*s %-*s %-*s %-*s %-*s %-*s", "#", countryWidth, "Country", typeWidth, "Tax type", dueWidth, "Due", paidWidth, "Paid", leftWidth, "Left", periodWidth, "Period", dueDateWidth, "Due date", progressWidth, "Done", commentWidth, "Comment")
 
@@ -7427,17 +7427,17 @@ func (m model) renderTaxTableHeader(width int) string {
 }
 
 func (m model) renderTaxTableRow(width int, index int, item tax.Tax) string {
-	countryWidth := 12
-	typeWidth := 14
-	dueWidth := 12
+	countryWidth := 10
+	typeWidth := 12
+	dueWidth := 10
 	paidWidth := 12
 	leftWidth := 12
-	periodWidth := 12
-	dueDateWidth := 12
+	periodWidth := 10
+	dueDateWidth := 10
 	progressWidth := 8
 	commentWidth := width - 14 - countryWidth - typeWidth - dueWidth - paidWidth - leftWidth - periodWidth - dueDateWidth - progressWidth - 18
-	if commentWidth < 10 {
-		commentWidth = 10
+	if commentWidth < 18 {
+		commentWidth = 18
 	}
 
 	prefix := " "
@@ -7696,19 +7696,19 @@ func (m model) renderEditInvoiceChoiceRow(field int, label string, options []str
 }
 
 func (m model) renderInvoiceTableHeader(width int) string {
-	titleWidth := 16
+	titleWidth := 14
 	typeWidth := 8
 	currencyWidth := 7
 	amountWidth := 12
 	paidWidth := 6
-	peerWidth := 14
+	peerWidth := 12
 	invDateWidth := 10
 	dueDateWidth := 10
-	accountWidth := 14
+	accountWidth := 16
 	descWidth := width - 14 - titleWidth - typeWidth - currencyWidth - amountWidth - paidWidth - peerWidth - invDateWidth - dueDateWidth - accountWidth - 20
 
-	if descWidth < 8 {
-		descWidth = 8
+	if descWidth < 16 {
+		descWidth = 16
 	}
 
 	header := fmt.Sprintf("%-2s %-*s %-*s %-*s %-*s %-*s %-*s %-*s %-*s %-*s %-*s", "#", titleWidth, "Title", typeWidth, "Type", currencyWidth, "Curr", amountWidth, "Amount", paidWidth, "Paid", peerWidth, "Peer", invDateWidth, "Issued", dueDateWidth, "Due", accountWidth, "Account", descWidth, "Description")
@@ -7717,18 +7717,18 @@ func (m model) renderInvoiceTableHeader(width int) string {
 }
 
 func (m model) renderInvoiceTableRow(width int, index int, item invoice.Invoice) string {
-	titleWidth := 16
+	titleWidth := 14
 	typeWidth := 8
 	currencyWidth := 7
 	amountWidth := 12
 	paidWidth := 6
-	peerWidth := 14
+	peerWidth := 12
 	invDateWidth := 10
 	dueDateWidth := 10
-	accountWidth := 14
+	accountWidth := 16
 	descWidth := width - 14 - titleWidth - typeWidth - currencyWidth - amountWidth - paidWidth - peerWidth - invDateWidth - dueDateWidth - accountWidth - 20
-	if descWidth < 8 {
-		descWidth = 8
+	if descWidth < 16 {
+		descWidth = 16
 	}
 
 	prefix := " "
@@ -7977,8 +7977,8 @@ func (m model) renderCashflowHistoryHeader(width int) string {
 	typeWidth := 8
 	currencyWidth := 8
 	amountWidth := 12
-	categoryWidth := 16
-	accountWidth := 14
+	categoryWidth := 32
+	accountWidth := 28
 	commentWidth := width - 14 - dateWidth - typeWidth - currencyWidth - amountWidth - categoryWidth - accountWidth - 18
 
 	if commentWidth < 12 {
@@ -7995,8 +7995,8 @@ func (m model) renderCashflowHistoryRow(width int, index int, item cashflow.Cash
 	typeWidth := 8
 	currencyWidth := 8
 	amountWidth := 12
-	categoryWidth := 16
-	accountWidth := 14
+	categoryWidth := 32
+	accountWidth := 28
 	commentWidth := width - 14 - dateWidth - typeWidth - currencyWidth - amountWidth - categoryWidth - accountWidth - 18
 
 	if commentWidth < 12 {
