@@ -1682,7 +1682,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		m.help.Width = clamp(msg.Width-6, 60, 120)
+		m.help.Width = msg.Width - 6
+		if m.help.Width < 60 {
+			m.help.Width = 60
+		}
 
 		return m, cmd
 	case tea.KeyMsg:
@@ -6111,7 +6114,10 @@ func (m model) View() string {
 		width = 100
 	}
 
-	contentWidth := clamp(width-6, 76, 120)
+	contentWidth := width - 6
+	if contentWidth < 76 {
+		contentWidth = 76
+	}
 	header := renderHeader(contentWidth)
 	body := m.renderBody(contentWidth)
 	footer := renderFooter(contentWidth, m.status)
