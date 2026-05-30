@@ -14,6 +14,7 @@ type Invoice struct {
 	Peer          string
 	InvoiceDate   *time.Time
 	DueDate       *time.Time
+	TargetAccount string
 	URL           string
 	Description   string
 }

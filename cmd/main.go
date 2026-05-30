@@ -174,23 +174,28 @@ type addInvoiceForm struct {
 	active          int
 	currencyOptions []string
 	currencyIndex   int
+	accountOptions  []string
+	accountIndex    int
 	isIncoming      bool
 	paid            bool
 }
 
 type editInvoiceForm struct {
-	titleInput       textinput.Model
-	amountInput      textinput.Model
-	peerInput        textinput.Model
-	invoiceDateInput textinput.Model
-	dueDateInput     textinput.Model
-	urlInput         textinput.Model
-	descriptionInput textinput.Model
-	activeField      int
-	currencyOptions  []string
-	currencyIndex    int
-	isIncoming       bool
-	paid             bool
+	titleInput         textinput.Model
+	amountInput        textinput.Model
+	peerInput          textinput.Model
+	invoiceDateInput   textinput.Model
+	dueDateInput       textinput.Model
+	targetAccountInput textinput.Model
+	urlInput           textinput.Model
+	descriptionInput   textinput.Model
+	activeField        int
+	currencyOptions    []string
+	currencyIndex      int
+	accountOptions     []string
+	accountIndex       int
+	isIncoming         bool
+	paid               bool
 }
 
 type addCashflowForm struct {
@@ -304,6 +309,8 @@ const (
 	invoiceFieldPeer
 	invoiceFieldInvoiceDate
 	invoiceFieldDueDate
+	invoiceFieldTargetAccountChoice
+	invoiceFieldTargetAccountName
 	invoiceFieldURL
 	invoiceFieldDescription
 	invoiceFieldCount
@@ -410,14 +417,15 @@ func main() {
 func newModel(db *gorm.DB, dbPath string, created bool, accounts []account.Account, subscriptions []subscription.Subscription, debts []debt.Debt, goals []goal.Goal, taxes []tax.Tax, invoices []invoice.Invoice, cashflows []cashflow.CashflowEntry, settings settings.AppSettings) model {
 	accounts = sortAccountsByBaseAmount(accounts, settings)
 	currencyOptions := currencySelectionOptions(settings)
+	accountOptions := accountSelectionOptions(accounts)
 	paymentMethodOptions := paymentMethodSelectionOptions(settings)
 	addForm := newAddAccountForm(currencyOptions)
 	addSubForm := newAddSubscriptionForm(currencyOptions, paymentMethodOptions)
 	addDebtForm := newAddDebtForm(currencyOptions)
 	addGoalForm := newAddGoalForm(currencyOptions)
 	addTaxForm := newAddTaxForm(settings.TaxTypes)
-	addInvoiceForm := newAddInvoiceForm(currencyOptions)
-	addCashflowForm := newAddCashflowForm(currencyOptions, incomeCategorySelectionOptions(settings), accountSelectionOptions(accounts), true)
+	addInvoiceForm := newAddInvoiceForm(currencyOptions, accountOptions)
+	addCashflowForm := newAddCashflowForm(currencyOptions, incomeCategorySelectionOptions(settings), accountOptions, true)
 	editInput := textinput.New()
 	editInput.Placeholder = "1234.56"
 	editInput.CharLimit = 24
@@ -545,7 +553,7 @@ func newModel(db *gorm.DB, dbPath string, created bool, accounts []account.Accou
 		editDebtForm:                     newEditDebtForm(),
 		editGoalForm:                     newEditGoalForm(),
 		editTaxForm:                      newEditTaxForm(),
-		editInvoiceForm:                  newEditInvoiceForm(currencyOptions),
+		editInvoiceForm:                  newEditInvoiceForm(currencyOptions, accountOptions),
 		editInput:                        editInput,
 		help:                             helpModel,
 		keys:                             newKeyMap(),
@@ -1219,11 +1227,11 @@ func (f editTaxForm) prev() editTaxForm {
 	return f.focusActive()
 }
 
-func newAddInvoiceForm(currencyOptions []string) addInvoiceForm {
+func newAddInvoiceForm(currencyOptions []string, accountOptions []string) addInvoiceForm {
 	currencyOptions = invoiceCurrencySelectionOptions(currencyOptions)
 	today := time.Now().Format("02.01.2006")
-	inputs := make([]textinput.Model, 7)
-	placeholders := []string{"Invoice title", "1000.00", "Peer", today, "optional DD.MM.YYYY", "optional https://...", "optional description"}
+	inputs := make([]textinput.Model, 8)
+	placeholders := []string{"Invoice title", "1000.00", "Peer", today, "optional DD.MM.YYYY", "optional account override", "optional https://...", "optional description"}
 
 	for i := range inputs {
 		field := textinput.New()
@@ -1238,6 +1246,8 @@ func newAddInvoiceForm(currencyOptions []string) addInvoiceForm {
 		active:          0,
 		currencyOptions: append([]string(nil), currencyOptions...),
 		currencyIndex:   0,
+		accountOptions:  append([]string(nil), accountOptions...),
+		accountIndex:    0,
 		isIncoming:      true,
 		paid:            false,
 	}
@@ -1263,10 +1273,14 @@ func (f addInvoiceForm) inputIndexForField(field int) int {
 		return 3
 	case invoiceFieldDueDate:
 		return 4
-	case invoiceFieldURL:
+	case invoiceFieldTargetAccountChoice:
+		return -1
+	case invoiceFieldTargetAccountName:
 		return 5
-	case invoiceFieldDescription:
+	case invoiceFieldURL:
 		return 6
+	case invoiceFieldDescription:
+		return 7
 	default:
 		return -1
 	}
@@ -1300,7 +1314,7 @@ func (f addInvoiceForm) prev() addInvoiceForm {
 	return f.focusActive()
 }
 
-func newEditInvoiceForm(currencyOptions []string) editInvoiceForm {
+func newEditInvoiceForm(currencyOptions []string, accountOptions []string) editInvoiceForm {
 	currencyOptions = invoiceCurrencySelectionOptions(currencyOptions)
 	titleInput := textinput.New()
 	titleInput.Placeholder = "Invoice title"
@@ -1327,6 +1341,11 @@ func newEditInvoiceForm(currencyOptions []string) editInvoiceForm {
 	dueDateInput.CharLimit = 24
 	dueDateInput.Width = 24
 
+	targetAccountInput := textinput.New()
+	targetAccountInput.Placeholder = "optional account override"
+	targetAccountInput.CharLimit = 120
+	targetAccountInput.Width = 30
+
 	urlInput := textinput.New()
 	urlInput.Placeholder = "optional https://..."
 	urlInput.CharLimit = 180
@@ -1338,18 +1357,21 @@ func newEditInvoiceForm(currencyOptions []string) editInvoiceForm {
 	descriptionInput.Width = 42
 
 	form := editInvoiceForm{
-		titleInput:       titleInput,
-		amountInput:      amountInput,
-		peerInput:        peerInput,
-		invoiceDateInput: invoiceDateInput,
-		dueDateInput:     dueDateInput,
-		urlInput:         urlInput,
-		descriptionInput: descriptionInput,
-		activeField:      0,
-		currencyOptions:  append([]string(nil), currencyOptions...),
-		currencyIndex:    0,
-		isIncoming:       true,
-		paid:             false,
+		titleInput:         titleInput,
+		amountInput:        amountInput,
+		peerInput:          peerInput,
+		invoiceDateInput:   invoiceDateInput,
+		dueDateInput:       dueDateInput,
+		targetAccountInput: targetAccountInput,
+		urlInput:           urlInput,
+		descriptionInput:   descriptionInput,
+		activeField:        0,
+		currencyOptions:    append([]string(nil), currencyOptions...),
+		currencyIndex:      0,
+		accountOptions:     append([]string(nil), accountOptions...),
+		accountIndex:       0,
+		isIncoming:         true,
+		paid:               false,
 	}
 
 	return form.focusActive()
@@ -1361,6 +1383,7 @@ func (f editInvoiceForm) focusActive() editInvoiceForm {
 	f.peerInput.Blur()
 	f.invoiceDateInput.Blur()
 	f.dueDateInput.Blur()
+	f.targetAccountInput.Blur()
 	f.urlInput.Blur()
 	f.descriptionInput.Blur()
 
@@ -1375,6 +1398,8 @@ func (f editInvoiceForm) focusActive() editInvoiceForm {
 		f.invoiceDateInput.Focus()
 	case invoiceFieldDueDate:
 		f.dueDateInput.Focus()
+	case invoiceFieldTargetAccountName:
+		f.targetAccountInput.Focus()
 	case invoiceFieldURL:
 		f.urlInput.Focus()
 	case invoiceFieldDescription:
@@ -1903,7 +1928,7 @@ func (m model) activateMenuSelection() (tea.Model, tea.Cmd) {
 
 	if m.menuGroup == 3 && m.menuItem == 0 {
 		m.screen = screenInvoiceNew
-		m.addInvoiceForm = newAddInvoiceForm(currencySelectionOptions(m.settings))
+		m.addInvoiceForm = newAddInvoiceForm(currencySelectionOptions(m.settings), accountSelectionOptions(m.accounts))
 		m.status = "new invoice"
 
 		return m, nil
@@ -5114,6 +5139,10 @@ func (m model) updateInvoiceNew(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.addInvoiceForm.currencyIndex--
 		}
 
+		if m.addInvoiceForm.active == invoiceFieldTargetAccountChoice && m.addInvoiceForm.accountIndex > 0 {
+			m.addInvoiceForm.accountIndex--
+		}
+
 		return m, nil
 	case "right":
 		if m.addInvoiceForm.active == invoiceFieldType {
@@ -5122,6 +5151,10 @@ func (m model) updateInvoiceNew(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 		if m.addInvoiceForm.active == invoiceFieldCurrency && m.addInvoiceForm.currencyIndex < len(m.addInvoiceForm.currencyOptions)-1 {
 			m.addInvoiceForm.currencyIndex++
+		}
+
+		if m.addInvoiceForm.active == invoiceFieldTargetAccountChoice && m.addInvoiceForm.accountIndex < len(m.addInvoiceForm.accountOptions)-1 {
+			m.addInvoiceForm.accountIndex++
 		}
 
 		return m, nil
@@ -5224,6 +5257,10 @@ func (m model) updateInvoiceEdit(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.editInvoiceForm.currencyIndex--
 		}
 
+		if m.editInvoiceForm.activeField == invoiceFieldTargetAccountChoice && m.editInvoiceForm.accountIndex > 0 {
+			m.editInvoiceForm.accountIndex--
+		}
+
 		return m, nil
 	case "right":
 		if m.editInvoiceForm.activeField == invoiceFieldType {
@@ -5232,6 +5269,10 @@ func (m model) updateInvoiceEdit(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 		if m.editInvoiceForm.activeField == invoiceFieldCurrency && m.editInvoiceForm.currencyIndex < len(m.editInvoiceForm.currencyOptions)-1 {
 			m.editInvoiceForm.currencyIndex++
+		}
+
+		if m.editInvoiceForm.activeField == invoiceFieldTargetAccountChoice && m.editInvoiceForm.accountIndex < len(m.editInvoiceForm.accountOptions)-1 {
+			m.editInvoiceForm.accountIndex++
 		}
 
 		return m, nil
@@ -5263,6 +5304,8 @@ func (m model) updateInvoiceEdit(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.editInvoiceForm.invoiceDateInput, cmd = m.editInvoiceForm.invoiceDateInput.Update(msg)
 	case invoiceFieldDueDate:
 		m.editInvoiceForm.dueDateInput, cmd = m.editInvoiceForm.dueDateInput.Update(msg)
+	case invoiceFieldTargetAccountName:
+		m.editInvoiceForm.targetAccountInput, cmd = m.editInvoiceForm.targetAccountInput.Update(msg)
 	case invoiceFieldURL:
 		m.editInvoiceForm.urlInput, cmd = m.editInvoiceForm.urlInput.Update(msg)
 	case invoiceFieldDescription:
@@ -5279,8 +5322,12 @@ func (m model) saveInvoiceFromForm() (tea.Model, tea.Cmd) {
 	peer := strings.TrimSpace(m.addInvoiceForm.inputs[2].Value())
 	invoiceDateRaw := strings.TrimSpace(m.addInvoiceForm.inputs[3].Value())
 	dueDateRaw := strings.TrimSpace(m.addInvoiceForm.inputs[4].Value())
-	url := strings.TrimSpace(m.addInvoiceForm.inputs[5].Value())
-	description := strings.TrimSpace(m.addInvoiceForm.inputs[6].Value())
+	targetAccount := strings.TrimSpace(m.addInvoiceForm.inputs[5].Value())
+	url := strings.TrimSpace(m.addInvoiceForm.inputs[6].Value())
+	description := strings.TrimSpace(m.addInvoiceForm.inputs[7].Value())
+	if targetAccount == "" {
+		targetAccount = selectedStringOption(m.addInvoiceForm.accountOptions, m.addInvoiceForm.accountIndex)
+	}
 
 	if title == "" {
 		m.status = "invoice title is required"
@@ -5319,6 +5366,7 @@ func (m model) saveInvoiceFromForm() (tea.Model, tea.Cmd) {
 		Peer:          peer,
 		InvoiceDate:   invoiceDate,
 		DueDate:       dueDate,
+		TargetAccount: targetAccount,
 		URL:           url,
 		Description:   description,
 		LastUpdatedAt: now,
@@ -5331,7 +5379,7 @@ func (m model) saveInvoiceFromForm() (tea.Model, tea.Cmd) {
 	}
 
 	m.invoices = append([]invoice.Invoice{item}, m.invoices...)
-	m.addInvoiceForm = newAddInvoiceForm(currencySelectionOptions(m.settings))
+	m.addInvoiceForm = newAddInvoiceForm(currencySelectionOptions(m.settings), accountSelectionOptions(m.accounts))
 	m.screen = screenInvoiceList
 
 	if item.Paid {
@@ -5351,7 +5399,7 @@ func (m model) saveInvoiceFromForm() (tea.Model, tea.Cmd) {
 func (m model) openInvoiceEditor(item invoice.Invoice) tea.Model {
 	m.screen = screenInvoiceEdit
 	m.editingInvoiceID = item.ID
-	m.editInvoiceForm = newEditInvoiceForm(currencySelectionOptions(m.settings))
+	m.editInvoiceForm = newEditInvoiceForm(currencySelectionOptions(m.settings), accountSelectionOptions(m.accounts))
 	m.editInvoiceForm.titleInput.SetValue(item.Title)
 
 	if item.AmountCents != 0 {
@@ -5369,13 +5417,24 @@ func (m model) openInvoiceEditor(item invoice.Invoice) tea.Model {
 		m.editInvoiceForm.dueDateInput.SetValue(item.DueDate.Local().Format("02.01.2006"))
 	}
 
+	m.editInvoiceForm.targetAccountInput.SetValue(item.TargetAccount)
+
 	m.editInvoiceForm.urlInput.SetValue(item.URL)
 	m.editInvoiceForm.descriptionInput.SetValue(item.Description)
 	m.editInvoiceForm.currencyIndex = 0
+	m.editInvoiceForm.accountIndex = 0
 
 	for i := range m.editInvoiceForm.currencyOptions {
 		if strings.EqualFold(strings.TrimSpace(m.editInvoiceForm.currencyOptions[i]), strings.TrimSpace(item.Currency)) {
 			m.editInvoiceForm.currencyIndex = i
+
+			break
+		}
+	}
+
+	for i := range m.editInvoiceForm.accountOptions {
+		if strings.EqualFold(strings.TrimSpace(m.editInvoiceForm.accountOptions[i]), strings.TrimSpace(item.TargetAccount)) {
+			m.editInvoiceForm.accountIndex = i
 
 			break
 		}
@@ -5432,6 +5491,10 @@ func (m model) saveInvoiceEdit() (tea.Model, tea.Cmd) {
 	selected.Peer = strings.TrimSpace(m.editInvoiceForm.peerInput.Value())
 	selected.InvoiceDate = invoiceDate
 	selected.DueDate = dueDate
+	selected.TargetAccount = strings.TrimSpace(m.editInvoiceForm.targetAccountInput.Value())
+	if selected.TargetAccount == "" {
+		selected.TargetAccount = selectedStringOption(m.editInvoiceForm.accountOptions, m.editInvoiceForm.accountIndex)
+	}
 	selected.URL = strings.TrimSpace(m.editInvoiceForm.urlInput.Value())
 	selected.Description = strings.TrimSpace(m.editInvoiceForm.descriptionInput.Value())
 	selected.LastUpdatedAt = time.Now()
@@ -7353,7 +7416,7 @@ func (m model) renderInvoiceNew(width int) string {
 
 	lines := []string{
 		headlineStyle.Render("New invoice"),
-		mutedStyle.Render("Only title and type are required. Use Enter on last field to save."),
+		mutedStyle.Render("Only title and type are required. Pick target account or type custom override."),
 		"",
 		m.renderInvoiceRowText(invoiceFieldTitle, "Title", m.addInvoiceForm.inputs[0].View()),
 		m.renderInvoiceChoiceRow(invoiceFieldType, "Type", []string{"incoming (i must pay)", "outgoing (they pay me)"}, typeIndex),
@@ -7363,8 +7426,10 @@ func (m model) renderInvoiceNew(width int) string {
 		m.renderInvoiceRowText(invoiceFieldPeer, "Peer", m.addInvoiceForm.inputs[2].View()),
 		m.renderInvoiceRowText(invoiceFieldInvoiceDate, "Invoice date", m.addInvoiceForm.inputs[3].View()),
 		m.renderInvoiceRowText(invoiceFieldDueDate, "Due date", m.addInvoiceForm.inputs[4].View()),
-		m.renderInvoiceRowText(invoiceFieldURL, "URL", m.addInvoiceForm.inputs[5].View()),
-		m.renderInvoiceRowText(invoiceFieldDescription, "Description", m.addInvoiceForm.inputs[6].View()),
+		m.renderInvoiceChoiceRow(invoiceFieldTargetAccountChoice, "Target account (pick)", cashflowAccountDisplayOptions(m.addInvoiceForm.accountOptions), m.addInvoiceForm.accountIndex),
+		m.renderInvoiceRowText(invoiceFieldTargetAccountName, "Target account (type)", m.addInvoiceForm.inputs[5].View()),
+		m.renderInvoiceRowText(invoiceFieldURL, "URL", m.addInvoiceForm.inputs[6].View()),
+		m.renderInvoiceRowText(invoiceFieldDescription, "Description", m.addInvoiceForm.inputs[7].View()),
 		"",
 		mutedStyle.Render("Space toggles Paid when active."),
 	}
@@ -7419,6 +7484,8 @@ func (m model) renderInvoiceEdit(width int) string {
 		m.renderEditInvoiceField(invoiceFieldPeer, "Peer", m.editInvoiceForm.peerInput.View()),
 		m.renderEditInvoiceField(invoiceFieldInvoiceDate, "Invoice date", m.editInvoiceForm.invoiceDateInput.View()),
 		m.renderEditInvoiceField(invoiceFieldDueDate, "Due date", m.editInvoiceForm.dueDateInput.View()),
+		m.renderEditInvoiceChoiceRow(invoiceFieldTargetAccountChoice, "Target account (pick)", cashflowAccountDisplayOptions(m.editInvoiceForm.accountOptions), m.editInvoiceForm.accountIndex),
+		m.renderEditInvoiceField(invoiceFieldTargetAccountName, "Target account (type)", m.editInvoiceForm.targetAccountInput.View()),
 		m.renderEditInvoiceField(invoiceFieldURL, "URL", m.editInvoiceForm.urlInput.View()),
 		m.renderEditInvoiceField(invoiceFieldDescription, "Description", m.editInvoiceForm.descriptionInput.View()),
 		"",
@@ -7492,13 +7559,14 @@ func (m model) renderInvoiceTableHeader(width int) string {
 	peerWidth := 14
 	invDateWidth := 10
 	dueDateWidth := 10
-	descWidth := width - 14 - titleWidth - typeWidth - currencyWidth - amountWidth - paidWidth - peerWidth - invDateWidth - dueDateWidth - 18
+	accountWidth := 14
+	descWidth := width - 14 - titleWidth - typeWidth - currencyWidth - amountWidth - paidWidth - peerWidth - invDateWidth - dueDateWidth - accountWidth - 20
 
 	if descWidth < 8 {
 		descWidth = 8
 	}
 
-	header := fmt.Sprintf("%-2s %-*s %-*s %-*s %-*s %-*s %-*s %-*s %-*s %-*s", "#", titleWidth, "Title", typeWidth, "Type", currencyWidth, "Curr", amountWidth, "Amount", paidWidth, "Paid", peerWidth, "Peer", invDateWidth, "Issued", dueDateWidth, "Due", descWidth, "Description")
+	header := fmt.Sprintf("%-2s %-*s %-*s %-*s %-*s %-*s %-*s %-*s %-*s %-*s %-*s", "#", titleWidth, "Title", typeWidth, "Type", currencyWidth, "Curr", amountWidth, "Amount", paidWidth, "Paid", peerWidth, "Peer", invDateWidth, "Issued", dueDateWidth, "Due", accountWidth, "Account", descWidth, "Description")
 
 	return tableHeaderStyle.Render(header)
 }
@@ -7512,7 +7580,8 @@ func (m model) renderInvoiceTableRow(width int, index int, item invoice.Invoice)
 	peerWidth := 14
 	invDateWidth := 10
 	dueDateWidth := 10
-	descWidth := width - 14 - titleWidth - typeWidth - currencyWidth - amountWidth - paidWidth - peerWidth - invDateWidth - dueDateWidth - 18
+	accountWidth := 14
+	descWidth := width - 14 - titleWidth - typeWidth - currencyWidth - amountWidth - paidWidth - peerWidth - invDateWidth - dueDateWidth - accountWidth - 20
 	if descWidth < 8 {
 		descWidth = 8
 	}
@@ -7544,7 +7613,7 @@ func (m model) renderInvoiceTableRow(width int, index int, item invoice.Invoice)
 		due = item.DueDate.Local().Format("2006-01-02")
 	}
 
-	row := fmt.Sprintf("%s %-*s %-*s %-*s %-*s %-*s %-*s %-*s %-*s %-*s", prefix, titleWidth, truncateText(item.Title, titleWidth), typeWidth, typeLabel, currencyWidth, truncateText(item.Currency, currencyWidth), amountWidth, renderMoneyWithCurrency(item.Currency, item.AmountCents), paidWidth, paidLabel, peerWidth, truncateText(item.Peer, peerWidth), invDateWidth, issued, dueDateWidth, due, descWidth, truncateText(item.Description, descWidth))
+	row := fmt.Sprintf("%s %-*s %-*s %-*s %-*s %-*s %-*s %-*s %-*s %-*s %-*s", prefix, titleWidth, truncateText(item.Title, titleWidth), typeWidth, typeLabel, currencyWidth, truncateText(item.Currency, currencyWidth), amountWidth, renderMoneyWithCurrency(item.Currency, item.AmountCents), paidWidth, paidLabel, peerWidth, truncateText(item.Peer, peerWidth), invDateWidth, issued, dueDateWidth, due, accountWidth, truncateText(item.TargetAccount, accountWidth), descWidth, truncateText(item.Description, descWidth))
 
 	return style.Render(row)
 }
