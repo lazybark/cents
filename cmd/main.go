@@ -3173,7 +3173,7 @@ func (m model) updateSettings(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			selected := m.settings.Currencies[index]
 			m.settingsEditMode = settingsEditCurrency
 			m.settingsCurrencyEditingID = selected.ID
-			m.settingsCurrencyField = 0
+			m.settingsCurrencyField = 1
 			m.settingsCurrencyNameInput.SetValue(selected.CurrencyName)
 			m.settingsCurrencyRateInput.SetValue(formatRate(selected.RateToBase))
 			m = m.focusCurrencyFormField()
