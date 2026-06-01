@@ -93,6 +93,15 @@ const (
 	invoiceListHistoryPaid
 )
 
+type accountSortField int
+
+const (
+	accountSortBaseAmount accountSortField = iota
+	accountSortName
+	accountSortCurrency
+	accountSortUpdated
+)
+
 type model struct {
 	db                               *gorm.DB
 	dbPath                           string
@@ -166,6 +175,9 @@ type model struct {
 	menuGroup                        int
 	menuItem                         int
 	cursor                           int
+	accountSortField                 accountSortField
+	accountSortMenu                  bool
+	accountSortCursor                int
 	addForm                          addAccountForm
 	addSubscriptionForm              addSubscriptionForm
 	addDebtForm                      addDebtForm

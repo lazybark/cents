@@ -415,7 +415,7 @@ func main() {
 }
 
 func newModel(db *gorm.DB, dbPath string, created bool, accounts []account.Account, subscriptions []subscription.Subscription, debts []debt.Debt, goals []goal.Goal, taxes []tax.Tax, invoices []invoice.Invoice, cashflows []cashflow.CashflowEntry, settings settings.AppSettings) model {
-	accounts = sortAccountsByBaseAmount(accounts, settings)
+	accounts = sortAccounts(accounts, settings, accountSortBaseAmount)
 	currencyOptions := currencySelectionOptions(settings)
 	accountOptions := accountSelectionOptions(accounts)
 	paymentMethodOptions := paymentMethodSelectionOptions(settings)
@@ -543,6 +543,9 @@ func newModel(db *gorm.DB, dbPath string, created bool, accounts []account.Accou
 		status:                           status,
 		menuGroup:                        0,
 		menuItem:                         0,
+		accountSortField:                 accountSortBaseAmount,
+		accountSortMenu:                  false,
+		accountSortCursor:                0,
 		addForm:                          addForm,
 		addSubscriptionForm:              addSubForm,
 		addDebtForm:                      addDebtForm,
@@ -2130,6 +2133,48 @@ func (m model) updateAccountTable(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	if m.accountSortMenu {
+		switch strings.ToLower(msg.String()) {
+		case "esc", "s":
+			m.accountSortMenu = false
+			m.status = "account sort unchanged"
+
+			return m, nil
+		case "up", "k":
+			if m.accountSortCursor > 0 {
+				m.accountSortCursor--
+			}
+
+			return m, nil
+		case "down", "j":
+			if m.accountSortCursor < len(accountSortOptions())-1 {
+				m.accountSortCursor++
+			}
+
+			return m, nil
+		case "enter":
+			selectedID := uint(0)
+			if m.cursor >= 0 && m.cursor < len(m.accounts) {
+				selectedID = m.accounts[m.cursor].ID
+			}
+
+			m.accountSortField = accountSortField(m.accountSortCursor)
+			m.accounts = sortAccounts(m.accounts, m.settings, m.accountSortField)
+			m.accountSortMenu = false
+			if selectedID != 0 {
+				m.cursor = findAccountIndex(m.accounts, selectedID)
+			}
+			if m.cursor < 0 {
+				m.cursor = 0
+			}
+			m.status = "sorting accounts by " + accountSortLabel(m.accountSortField)
+
+			return m, nil
+		default:
+			return m, nil
+		}
+	}
+
 	switch msg.String() {
 	case "esc":
 		m.screen = screenMenu
@@ -2146,6 +2191,12 @@ func (m model) updateAccountTable(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.cursor < len(m.accounts)-1 {
 			m.cursor++
 		}
+
+		return m, nil
+	case "s", "S":
+		m.accountSortMenu = true
+		m.accountSortCursor = int(m.accountSortField)
+		m.status = "choose account sorting"
 
 		return m, nil
 	case "enter":
@@ -2493,7 +2544,7 @@ func (m model) updateSettings(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 
 			m.settings = updated
-			m.accounts = sortAccountsByBaseAmount(m.accounts, m.settings)
+			m.accounts = sortAccounts(m.accounts, m.settings, m.accountSortField)
 			deletedName := m.settingsDeleteTargetName
 			deletedType := m.settingsDeleteTargetType
 			m.settingsDeleteConfirm = false
@@ -2542,7 +2593,7 @@ func (m model) updateSettings(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 
 			m.settings = updated
-			m.accounts = sortAccountsByBaseAmount(m.accounts, m.settings)
+			m.accounts = sortAccounts(m.accounts, m.settings, m.accountSortField)
 			m.settingsEditMode = settingsEditNone
 			m.settingsEditInput.Blur()
 			m.status = "saved setting base_currency"
@@ -2630,7 +2681,7 @@ func (m model) updateSettings(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 
 			m.settings = updated
-			m.accounts = sortAccountsByBaseAmount(m.accounts, m.settings)
+			m.accounts = sortAccounts(m.accounts, m.settings, m.accountSortField)
 			m.settingsEditMode = settingsEditNone
 			m.settingsCurrencyNameInput.Blur()
 			m.settingsCurrencyRateInput.Blur()
@@ -3380,7 +3431,7 @@ func (m model) saveAccountFromForm() (tea.Model, tea.Cmd) {
 	}
 
 	m.accounts = append([]account.Account{newAccount}, m.accounts...)
-	m.accounts = sortAccountsByBaseAmount(m.accounts, m.settings)
+	m.accounts = sortAccounts(m.accounts, m.settings, m.accountSortField)
 	m.addForm = newAddAccountForm(currencySelectionOptions(m.settings))
 	m.screen = screenMenu
 	m.status = "saved account " + name
@@ -3583,7 +3634,7 @@ func (m model) saveAmount() (tea.Model, tea.Cmd) {
 	selected.LeftoverCents = amount
 	selected.LastUpdatedAt = now
 	m.accounts[m.cursor] = selected
-	m.accounts = sortAccountsByBaseAmount(m.accounts, m.settings)
+	m.accounts = sortAccounts(m.accounts, m.settings, m.accountSortField)
 	m.cursor = findAccountIndex(m.accounts, selected.ID)
 	if m.cursor < 0 {
 		m.cursor = 0
@@ -6458,7 +6509,54 @@ func (m model) renderDashboard(width int) string {
 	return panelStyle.Width(width).Render(twoColumnDashboard)
 }
 
-func sortAccountsByBaseAmount(accounts []account.Account, settings settings.AppSettings) []account.Account {
+func accountSortOptions() []string {
+	return []string{
+		"Balance in base currency",
+		"Name",
+		"Currency",
+		"Last updated",
+	}
+}
+
+func accountSortLabel(field accountSortField) string {
+	options := accountSortOptions()
+	index := int(field)
+	if index < 0 || index >= len(options) {
+		return options[0]
+	}
+
+	return options[index]
+}
+
+func (m model) renderAccountSortMenu(width int) string {
+	lines := []string{
+		fieldLabelStyle.Render("Sorting options"),
+		mutedStyle.Render("Use up/down to choose. Enter applies. Esc closes."),
+	}
+
+	for index, option := range accountSortOptions() {
+		prefix := "  "
+		if index == m.accountSortCursor {
+			prefix = "> "
+		}
+
+		label := option
+		if index == int(m.accountSortField) {
+			label += " (current)"
+		}
+
+		lines = append(lines, prefix+label)
+	}
+
+	menuWidth := width - 4
+	if menuWidth < 32 {
+		menuWidth = 32
+	}
+
+	return inputBoxStyle.Width(menuWidth).Render(strings.Join(lines, "\n"))
+}
+
+func sortAccounts(accounts []account.Account, settings settings.AppSettings, field accountSortField) []account.Account {
 	if len(accounts) < 2 {
 		return accounts
 	}
@@ -6466,18 +6564,39 @@ func sortAccountsByBaseAmount(accounts []account.Account, settings settings.AppS
 	cloned := make([]account.Account, len(accounts))
 	copy(cloned, accounts)
 	sort.SliceStable(cloned, func(i, j int) bool {
-		leftComparable := comparableAccountBaseCents(cloned[i], settings)
-		rightComparable := comparableAccountBaseCents(cloned[j], settings)
+		left := cloned[i]
+		right := cloned[j]
 
-		if leftComparable == rightComparable {
-			if cloned[i].CreatedAt.Equal(cloned[j].CreatedAt) {
-				return cloned[i].ID > cloned[j].ID
+		switch field {
+		case accountSortName:
+			leftName := strings.ToLower(strings.TrimSpace(left.Name))
+			rightName := strings.ToLower(strings.TrimSpace(right.Name))
+			if leftName != rightName {
+				return leftName < rightName
 			}
-
-			return cloned[i].CreatedAt.After(cloned[j].CreatedAt)
+		case accountSortCurrency:
+			leftCurrency := strings.ToLower(strings.TrimSpace(left.Currency))
+			rightCurrency := strings.ToLower(strings.TrimSpace(right.Currency))
+			if leftCurrency != rightCurrency {
+				return leftCurrency < rightCurrency
+			}
+		case accountSortUpdated:
+			if !left.LastUpdatedAt.Equal(right.LastUpdatedAt) {
+				return left.LastUpdatedAt.After(right.LastUpdatedAt)
+			}
+		default:
+			leftComparable := comparableAccountBaseCents(left, settings)
+			rightComparable := comparableAccountBaseCents(right, settings)
+			if leftComparable != rightComparable {
+				return leftComparable > rightComparable
+			}
 		}
 
-		return leftComparable > rightComparable
+		if left.CreatedAt.Equal(right.CreatedAt) {
+			return left.ID > right.ID
+		}
+
+		return left.CreatedAt.After(right.CreatedAt)
 	})
 
 	return cloned
@@ -6611,7 +6730,7 @@ func (m model) renderAccountCurrencyFieldRow(width int) string {
 
 func (m model) renderAccountTable(width int) string {
 	lines := []string{sectionTitleStyle.Render("Accounts")}
-	lines = append(lines, hintStyle.Render("Use up/down to move, Enter to edit amount, Delete/Backspace asks confirmation, Esc to go back."))
+	lines = append(lines, hintStyle.Render("Use up/down to move, Enter to edit amount, S changes sorting, Delete/Backspace asks confirmation, Esc to go back."))
 	lines = append(lines, "")
 
 	if len(m.accounts) == 0 {
@@ -6622,6 +6741,11 @@ func (m model) renderAccountTable(width int) string {
 	accountBaseTotal := m.sumAccountsInBaseCents()
 	baseLabel := m.baseCurrencyLabel()
 	lines = append(lines, fieldLabelStyle.Render("Total in "+baseLabel+":"), "  "+renderMoneyWithCurrency(baseLabel, accountBaseTotal), "")
+	lines = append(lines, fieldLabelStyle.Render("Sort")+"  "+accountSortLabel(m.accountSortField))
+	if m.accountSortMenu {
+		lines = append(lines, m.renderAccountSortMenu(width))
+	}
+	lines = append(lines, "")
 
 	lines = append(lines, m.renderAccountTableHeader(width))
 
