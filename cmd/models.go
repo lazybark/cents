@@ -197,6 +197,7 @@ type model struct {
 	editAmountLogValueInput          textinput.Model
 	editAmountActiveField            int
 	editAmountUpdateLog              bool
+	editAmountIgnoreInSummaries      bool
 	accountValueLogs                 []account.AccountValueLog
 	help                             help.Model
 	keys                             keyMap
@@ -205,6 +206,7 @@ type model struct {
 const (
 	editAmountFieldCurrent = iota
 	editAmountFieldUpdateLog
+	editAmountFieldIgnore
 	editAmountFieldLogDate
 	editAmountFieldLogValue
 	editAmountFieldCount

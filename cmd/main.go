@@ -69,11 +69,12 @@ type cashflowMonthlyOverviewRow struct {
 }
 
 type addAccountForm struct {
-	fields          []textinput.Model
-	labels          []string
-	currencyOptions []string
-	currencyIndex   int
-	active          int
+	fields            []textinput.Model
+	labels            []string
+	currencyOptions   []string
+	currencyIndex     int
+	ignoreInSummaries bool
+	active            int
 }
 
 type addSubscriptionForm struct {
@@ -1631,7 +1632,7 @@ func newAddAccountForm(currencyOptions []string) addAccountForm {
 		fields[i] = field
 	}
 
-	form := addAccountForm{fields: fields, labels: labels, currencyOptions: append([]string(nil), currencyOptions...), currencyIndex: 0}
+	form := addAccountForm{fields: fields, labels: labels, currencyOptions: append([]string(nil), currencyOptions...), currencyIndex: 0, ignoreInSummaries: false}
 
 	return form.focusActive()
 }
@@ -1649,7 +1650,7 @@ func (f addAccountForm) focusActive() addAccountForm {
 }
 
 func (f addAccountForm) next() addAccountForm {
-	if f.active < len(f.fields)-1 {
+	if f.active < len(f.fields) {
 		f.active++
 	}
 
@@ -1748,6 +1749,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	if m.screen == screenAddAccount {
+		if m.addForm.active >= len(m.addForm.fields) {
+			return m, nil
+		}
+
 		m.addForm.fields[m.addForm.active], cmd = m.addForm.fields[m.addForm.active].Update(msg)
 
 		return m, cmd
@@ -2092,16 +2097,28 @@ func (m model) updateAddAccount(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.addForm.active == 2 && m.addForm.currencyIndex > 0 {
 			m.addForm.currencyIndex--
 		}
+		if m.addForm.active == 4 {
+			m.addForm.ignoreInSummaries = false
+		}
 
 		return m, nil
 	case "right":
 		if m.addForm.active == 2 && m.addForm.currencyIndex < len(m.addForm.currencyOptions)-1 {
 			m.addForm.currencyIndex++
 		}
+		if m.addForm.active == 4 {
+			m.addForm.ignoreInSummaries = true
+		}
 
 		return m, nil
+	case " ":
+		if m.addForm.active == 4 {
+			m.addForm.ignoreInSummaries = !m.addForm.ignoreInSummaries
+
+			return m, nil
+		}
 	case "enter":
-		if m.addForm.active == len(m.addForm.fields)-1 && msg.String() == "enter" {
+		if m.addForm.active == len(m.addForm.fields) {
 			return m.saveAccountFromForm()
 		}
 
@@ -2111,6 +2128,10 @@ func (m model) updateAddAccount(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	if m.addForm.active == 2 {
+		return m, nil
+	}
+
+	if m.addForm.active == 4 {
 		return m, nil
 	}
 
@@ -2236,10 +2257,19 @@ func (m model) updateEditAmount(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 			return m, nil
 		}
+		if m.editAmountActiveField == editAmountFieldIgnore {
+			m.editAmountIgnoreInSummaries = !m.editAmountIgnoreInSummaries
+
+			return m, nil
+		}
 	case "enter":
 		switch m.editAmountActiveField {
 		case editAmountFieldCurrent:
 			return m.saveAmount()
+		case editAmountFieldIgnore:
+			m.editAmountIgnoreInSummaries = !m.editAmountIgnoreInSummaries
+
+			return m, nil
 		case editAmountFieldLogValue:
 			return m.applyAccountLogValue()
 		default:
@@ -3417,12 +3447,13 @@ func (m model) saveAccountFromForm() (tea.Model, tea.Cmd) {
 	now := time.Now()
 
 	newAccount := account.Account{
-		Name:          name,
-		Description:   description,
-		Currency:      currency,
-		BalanceCents:  amount,
-		LeftoverCents: amount,
-		LastUpdatedAt: now,
+		Name:              name,
+		Description:       description,
+		Currency:          currency,
+		BalanceCents:      amount,
+		LeftoverCents:     amount,
+		IgnoreInSummaries: m.addForm.ignoreInSummaries,
+		LastUpdatedAt:     now,
 	}
 
 	if err := m.db.Create(&newAccount).Error; err != nil {
@@ -3595,6 +3626,7 @@ func (m model) beginEditAmount() tea.Model {
 
 	m.editAmountActiveField = editAmountFieldCurrent
 	m.editAmountUpdateLog = false
+	m.editAmountIgnoreInSummaries = current.IgnoreInSummaries
 	m.editInput.Focus()
 	m.editAmountLogDateInput.Blur()
 	m.editAmountLogValueInput.Blur()
@@ -3633,6 +3665,7 @@ func (m model) saveAmount() (tea.Model, tea.Cmd) {
 	selected.BalanceCents = amount
 	selected.LeftoverCents = amount
 	selected.LastUpdatedAt = now
+	selected.IgnoreInSummaries = m.editAmountIgnoreInSummaries
 	m.accounts[m.cursor] = selected
 	m.accounts = sortAccounts(m.accounts, m.settings, m.accountSortField)
 	m.cursor = findAccountIndex(m.accounts, selected.ID)
@@ -6684,7 +6717,7 @@ func (m model) upsertAccountValueLog(accountID uint, day time.Time, valueCents i
 func (m model) renderAddAccount(width int) string {
 	lines := []string{
 		headlineStyle.Render("Add account"),
-		mutedStyle.Render("Fill the fields, choose currency with left/right, then press Enter on Amount to save."),
+		mutedStyle.Render("Fill the fields, choose currency with left/right, and set whether this account should be ignored in summaries."),
 		"",
 	}
 
@@ -6700,8 +6733,19 @@ func (m model) renderAddAccount(width int) string {
 		lines = append(lines, lipgloss.JoinHorizontal(lipgloss.Top, label, "  ", value))
 	}
 
+	ignorePrefix := "  "
+	if m.addForm.active == 4 {
+		ignorePrefix = "> "
+	}
+	ignoreMarker := "[ ]"
+	if m.addForm.ignoreInSummaries {
+		ignoreMarker = "[x]"
+	}
+	lines = append(lines, ignorePrefix+fieldLabelStyle.Render("Ignore in summaries")+"  "+ignoreMarker)
+	lines = append(lines, mutedStyle.Render("Use this for meta-accounts and historical records; ignored accounts stay out of totals."))
+
 	lines = append(lines, "")
-	lines = append(lines, mutedStyle.Render("Tab moves forward, Shift+Tab moves back, Esc returns home."))
+	lines = append(lines, mutedStyle.Render("Tab moves forward, Shift+Tab moves back, Space toggles the checkbox, Esc returns home."))
 
 	return panelStyle.Width(width).Render(strings.Join(lines, "\n"))
 }
@@ -6741,6 +6785,15 @@ func (m model) renderAccountTable(width int) string {
 	accountBaseTotal := m.sumAccountsInBaseCents()
 	baseLabel := m.baseCurrencyLabel()
 	lines = append(lines, fieldLabelStyle.Render("Total in "+baseLabel+":"), "  "+renderMoneyWithCurrency(baseLabel, accountBaseTotal), "")
+	ignoredCount := 0
+	for _, acct := range m.accounts {
+		if acct.IgnoreInSummaries {
+			ignoredCount++
+		}
+	}
+	if ignoredCount > 0 {
+		lines = append(lines, mutedStyle.Render(fmt.Sprintf("%d account(s) ignored in summaries.", ignoredCount)), "")
+	}
 	lines = append(lines, fieldLabelStyle.Render("Sort")+"  "+accountSortLabel(m.accountSortField))
 	if m.accountSortMenu {
 		lines = append(lines, m.renderAccountSortMenu(width))
@@ -6818,6 +6871,11 @@ func (m model) renderEditAmount(width int) string {
 		updateLogPrefix = "> "
 	}
 
+	ignorePrefix := "  "
+	if m.editAmountActiveField == editAmountFieldIgnore {
+		ignorePrefix = "> "
+	}
+
 	logDatePrefix := "  "
 	if m.editAmountActiveField == editAmountFieldLogDate {
 		logDatePrefix = "> "
@@ -6833,6 +6891,11 @@ func (m model) renderEditAmount(width int) string {
 		updateLogMarker = "[x]"
 	}
 
+	ignoreMarker := "[ ]"
+	if m.editAmountIgnoreInSummaries {
+		ignoreMarker = "[x]"
+	}
+
 	lines := []string{
 		headlineStyle.Render("Edit account amount"),
 		mutedStyle.Render("Account: " + acct.Name + " | " + acct.Currency + " | amount " + renderMoneyWithCurrency(acct.Currency, acct.BalanceCents)),
@@ -6840,13 +6903,14 @@ func (m model) renderEditAmount(width int) string {
 		currentPrefix + fieldLabelStyle.Render("Amount"),
 		inputBoxStyle.Width(24).Render(m.editInput.View()),
 		updateLogPrefix + fieldLabelStyle.Render("Update log on save") + "  " + updateLogMarker,
+		ignorePrefix + fieldLabelStyle.Render("Ignore in summaries") + "  " + ignoreMarker,
 		"",
 		fieldLabelStyle.Render("Add/Update historical value"),
 		logDatePrefix + fieldLabelStyle.Render("Date") + "  " + m.editAmountLogDateInput.View(),
 		logValuePrefix + fieldLabelStyle.Render("Value") + "  " + m.editAmountLogValueInput.View(),
 		"",
 		mutedStyle.Render("Enter on Amount saves account amount. Enter on Value saves log for Date."),
-		mutedStyle.Render("Use up/down or tab/shift+tab to move fields. Space toggles Update log on save. Esc cancels."),
+		mutedStyle.Render("Use up/down or tab/shift+tab to move fields. Space toggles checkboxes. Esc cancels."),
 	}
 
 	lines = append(lines, "", fieldLabelStyle.Render("Value history"))
@@ -8556,6 +8620,10 @@ func (m model) sumAccountsInBaseCents() int64 {
 	var total int64
 
 	for _, acct := range m.accounts {
+		if acct.IgnoreInSummaries {
+			continue
+		}
+
 		converted, ok := m.convertToBaseCents(acct.Currency, acct.BalanceCents)
 		if !ok {
 			continue

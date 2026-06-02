@@ -41,6 +41,4 @@ Make Update log on save by default as true
 
 Make account history entries deletable
 
-When editing currency, make rate as default editable field
-
 Fix: account list has a ? placeholders on unicode symbols in account names, though the actual name is OK
