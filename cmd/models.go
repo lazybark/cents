@@ -13,6 +13,7 @@ import (
 	"github.com/lazybark/cents/flows/settings"
 	"github.com/lazybark/cents/flows/subscription"
 	"github.com/lazybark/cents/flows/tax"
+	storage "github.com/lazybark/cents/storage/sqlite"
 	"gorm.io/gorm"
 )
 
@@ -54,6 +55,7 @@ const (
 	screenCashflowNew
 	screenCashflowHistory
 	screenCashflowOverview
+	screenDataExport
 )
 
 type subscriptionListMode int
@@ -101,6 +103,15 @@ const (
 	accountSortCurrency
 	accountSortUpdated
 )
+
+type exportForm struct {
+	pathInput      textinput.Model
+	active         int
+	datasetOptions []storage.ExportDataset
+	datasetIndex   int
+	formatOptions  []storage.ExportFormat
+	formatIndex    int
+}
 
 type model struct {
 	db                               *gorm.DB
@@ -185,6 +196,7 @@ type model struct {
 	addTaxForm                       addTaxForm
 	addInvoiceForm                   addInvoiceForm
 	addCashflowForm                  addCashflowForm
+	exportForm                       exportForm
 	editSubscriptionForm             editSubscriptionForm
 	editDebtForm                     editDebtForm
 	editGoalForm                     editGoalForm

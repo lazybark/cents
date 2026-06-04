@@ -327,6 +327,14 @@ const (
 	cashflowFieldCount
 )
 
+const (
+	exportFieldDataset = iota
+	exportFieldFormat
+	exportFieldPath
+	exportFieldRun
+	exportFieldCount
+)
+
 var (
 	appTitleStyle     = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#F4E9D8"))
 	mutedStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color("#9C927F"))
@@ -427,6 +435,7 @@ func newModel(db *gorm.DB, dbPath string, created bool, accounts []account.Accou
 	addTaxForm := newAddTaxForm(settings.TaxTypes)
 	addInvoiceForm := newAddInvoiceForm(currencyOptions, accountOptions)
 	addCashflowForm := newAddCashflowForm(currencyOptions, incomeCategorySelectionOptions(settings), accountOptions, true)
+	exportForm := newExportForm(defaultExportPath())
 	editInput := textinput.New()
 	editInput.Placeholder = "1234.56"
 	editInput.CharLimit = 24
@@ -554,6 +563,7 @@ func newModel(db *gorm.DB, dbPath string, created bool, accounts []account.Accou
 		addTaxForm:                       addTaxForm,
 		addInvoiceForm:                   addInvoiceForm,
 		addCashflowForm:                  addCashflowForm,
+		exportForm:                       exportForm,
 		editSubscriptionForm:             newEditSubscriptionForm(),
 		editDebtForm:                     newEditDebtForm(),
 		editGoalForm:                     newEditGoalForm(),
@@ -1615,7 +1625,7 @@ func appMenuGroups() []menuGroup {
 		{title: "Debts", items: []string{"new", "outgoing", "incoming", "history"}},
 		{title: "Goals", items: []string{"new", "all", "history"}},
 		{title: "Taxes", items: []string{"new", "unpaid", "history"}},
-		{title: "Settings", items: []string{"edit", "backup"}},
+		{title: "Settings", items: []string{"edit", "Export"}},
 	}
 }
 
@@ -1671,6 +1681,55 @@ func databaseStatus(created bool, count int, dbPath string) string {
 	}
 
 	return "opened " + dbPath + " with " + strconv.Itoa(count) + " accounts"
+}
+
+func defaultExportPath() string {
+	workingDir, err := os.Getwd()
+	if err != nil {
+		return "."
+	}
+	return workingDir
+}
+
+func newExportForm(path string) exportForm {
+	pathInput := textinput.New()
+	pathInput.Placeholder = path
+	pathInput.CharLimit = 260
+	pathInput.Width = 56
+	pathInput.SetValue(path)
+
+	form := exportForm{
+		pathInput:      pathInput,
+		active:         0,
+		datasetOptions: storage.ExportDatasetOptions(),
+		datasetIndex:   0,
+		formatOptions:  storage.ExportFormatOptions(),
+		formatIndex:    0,
+	}
+
+	return form.focusActive()
+}
+
+func (f exportForm) focusActive() exportForm {
+	f.pathInput.Blur()
+	if f.active == exportFieldPath {
+		f.pathInput.Focus()
+	}
+	return f
+}
+
+func (f exportForm) next() exportForm {
+	if f.active < exportFieldCount-1 {
+		f.active++
+	}
+	return f.focusActive()
+}
+
+func (f exportForm) prev() exportForm {
+	if f.active > 0 {
+		f.active--
+	}
+	return f.focusActive()
 }
 
 func (m model) Init() tea.Cmd {
@@ -1745,6 +1804,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateCashflowHistory(msg)
 		case screenCashflowOverview:
 			return m.updateCashflowOverview(msg)
+		case screenDataExport:
+			return m.updateDataExport(msg)
 		}
 	}
 
@@ -2068,6 +2129,14 @@ func (m model) activateMenuSelection() (tea.Model, tea.Cmd) {
 		m.settingsCursor = 0
 		m.settingsEditMode = settingsEditNone
 		m.status = "settings"
+
+		return m, nil
+	}
+
+	if m.menuGroup == 7 && m.menuItem == 1 {
+		m.screen = screenDataExport
+		m.exportForm = newExportForm(defaultExportPath())
+		m.status = "data export"
 
 		return m, nil
 	}
@@ -3268,6 +3337,63 @@ func (m model) updateSettings(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 }
 
+func (m model) updateDataExport(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.screen = screenMenu
+		m.status = databaseStatus(m.created, len(m.accounts), m.dbPath)
+		return m, nil
+	case "tab", "down":
+		m.exportForm = m.exportForm.next()
+		return m, nil
+	case "shift+tab", "up":
+		m.exportForm = m.exportForm.prev()
+		return m, nil
+	case "left", "h":
+		if m.exportForm.active == exportFieldDataset && m.exportForm.datasetIndex > 0 {
+			m.exportForm.datasetIndex--
+		}
+		if m.exportForm.active == exportFieldFormat && m.exportForm.formatIndex > 0 {
+			m.exportForm.formatIndex--
+		}
+		return m, nil
+	case "right", "l":
+		if m.exportForm.active == exportFieldDataset && m.exportForm.datasetIndex < len(m.exportForm.datasetOptions)-1 {
+			m.exportForm.datasetIndex++
+		}
+		if m.exportForm.active == exportFieldFormat && m.exportForm.formatIndex < len(m.exportForm.formatOptions)-1 {
+			m.exportForm.formatIndex++
+		}
+		return m, nil
+	case "enter":
+		if m.exportForm.active < exportFieldRun {
+			m.exportForm = m.exportForm.next()
+			return m, nil
+		}
+
+		result, err := storage.ExportData(m.db, storage.ExportRequest{
+			Dataset: selectedExportDataset(m.exportForm),
+			Format:  selectedExportFormat(m.exportForm),
+			Path:    strings.TrimSpace(m.exportForm.pathInput.Value()),
+		})
+		if err != nil {
+			m.status = "export failed: " + err.Error()
+			return m, nil
+		}
+
+		m.status = fmt.Sprintf("exported %d file(s) to %s", result.FileCount, result.Path)
+		return m, nil
+	}
+
+	var cmd tea.Cmd
+	if m.exportForm.active == exportFieldPath {
+		m.exportForm.pathInput, cmd = m.exportForm.pathInput.Update(msg)
+		return m, cmd
+	}
+
+	return m, nil
+}
+
 func (m model) focusCurrencyFormField() model {
 	m.settingsCurrencyNameInput.Blur()
 	m.settingsCurrencyRateInput.Blur()
@@ -3417,6 +3543,26 @@ func selectedStringOption(options []string, index int) string {
 		return options[0]
 	}
 	return options[index]
+}
+
+func selectedExportDataset(form exportForm) storage.ExportDataset {
+	if len(form.datasetOptions) == 0 {
+		return storage.ExportDatasetAll
+	}
+	if form.datasetIndex < 0 || form.datasetIndex >= len(form.datasetOptions) {
+		return form.datasetOptions[0]
+	}
+	return form.datasetOptions[form.datasetIndex]
+}
+
+func selectedExportFormat(form exportForm) storage.ExportFormat {
+	if len(form.formatOptions) == 0 {
+		return storage.ExportFormatJSON
+	}
+	if form.formatIndex < 0 || form.formatIndex >= len(form.formatOptions) {
+		return form.formatOptions[0]
+	}
+	return form.formatOptions[form.formatIndex]
 }
 
 func (m model) saveAccountFromForm() (tea.Model, tea.Cmd) {
@@ -6272,6 +6418,8 @@ func (m model) renderBody(width int) string {
 		return m.renderCashflowHistory(width)
 	case screenCashflowOverview:
 		return m.renderCashflowOverview(width)
+	case screenDataExport:
+		return m.renderDataExport(width)
 	default:
 		return m.renderMenu(width)
 	}
@@ -8475,6 +8623,48 @@ func (m model) renderSettings(width int) string {
 	content := append(header, rows...)
 
 	return panelStyle.Width(width).Render(strings.Join(content, "\n"))
+}
+
+func (m model) renderDataExport(width int) string {
+	datasetPrefix := " "
+	formatPrefix := " "
+	pathPrefix := " "
+	runStyle := buttonStyle
+
+	switch m.exportForm.active {
+	case exportFieldDataset:
+		datasetPrefix = ">"
+	case exportFieldFormat:
+		formatPrefix = ">"
+	case exportFieldPath:
+		pathPrefix = ">"
+	case exportFieldRun:
+		runStyle = buttonActiveStyle
+	}
+
+	formatOptions := make([]string, 0, len(m.exportForm.formatOptions))
+	for i, option := range m.exportForm.formatOptions {
+		style := buttonStyle
+		if i == m.exportForm.formatIndex {
+			style = buttonActiveStyle
+		}
+		formatOptions = append(formatOptions, style.Render(option.Label()))
+	}
+
+	rows := []string{
+		sectionTitleStyle.Render("Export"),
+		hintStyle.Render("Use up/down to change fields. Left/right changes options. Enter exports from the Export button. Esc returns to menu."),
+		"",
+		fmt.Sprintf("%s %-8s %s", datasetPrefix, "Data", buttonActiveStyle.Render(selectedExportDataset(m.exportForm).Label())),
+		fmt.Sprintf("%s %-8s %s", formatPrefix, "Format", strings.Join(formatOptions, " ")),
+		fmt.Sprintf("%s %-8s %s", pathPrefix, "Path", m.exportForm.pathInput.View()),
+		"",
+		runStyle.Render("Export"),
+		"",
+		mutedStyle.Render("Path may be a folder or a filename. CSV exports all data as a folder of table files."),
+	}
+
+	return panelStyle.Width(width).Render(strings.Join(rows, "\n"))
 }
 
 func formatRate(value float64) string {
