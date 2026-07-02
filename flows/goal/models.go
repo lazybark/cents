@@ -1,6 +1,10 @@
 package goal
 
-import "time"
+import (
+	"time"
+
+	"github.com/charmbracelet/bubbles/textinput"
+)
 
 type Goal struct {
 	ID                     uint `gorm:"primaryKey"`
@@ -21,4 +25,34 @@ type GoalLog struct {
 	GoalID                uint `gorm:"index;not null"`
 	DeltaAccumulatedCents int64
 	Note                  string
+}
+
+const (
+	GoalFieldName = iota
+	GoalFieldCurrency
+	GoalFieldTargetAmount
+	GoalFieldAccumulated
+	GoalFieldDescription
+	GoalFieldDateStarted
+	GoalFieldTargetDate
+	GoalFieldCount
+)
+
+const (
+	EditGoalFieldTargetAmount = iota
+	EditGoalFieldAccumulated
+	EditGoalFieldDateStarted
+	EditGoalFieldTargetDate
+	EditGoalFieldDescription
+	EditGoalFieldLogDelta
+	EditGoalFieldLogDate
+	EditGoalFieldLogComment
+	EditGoalFieldCount
+)
+
+type AddGoalForm struct {
+	Inputs          []textinput.Model
+	Active          int
+	CurrencyOptions []string
+	CurrencyIndex   int
 }

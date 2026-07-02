@@ -1,6 +1,10 @@
 package account
 
-import "time"
+import (
+	"time"
+
+	"github.com/charmbracelet/bubbles/textinput"
+)
 
 type Account struct {
 	ID                uint `gorm:"primaryKey"`
@@ -21,4 +25,13 @@ type AccountValueLog struct {
 	AccountID  uint      `gorm:"not null;index;uniqueIndex:idx_account_log_day"`
 	LogDate    time.Time `gorm:"not null;uniqueIndex:idx_account_log_day"`
 	ValueCents int64
+}
+
+type AddAccountForm struct {
+	Fields            []textinput.Model
+	Labels            []string
+	CurrencyOptions   []string
+	CurrencyIndex     int
+	IgnoreInSummaries bool
+	Active            int
 }

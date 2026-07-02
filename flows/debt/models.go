@@ -1,6 +1,10 @@
 package debt
 
-import "time"
+import (
+	"time"
+
+	"github.com/charmbracelet/bubbles/textinput"
+)
 
 type Debt struct {
 	ID              uint `gorm:"primaryKey"`
@@ -22,4 +26,51 @@ type DebtLog struct {
 	DebtID         uint `gorm:"index;not null"`
 	DeltaPaidCents int64
 	Note           string
+}
+
+const (
+	EditDebtFieldAmount = iota
+	EditDebtFieldAmountPaid
+	EditDebtFieldDebtCreated
+	EditDebtFieldDueDate
+	EditDebtFieldComment
+	EditDebtFieldLogDelta
+	EditDebtFieldLogDate
+	EditDebtFieldLogComment
+	EditDebtFieldCount
+)
+
+const (
+	DebtFieldDirection = iota
+	DebtFieldPeer
+	DebtFieldCurrency
+	DebtFieldAmount
+	DebtFieldAmountPaid
+	DebtFieldDebtCreated
+	DebtFieldDueDate
+	DebtFieldComment
+	DebtFieldCount
+)
+
+type AddDebtForm struct {
+	Inputs          []textinput.Model
+	Active          int
+	CurrencyOptions []string
+	CurrencyIndex   int
+	IsOwedToUser    bool
+}
+
+type EditDebtForm struct {
+	AmountInput      textinput.Model
+	AmountPaidInput  textinput.Model
+	DebtCreatedInput textinput.Model
+	DueDateInput     textinput.Model
+	CommentInput     textinput.Model
+	LogDeltaInput    textinput.Model
+	LogDateInput     textinput.Model
+	LogCommentInput  textinput.Model
+	ActiveField      int
+	PeerLabel        string
+	CurrencyLabel    string
+	DirectionLabel   string
 }
