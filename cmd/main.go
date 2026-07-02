@@ -16,6 +16,12 @@ func main() {
 		os.Exit(1)
 	}
 
+	sqlite, err := storage.NewSQLiteStorage()
+	if err != nil {
+		log.Println("storage worker init failed:", err)
+		os.Exit(1)
+	}
+
 	accounts, err := storage.LoadAccounts(db)
 	if err != nil {
 		log.Println("database read failed:", err)
@@ -64,7 +70,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	m := app.NewApp(db, dbPath, created, accounts, subscriptions, debts, goals, taxes, invoices, cashflows, settings)
+	m := app.NewApp(sqlite, dbPath, created, accounts, subscriptions, debts, goals, taxes, invoices, cashflows, settings)
 
 	program := tea.NewProgram(m, tea.WithAltScreen())
 	if _, err := program.Run(); err != nil {

@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"math"
 	"strings"
 	"time"
 )
@@ -77,4 +78,57 @@ func debtDirectionLabel(isOwedToUser bool) string {
 	}
 
 	return "outgoing (i owe someone)"
+}
+
+func (m TheApplication) baseCurrencyLabel() string {
+	base := strings.TrimSpace(m.settings.BaseCurrency)
+	if base == "" {
+		return "$"
+	}
+
+	return base
+}
+
+func (m TheApplication) convertToBaseCents(currency string, cents int64) (int64, bool) {
+	base := m.baseCurrencyLabel()
+	if strings.EqualFold(strings.TrimSpace(currency), base) {
+		return cents, true
+	}
+
+	rate, ok := m.rateToBase(currency)
+	if !ok {
+		return 0, false
+	}
+
+	return int64(math.Round(float64(cents) * rate)), true
+}
+
+func (m TheApplication) rateToBase(currency string) (float64, bool) {
+	target := strings.TrimSpace(currency)
+	if target == "" {
+		return 0, false
+	}
+
+	for _, entry := range m.settings.Currencies {
+		if strings.EqualFold(strings.TrimSpace(entry.CurrencyName), target) && entry.RateToBase > 0 {
+			return entry.RateToBase, true
+		}
+	}
+
+	return 0, false
+}
+
+func (m TheApplication) convertedAmountForBase(currency string, cents int64) string {
+	base := m.baseCurrencyLabel()
+
+	if strings.EqualFold(strings.TrimSpace(currency), base) {
+		return ""
+	}
+
+	convertedCents, ok := m.convertToBaseCents(currency, cents)
+	if !ok {
+		return ""
+	}
+
+	return renderMoneyWithCurrency(base, convertedCents)
 }

@@ -261,14 +261,16 @@ func findExportTable(dataset ExportDataset) (exportTable, bool) {
 			return table, true
 		}
 	}
+
 	return exportTable{}, false
 }
 
 func loadExportRows[T any](db *gorm.DB) (any, error) {
 	rows := make([]T, 0)
 	if err := db.Find(&rows).Error; err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to load %T rows: %w", rows, err)
 	}
+
 	return rows, nil
 }
 
@@ -278,8 +280,9 @@ func resolveExportFile(destination string, defaultName string) (string, error) {
 		destination = filepath.Join(destination, defaultName)
 	}
 	if err := os.MkdirAll(filepath.Dir(destination), 0o755); err != nil {
-		return "", err
+		return "", fmt.Errorf("failed to create export directory: %w", err)
 	}
+
 	return filepath.Abs(destination)
 }
 
@@ -294,12 +297,13 @@ func resolveExportDir(destination string, defaultName string) (string, error) {
 		return "", fmt.Errorf("%s is a file; choose a folder for all-data CSV export", destination)
 	case os.IsNotExist(err):
 	default:
-		return "", err
+		return "", fmt.Errorf("failed to stat export directory: %w", err)
 	}
 
 	if err := os.MkdirAll(destination, 0o755); err != nil {
-		return "", err
+		return "", fmt.Errorf("failed to create export directory: %w", err)
 	}
+
 	return filepath.Abs(destination)
 }
 
@@ -310,7 +314,9 @@ func isDirectoryPath(path string) bool {
 	if filepath.Ext(path) == "" {
 		return true
 	}
+
 	info, err := os.Stat(path)
+
 	return err == nil && info.IsDir()
 }
 
@@ -320,30 +326,33 @@ func expandHome(path string) string {
 			return home
 		}
 	}
+
 	if strings.HasPrefix(path, "~/") {
 		if home, err := os.UserHomeDir(); err == nil {
 			return filepath.Join(home, strings.TrimPrefix(path, "~/"))
 		}
 	}
+
 	return path
 }
 
 func writeJSONFile(path string, value any) error {
 	file, err := os.Create(path)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to create JSON export file: %w", err)
 	}
 	defer file.Close()
 
 	encoder := json.NewEncoder(file)
 	encoder.SetIndent("", "  ")
+
 	return encoder.Encode(value)
 }
 
 func writeCSVFile(path string, records any) error {
 	file, err := os.Create(path)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to create CSV export file: %w", err)
 	}
 	defer file.Close()
 
@@ -352,16 +361,19 @@ func writeCSVFile(path string, records any) error {
 
 	headers, rows, err := csvRows(records)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to prepare CSV export data: %w", err)
 	}
+
 	if err := writer.Write(headers); err != nil {
-		return err
+		return fmt.Errorf("failed to write CSV headers: %w", err)
 	}
+
 	for _, row := range rows {
 		if err := writer.Write(row); err != nil {
-			return err
+			return fmt.Errorf("failed to write CSV row: %w", err)
 		}
 	}
+
 	return writer.Error()
 }
 
@@ -375,6 +387,7 @@ func csvRows(records any) ([]string, [][]string, error) {
 	for itemType.Kind() == reflect.Pointer {
 		itemType = itemType.Elem()
 	}
+
 	if itemType.Kind() != reflect.Struct {
 		return nil, nil, errors.New("csv export requires a slice of structs")
 	}
@@ -386,6 +399,7 @@ func csvRows(records any) ([]string, [][]string, error) {
 		if field.PkgPath != "" {
 			continue
 		}
+
 		headers = append(headers, field.Name)
 		fieldIndexes = append(fieldIndexes, i)
 	}
@@ -397,6 +411,7 @@ func csvRows(records any) ([]string, [][]string, error) {
 			if item.IsNil() {
 				break
 			}
+
 			item = item.Elem()
 		}
 
@@ -404,6 +419,7 @@ func csvRows(records any) ([]string, [][]string, error) {
 		for _, fieldIndex := range fieldIndexes {
 			row = append(row, exportCellValue(item.Field(fieldIndex)))
 		}
+
 		rows = append(rows, row)
 	}
 
@@ -427,6 +443,7 @@ func exportCellValue(value reflect.Value) string {
 			if timestamp.IsZero() {
 				return ""
 			}
+
 			return timestamp.Format(time.RFC3339)
 		}
 	}
@@ -447,6 +464,7 @@ func exportCellValue(value reflect.Value) string {
 		if err != nil {
 			return fmt.Sprint(value.Interface())
 		}
+
 		return string(data)
 	}
 }

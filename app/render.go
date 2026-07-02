@@ -1,10 +1,12 @@
 package app
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/lazybark/cents/flows/export"
 	"github.com/lazybark/cents/flows/settings"
 )
 
@@ -329,4 +331,47 @@ func databaseStatus(created bool, count int, dbPath string) string {
 type menuGroup struct {
 	title string
 	items []string
+}
+
+func (m TheApplication) renderDataExport(width int) string {
+	datasetPrefix := " "
+	formatPrefix := " "
+	pathPrefix := " "
+	runStyle := buttonStyle
+
+	switch m.exportForm.Active {
+	case export.ExportFieldDataset:
+		datasetPrefix = ">"
+	case export.ExportFieldFormat:
+		formatPrefix = ">"
+	case export.ExportFieldPath:
+		pathPrefix = ">"
+	case export.ExportFieldRun:
+		runStyle = buttonActiveStyle
+	}
+
+	formatOptions := make([]string, 0, len(m.exportForm.FormatOptions))
+
+	for i, option := range m.exportForm.FormatOptions {
+		style := buttonStyle
+		if i == m.exportForm.FormatIndex {
+			style = buttonActiveStyle
+		}
+		formatOptions = append(formatOptions, style.Render(option.Label()))
+	}
+
+	rows := []string{
+		sectionTitleStyle.Render("Export"),
+		hintStyle.Render("Use up/down to change fields. Left/right changes options. Enter exports from the Export button. Esc returns to menu."),
+		"",
+		fmt.Sprintf("%s %-8s %s", datasetPrefix, "Data", buttonActiveStyle.Render(selectedExportDataset(m.exportForm).Label())),
+		fmt.Sprintf("%s %-8s %s", formatPrefix, "Format", strings.Join(formatOptions, " ")),
+		fmt.Sprintf("%s %-8s %s", pathPrefix, "Path", m.exportForm.PathInput.View()),
+		"",
+		runStyle.Render("Export"),
+		"",
+		mutedStyle.Render("Path may be a folder or a filename. CSV exports all data as a folder of table files."),
+	}
+
+	return panelStyle.Width(width).Render(strings.Join(rows, "\n"))
 }

@@ -1,17 +1,17 @@
 package app
 
 import (
-	"errors"
 	"fmt"
 	"math"
 	"sort"
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/bubbles/textinput"
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/lazybark/cents/flows/account"
 	"github.com/lazybark/cents/flows/settings"
-	"gorm.io/gorm"
 )
 
 func (m TheApplication) loadAccountValueLogs(accountID uint) []account.AccountValueLog {
@@ -19,8 +19,8 @@ func (m TheApplication) loadAccountValueLogs(accountID uint) []account.AccountVa
 		return nil
 	}
 
-	logs := make([]account.AccountValueLog, 0)
-	if err := m.db.Where("account_id = ?", accountID).Order("log_date desc, id desc").Find(&logs).Error; err != nil {
+	logs, err := m.storage.LoadAccountValueLogs(accountID)
+	if err != nil {
 		return nil
 	}
 
@@ -28,34 +28,7 @@ func (m TheApplication) loadAccountValueLogs(accountID uint) []account.AccountVa
 }
 
 func (m TheApplication) upsertAccountValueLog(accountID uint, day time.Time, valueCents int64) error {
-	if accountID == 0 {
-		return errors.New("account is required")
-	}
-
-	normalizedDay := accountLogDay(day)
-	now := time.Now()
-	entry := account.AccountValueLog{}
-
-	err := m.db.Where("account_id = ? AND log_date = ?", accountID, normalizedDay).First(&entry).Error
-	if err == nil {
-		entry.ValueCents = valueCents
-		entry.UpdatedAt = now
-
-		return m.db.Save(&entry).Error
-	}
-
-	if !errors.Is(err, gorm.ErrRecordNotFound) {
-		return err
-	}
-
-	entry = account.AccountValueLog{
-		AccountID:  accountID,
-		LogDate:    normalizedDay,
-		ValueCents: valueCents,
-		UpdatedAt:  now,
-	}
-
-	return m.db.Create(&entry).Error
+	return m.storage.UpsertAccountValueLog(accountID, day, valueCents)
 }
 
 func (m TheApplication) renderMoneyConditionalRed(base string, cents int64) string {
@@ -410,4 +383,461 @@ func sortAccounts(accounts []account.Account, settings settings.AppSettings, fie
 	})
 
 	return cloned
+}
+
+func (m TheApplication) updateAddAccount(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.screen = screenMenu
+		m.status = databaseStatus(m.created, len(m.accounts), m.dbPath)
+
+		return m, nil
+	case "up", "shift+tab":
+		m.addForm = m.addForm.Prev()
+
+		return m, nil
+	case "down", "tab":
+		m.addForm = m.addForm.Next()
+
+		return m, nil
+	case "left":
+		if m.addForm.Active == 2 && m.addForm.CurrencyIndex > 0 {
+			m.addForm.CurrencyIndex--
+		}
+		if m.addForm.Active == 4 {
+			m.addForm.IgnoreInSummaries = false
+		}
+
+		return m, nil
+	case "right":
+		if m.addForm.Active == 2 && m.addForm.CurrencyIndex < len(m.addForm.CurrencyOptions)-1 {
+			m.addForm.CurrencyIndex++
+		}
+		if m.addForm.Active == 4 {
+			m.addForm.IgnoreInSummaries = true
+		}
+
+		return m, nil
+	case " ":
+		if m.addForm.Active == 4 {
+			m.addForm.IgnoreInSummaries = !m.addForm.IgnoreInSummaries
+
+			return m, nil
+		}
+	case "enter":
+		if m.addForm.Active == len(m.addForm.Fields) {
+			return m.saveAccountFromForm()
+		}
+
+		m.addForm = m.addForm.Next()
+
+		return m, nil
+	}
+
+	if m.addForm.Active == 2 {
+		return m, nil
+	}
+
+	if m.addForm.Active == 4 {
+		return m, nil
+	}
+
+	var cmd tea.Cmd
+
+	m.addForm.Fields[m.addForm.Active], cmd = m.addForm.Fields[m.addForm.Active].Update(msg)
+
+	return m, cmd
+}
+
+func (m TheApplication) updateAccountTable(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if updatedModel, cmd, handled := m.handleDeleteConfirmation(msg); handled {
+		return updatedModel, cmd
+	}
+
+	if len(m.accounts) == 0 {
+		m.screen = screenMenu
+		m.status = "no accounts available"
+
+		return m, nil
+	}
+
+	if m.accountSortMenu {
+		switch strings.ToLower(msg.String()) {
+		case "esc", "s":
+			m.accountSortMenu = false
+			m.status = "account sort unchanged"
+
+			return m, nil
+		case "up", "k":
+			if m.accountSortCursor > 0 {
+				m.accountSortCursor--
+			}
+
+			return m, nil
+		case "down", "j":
+			if m.accountSortCursor < len(accountSortOptions())-1 {
+				m.accountSortCursor++
+			}
+
+			return m, nil
+		case "enter":
+			selectedID := uint(0)
+			if m.cursor >= 0 && m.cursor < len(m.accounts) {
+				selectedID = m.accounts[m.cursor].ID
+			}
+
+			m.accountSortField = accountSortField(m.accountSortCursor)
+			m.accounts = sortAccounts(m.accounts, m.settings, m.accountSortField)
+			m.accountSortMenu = false
+			if selectedID != 0 {
+				m.cursor = findAccountIndex(m.accounts, selectedID)
+			}
+			if m.cursor < 0 {
+				m.cursor = 0
+			}
+			m.status = "sorting accounts by " + accountSortLabel(m.accountSortField)
+
+			return m, nil
+		default:
+			return m, nil
+		}
+	}
+
+	switch msg.String() {
+	case "esc":
+		m.screen = screenMenu
+		m.status = databaseStatus(m.created, len(m.accounts), m.dbPath)
+
+		return m, nil
+	case "up":
+		if m.cursor > 0 {
+			m.cursor--
+		}
+
+		return m, nil
+	case "down":
+		if m.cursor < len(m.accounts)-1 {
+			m.cursor++
+		}
+
+		return m, nil
+	case "s", "S":
+		m.accountSortMenu = true
+		m.accountSortCursor = int(m.accountSortField)
+		m.status = "choose account sorting"
+
+		return m, nil
+	case "enter":
+		return m.beginEditAmount(), nil
+	case "backspace", "delete":
+		selected := m.accounts[m.cursor]
+		m = m.beginDeleteConfirmation("account", selected.ID, selected.Name)
+
+		return m, nil
+	default:
+		return m, nil
+	}
+}
+
+func (m TheApplication) updateEditAmount(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.screen = screenAccountTable
+		m.status = "amount edit cancelled"
+
+		return m, nil
+	case "up", "shift+tab":
+		if m.editAmountActiveField > 0 {
+			m.editAmountActiveField--
+		}
+
+		return m.focusEditAmountField(), nil
+	case "down", "tab":
+		if m.editAmountActiveField < editAmountFieldCount-1 {
+			m.editAmountActiveField++
+		}
+
+		return m.focusEditAmountField(), nil
+	case " ":
+		if m.editAmountActiveField == editAmountFieldUpdateLog {
+			m.editAmountUpdateLog = !m.editAmountUpdateLog
+
+			return m, nil
+		}
+		if m.editAmountActiveField == editAmountFieldIgnore {
+			m.editAmountIgnoreInSummaries = !m.editAmountIgnoreInSummaries
+
+			return m, nil
+		}
+	case "enter":
+		switch m.editAmountActiveField {
+		case editAmountFieldCurrent:
+			return m.saveAmount()
+		case editAmountFieldIgnore:
+			m.editAmountIgnoreInSummaries = !m.editAmountIgnoreInSummaries
+
+			return m, nil
+		case editAmountFieldLogValue:
+			return m.applyAccountLogValue()
+		default:
+			return m, nil
+		}
+	}
+
+	var cmd tea.Cmd
+
+	switch m.editAmountActiveField {
+	case editAmountFieldCurrent:
+		m.editInput, cmd = m.editInput.Update(msg)
+	case editAmountFieldLogDate:
+		m.editAmountLogDateInput, cmd = m.editAmountLogDateInput.Update(msg)
+	case editAmountFieldLogValue:
+		m.editAmountLogValueInput, cmd = m.editAmountLogValueInput.Update(msg)
+	default:
+		return m, nil
+	}
+
+	return m, cmd
+}
+
+func (m TheApplication) focusEditAmountField() TheApplication {
+	m.editInput.Blur()
+	m.editAmountLogDateInput.Blur()
+	m.editAmountLogValueInput.Blur()
+
+	switch m.editAmountActiveField {
+	case editAmountFieldCurrent:
+		m.editInput.Focus()
+	case editAmountFieldLogDate:
+		m.editAmountLogDateInput.Focus()
+	case editAmountFieldLogValue:
+		m.editAmountLogValueInput.Focus()
+	}
+
+	return m
+}
+
+func (m TheApplication) sumAccountsInBaseCents() int64 {
+	var total int64
+
+	for _, acct := range m.accounts {
+		if acct.IgnoreInSummaries {
+			continue
+		}
+
+		converted, ok := m.convertToBaseCents(acct.Currency, acct.BalanceCents)
+		if !ok {
+			continue
+		}
+
+		total += converted
+	}
+
+	return total
+}
+
+func (m TheApplication) confirmDeleteAccount() (tea.Model, tea.Cmd) {
+	index := findAccountIndex(m.accounts, m.deleteConfirmID)
+	if index < 0 {
+		m = m.clearDeleteConfirmation("account not found")
+
+		return m, nil
+	}
+
+	selected := m.accounts[index]
+	if err := m.storage.DeleteAccount(selected.ID); err != nil {
+		m = m.clearDeleteConfirmation("delete failed: " + err.Error())
+
+		return m, nil
+	}
+
+	m.accounts = append(m.accounts[:index], m.accounts[index+1:]...)
+	if m.cursor >= len(m.accounts) && m.cursor > 0 {
+		m.cursor--
+	}
+
+	if len(m.accounts) == 0 {
+		m.screen = screenMenu
+		m.cursor = 0
+	}
+
+	m = m.clearDeleteConfirmation("deleted account " + selected.Name)
+
+	return m, nil
+}
+
+func (m TheApplication) applyAccountLogValue() (tea.Model, tea.Cmd) {
+	if m.cursor < 0 || m.cursor >= len(m.accounts) {
+		m.status = "no account selected"
+		return m, nil
+	}
+
+	rawDay := strings.TrimSpace(m.editAmountLogDateInput.Value())
+	if rawDay == "" {
+		m.status = "log date is required"
+
+		return m, nil
+	}
+
+	day, err := time.ParseInLocation("02.01.2006", rawDay, time.Now().Location())
+	if err != nil {
+		m.status = "log date must use DD.MM.YYYY format"
+
+		return m, nil
+	}
+
+	value, err := parseAmountCents(strings.TrimSpace(m.editAmountLogValueInput.Value()))
+	if err != nil {
+		m.status = "log value error: " + err.Error()
+
+		return m, nil
+	}
+
+	selected := m.accounts[m.cursor]
+	if err := m.upsertAccountValueLog(selected.ID, day, value); err != nil {
+		m.status = "log save failed: " + err.Error()
+
+		return m, nil
+	}
+
+	m.accountValueLogs = m.loadAccountValueLogs(selected.ID)
+	m.status = "saved log value for " + accountLogDay(day).Format("2006-01-02")
+
+	return m, nil
+}
+
+func (m TheApplication) saveAccountFromForm() (tea.Model, tea.Cmd) {
+	name := strings.TrimSpace(m.addForm.Fields[0].Value())
+	description := strings.TrimSpace(m.addForm.Fields[1].Value())
+	currency := selectedCurrencyOption(m.addForm.CurrencyOptions, m.addForm.CurrencyIndex)
+	amountRaw := strings.TrimSpace(m.addForm.Fields[3].Value())
+
+	if name == "" {
+		m.status = "name is required"
+		return m, nil
+	}
+	if description == "" {
+		m.status = "description is required"
+		return m, nil
+	}
+	if currency == "" {
+		m.status = "currency is required"
+		return m, nil
+	}
+
+	amount, err := parseAmountCents(amountRaw)
+	if err != nil {
+		m.status = "amount error: " + err.Error()
+		return m, nil
+	}
+
+	now := time.Now()
+
+	newAccount := account.Account{
+		Name:              name,
+		Description:       description,
+		Currency:          currency,
+		BalanceCents:      amount,
+		LeftoverCents:     amount,
+		IgnoreInSummaries: m.addForm.IgnoreInSummaries,
+		LastUpdatedAt:     now,
+	}
+
+	if err := m.storage.CreateAccount(&newAccount); err != nil {
+		m.status = "save failed: " + err.Error()
+		return m, nil
+	}
+
+	m.accounts = append([]account.Account{newAccount}, m.accounts...)
+	m.accounts = sortAccounts(m.accounts, m.settings, m.accountSortField)
+	m.addForm = account.NewAddAccountForm(currencySelectionOptions(m.settings))
+	m.screen = screenMenu
+	m.status = "saved account " + name
+	return m, nil
+}
+
+func (m TheApplication) beginEditAmount() tea.Model {
+	if m.cursor < 0 || m.cursor >= len(m.accounts) {
+		m.status = "no account selected"
+		return m
+	}
+
+	current := m.accounts[m.cursor]
+	m.editInput = textinput.New()
+	m.editInput.Placeholder = "1234.56"
+	m.editInput.CharLimit = 24
+	m.editInput.Width = 20
+	m.editInput.SetValue(formatAmount(current.BalanceCents))
+
+	m.editAmountLogDateInput = textinput.New()
+	m.editAmountLogDateInput.Placeholder = "DD.MM.YYYY"
+	m.editAmountLogDateInput.CharLimit = 24
+	m.editAmountLogDateInput.Width = 20
+	m.editAmountLogDateInput.SetValue(time.Now().Format("02.01.2006"))
+
+	m.editAmountLogValueInput = textinput.New()
+	m.editAmountLogValueInput.Placeholder = "1234.56"
+	m.editAmountLogValueInput.CharLimit = 24
+	m.editAmountLogValueInput.Width = 20
+	m.editAmountLogValueInput.SetValue(formatAmount(current.BalanceCents))
+
+	m.editAmountActiveField = editAmountFieldCurrent
+	m.editAmountUpdateLog = false
+	m.editAmountIgnoreInSummaries = current.IgnoreInSummaries
+	m.editInput.Focus()
+	m.editAmountLogDateInput.Blur()
+	m.editAmountLogValueInput.Blur()
+	m.accountValueLogs = m.loadAccountValueLogs(current.ID)
+	m.screen = screenEditAmount
+	m.status = "editing account " + current.Name
+
+	return m
+}
+
+func (m TheApplication) saveAmount() (tea.Model, tea.Cmd) {
+	if m.cursor < 0 || m.cursor >= len(m.accounts) {
+		m.status = "no account selected"
+
+		return m, nil
+	}
+
+	amount, err := parseAmountCents(strings.TrimSpace(m.editInput.Value()))
+	if err != nil {
+		m.status = "amount error: " + err.Error()
+
+		return m, nil
+	}
+
+	selected := m.accounts[m.cursor]
+	now := time.Now()
+	if err := m.storage.UpdateAccountAmount(selected.ID, amount, m.editAmountIgnoreInSummaries, now); err != nil {
+		m.status = "update failed: " + err.Error()
+
+		return m, nil
+	}
+
+	logWarn := ""
+
+	if m.editAmountUpdateLog {
+		if err := m.upsertAccountValueLog(selected.ID, now, amount); err != nil {
+			logWarn = " (log update failed: " + err.Error() + ")"
+		}
+	}
+
+	selected.BalanceCents = amount
+	selected.LeftoverCents = amount
+	selected.LastUpdatedAt = now
+	selected.IgnoreInSummaries = m.editAmountIgnoreInSummaries
+	m.accounts[m.cursor] = selected
+	m.accounts = sortAccounts(m.accounts, m.settings, m.accountSortField)
+
+	m.cursor = findAccountIndex(m.accounts, selected.ID)
+	if m.cursor < 0 {
+		m.cursor = 0
+	}
+
+	m.screen = screenAccountTable
+	m.status = "updated amount for " + selected.Name + logWarn
+
+	return m, nil
 }
