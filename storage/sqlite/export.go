@@ -132,6 +132,7 @@ func ExportData(db *gorm.DB, request ExportRequest) (ExportResult, error) {
 	if request.Dataset == "" {
 		request.Dataset = ExportDatasetAll
 	}
+
 	if request.Format == "" {
 		request.Format = ExportFormatJSON
 	}
@@ -145,9 +146,10 @@ func ExportData(db *gorm.DB, request ExportRequest) (ExportResult, error) {
 	destination := strings.TrimSpace(request.Path)
 	if destination == "" {
 		var err error
+
 		destination, err = os.Getwd()
 		if err != nil {
-			return ExportResult{}, err
+			return ExportResult{}, fmt.Errorf("failed to get current working directory: %w", err)
 		}
 	}
 
@@ -162,27 +164,31 @@ func ExportData(db *gorm.DB, request ExportRequest) (ExportResult, error) {
 
 	records, err := table.load(db)
 	if err != nil {
-		return ExportResult{}, err
+		return ExportResult{}, fmt.Errorf("%s export failed: %w", table.filename, err)
 	}
 
 	switch request.Format {
 	case ExportFormatJSON:
 		path, err := resolveExportFile(destination, table.filename+".json")
 		if err != nil {
-			return ExportResult{}, err
+			return ExportResult{}, fmt.Errorf("failed to resolve export file path: %w", err)
 		}
+
 		if err := writeJSONFile(path, records); err != nil {
-			return ExportResult{}, err
+			return ExportResult{}, fmt.Errorf("failed to write JSON export file: %w", err)
 		}
+
 		return ExportResult{Path: path, FileCount: 1}, nil
 	case ExportFormatCSV:
 		path, err := resolveExportFile(destination, table.filename+".csv")
 		if err != nil {
-			return ExportResult{}, err
+			return ExportResult{}, fmt.Errorf("failed to resolve export file path: %w", err)
 		}
+
 		if err := writeCSVFile(path, records); err != nil {
-			return ExportResult{}, err
+			return ExportResult{}, fmt.Errorf("failed to write CSV export file: %w", err)
 		}
+
 		return ExportResult{Path: path, FileCount: 1}, nil
 	default:
 		return ExportResult{}, fmt.Errorf("unsupported export format %q", request.Format)
@@ -195,7 +201,7 @@ func exportAllData(db *gorm.DB, format ExportFormat, destination string) (Export
 	if format == ExportFormatJSON {
 		path, err := resolveExportFile(destination, "cents_export_"+timestamp+".json")
 		if err != nil {
-			return ExportResult{}, err
+			return ExportResult{}, fmt.Errorf("failed to resolve export file path: %w", err)
 		}
 
 		bundle := exportBundle{ExportedAt: time.Now(), Tables: map[string]any{}}
@@ -204,18 +210,20 @@ func exportAllData(db *gorm.DB, format ExportFormat, destination string) (Export
 			if err != nil {
 				return ExportResult{}, fmt.Errorf("%s export failed: %w", table.filename, err)
 			}
+
 			bundle.Tables[table.filename] = records
 		}
 
 		if err := writeJSONFile(path, bundle); err != nil {
-			return ExportResult{}, err
+			return ExportResult{}, fmt.Errorf("failed to write JSON export file: %w", err)
 		}
+
 		return ExportResult{Path: path, FileCount: 1}, nil
 	}
 
 	dir, err := resolveExportDir(destination, "cents_export_"+timestamp)
 	if err != nil {
-		return ExportResult{}, err
+		return ExportResult{}, fmt.Errorf("failed to resolve export directory: %w", err)
 	}
 
 	fileCount := 0
@@ -224,9 +232,11 @@ func exportAllData(db *gorm.DB, format ExportFormat, destination string) (Export
 		if err != nil {
 			return ExportResult{}, fmt.Errorf("%s export failed: %w", table.filename, err)
 		}
+
 		if err := writeCSVFile(filepath.Join(dir, table.filename+".csv"), records); err != nil {
-			return ExportResult{}, err
+			return ExportResult{}, fmt.Errorf("failed to write CSV export file for %s: %w", table.filename, err)
 		}
+
 		fileCount++
 	}
 
@@ -279,6 +289,7 @@ func resolveExportFile(destination string, defaultName string) (string, error) {
 	if isDirectoryPath(destination) {
 		destination = filepath.Join(destination, defaultName)
 	}
+
 	if err := os.MkdirAll(filepath.Dir(destination), 0o755); err != nil {
 		return "", fmt.Errorf("failed to create export directory: %w", err)
 	}
@@ -311,6 +322,7 @@ func isDirectoryPath(path string) bool {
 	if strings.HasSuffix(path, string(os.PathSeparator)) {
 		return true
 	}
+
 	if filepath.Ext(path) == "" {
 		return true
 	}
