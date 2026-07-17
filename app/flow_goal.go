@@ -19,10 +19,9 @@ func (m TheApplication) renderGoalTableRow(width int, index int, item goal.Goal)
 	startedWidth := 10
 	targetDateWidth := 10
 	progressWidth := 8
+
 	descWidth := width - 14 - nameWidth - currencyWidth - targetWidth - accumWidth - leftWidth - startedWidth - targetDateWidth - progressWidth - 18
-	if descWidth < 18 {
-		descWidth = 18
-	}
+	descWidth = max(descWidth, 18)
 
 	prefix := " "
 	style := rowStyle
@@ -32,9 +31,7 @@ func (m TheApplication) renderGoalTableRow(width int, index int, item goal.Goal)
 	}
 
 	left := item.TargetAmountCents - item.AmountAccumulatedCents
-	if left < 0 {
-		left = 0
-	}
+	left = max(left, 0)
 
 	targetDate := "-"
 	if item.TargetDate != nil {
@@ -47,6 +44,7 @@ func (m TheApplication) renderGoalTableRow(width int, index int, item goal.Goal)
 		if progressValue < 0 {
 			progressValue = 0
 		}
+
 		if progressValue > 100 {
 			progressValue = 100
 		}
@@ -157,6 +155,7 @@ func (m TheApplication) renderGoalChoiceRow(field int, label string, options []s
 		if i == selected {
 			style = buttonActiveStyle
 		}
+
 		chips = append(chips, style.Render(option))
 	}
 
@@ -175,6 +174,7 @@ func (m TheApplication) renderGoalList(width int) string {
 	filtered := m.filteredGoals()
 	if len(filtered) == 0 {
 		lines = append(lines, mutedStyle.Render("No goals found."))
+
 		return panelStyle.Width(width).Render(strings.Join(lines, "\n"))
 	}
 
@@ -216,34 +216,41 @@ func (m TheApplication) updateGoalNew(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "esc":
 		m.screen = screenMenu
 		m.status = databaseStatus(m.created, len(m.accounts), m.dbPath)
+
 		return m, nil
 	case "up", "shift+tab":
 		m.addGoalForm = m.addGoalForm.Prev()
+
 		return m, nil
 	case "down", "tab":
 		m.addGoalForm = m.addGoalForm.Next()
+
 		return m, nil
 	case "left":
 		if m.addGoalForm.Active == goal.GoalFieldCurrency && m.addGoalForm.CurrencyIndex > 0 {
 			m.addGoalForm.CurrencyIndex--
 		}
+
 		return m, nil
 	case "right":
 		if m.addGoalForm.Active == goal.GoalFieldCurrency && m.addGoalForm.CurrencyIndex < len(m.addGoalForm.CurrencyOptions)-1 {
 			m.addGoalForm.CurrencyIndex++
 		}
+
 		return m, nil
 	case "enter":
 		if m.addGoalForm.Active == goal.GoalFieldCount-1 {
 			return m.saveGoalFromForm()
 		}
 		m.addGoalForm = m.addGoalForm.Next()
+
 		return m, nil
 	}
 
 	if inputIndex := m.addGoalForm.InputIndexForField(m.addGoalForm.Active); inputIndex >= 0 {
 		var cmd tea.Cmd
 		m.addGoalForm.Inputs[inputIndex], cmd = m.addGoalForm.Inputs[inputIndex].Update(msg)
+
 		return m, cmd
 	}
 
@@ -261,6 +268,7 @@ func (m TheApplication) updateGoalList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.screen = screenMenu
 			m.status = databaseStatus(m.created, len(m.accounts), m.dbPath)
 		}
+
 		return m, nil
 	}
 
@@ -268,23 +276,28 @@ func (m TheApplication) updateGoalList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "esc":
 		m.screen = screenMenu
 		m.status = databaseStatus(m.created, len(m.accounts), m.dbPath)
+
 		return m, nil
 	case "up":
 		if m.goalCursor > 0 {
 			m.goalCursor--
 		}
+
 		return m, nil
 	case "down":
 		if m.goalCursor < len(filtered)-1 {
 			m.goalCursor++
 		}
+
 		return m, nil
 	case "enter":
 		m = m.openGoalEditor(filtered[m.goalCursor]).(TheApplication)
+
 		return m, nil
 	case "backspace", "delete":
 		selected := filtered[m.goalCursor]
 		m = m.beginDeleteConfirmation("goal", selected.ID, selected.Name)
+
 		return m, nil
 	default:
 		return m, nil
@@ -298,9 +311,11 @@ func (m TheApplication) openGoalEditor(selected goal.Goal) tea.Model {
 	m.editGoalForm.TargetAmountInput.SetValue(formatAmount(selected.TargetAmountCents))
 	m.editGoalForm.AccumulatedAmountInput.SetValue(formatAmount(selected.AmountAccumulatedCents))
 	m.editGoalForm.DateStartedInput.SetValue(selected.DateStartedAt.Local().Format("02.01.2006"))
+
 	if selected.TargetDate != nil {
 		m.editGoalForm.TargetDateInput.SetValue(selected.TargetDate.Local().Format("02.01.2006"))
 	}
+
 	m.editGoalForm.DescriptionInput.SetValue(selected.Description)
 	m.editGoalForm.LogDateInput.SetValue(time.Now().Format("02.01.2006"))
 	m.editGoalForm.LogCommentInput.SetValue("")
@@ -315,6 +330,7 @@ func (m TheApplication) openGoalEditor(selected goal.Goal) tea.Model {
 	}
 
 	m.status = "editing goal " + selected.Name
+
 	return m
 }
 
@@ -323,21 +339,27 @@ func (m TheApplication) updateGoalEdit(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "esc":
 		m.screen = screenGoalList
 		m.status = "goal edit cancelled"
+
 		return m, nil
 	case "up", "shift+tab":
 		m.editGoalForm = m.editGoalForm.Prev()
+
 		return m, nil
 	case "down", "tab":
 		m.editGoalForm = m.editGoalForm.Next()
+
 		return m, nil
 	case "enter":
 		if m.editGoalForm.ActiveField == goal.EditGoalFieldLogComment {
 			return m.applyGoalLogDelta()
 		}
+
 		if m.editGoalForm.ActiveField == goal.EditGoalFieldDescription {
 			return m.saveGoalEdit()
 		}
+
 		m.editGoalForm = m.editGoalForm.Next()
+
 		return m, nil
 	}
 
@@ -360,6 +382,7 @@ func (m TheApplication) updateGoalEdit(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case goal.EditGoalFieldLogComment:
 		m.editGoalForm.LogCommentInput, cmd = m.editGoalForm.LogCommentInput.Update(msg)
 	}
+
 	return m, cmd
 }
 
@@ -374,38 +397,47 @@ func (m TheApplication) saveGoalFromForm() (tea.Model, tea.Cmd) {
 
 	if name == "" {
 		m.status = "goal name is required"
+
 		return m, nil
 	}
 
 	target, err := parseAmountCents(targetRaw)
 	if err != nil {
 		m.status = "target amount error: " + err.Error()
+
 		return m, nil
 	}
+
 	if target <= 0 {
 		m.status = "target amount must be greater than zero"
+
 		return m, nil
 	}
 
 	accumulated, err := parseAmountCents(accumulatedRaw)
 	if err != nil {
 		m.status = "accumulated amount error: " + err.Error()
+
 		return m, nil
 	}
+
 	if accumulated > target {
 		m.status = "accumulated amount cannot be more than target"
+
 		return m, nil
 	}
 
 	dateStarted, err := parseRequiredDate(dateStartedRaw)
 	if err != nil {
 		m.status = err.Error()
+
 		return m, nil
 	}
 
 	targetDate, err := parseOptionalDatePointer(targetDateRaw)
 	if err != nil {
 		m.status = err.Error()
+
 		return m, nil
 	}
 
@@ -447,37 +479,47 @@ func (m TheApplication) saveGoalEdit() (tea.Model, tea.Cmd) {
 	index := m.findGoalIndex(m.editingGoalID)
 	if index < 0 {
 		m.status = "goal not found"
+
 		return m, nil
 	}
 
 	target, err := parseAmountCents(strings.TrimSpace(m.editGoalForm.TargetAmountInput.Value()))
 	if err != nil {
 		m.status = "target amount error: " + err.Error()
+
 		return m, nil
 	}
+
 	if target <= 0 {
 		m.status = "target amount must be greater than zero"
+
 		return m, nil
 	}
 
 	accumulated, err := parseAmountCents(strings.TrimSpace(m.editGoalForm.AccumulatedAmountInput.Value()))
 	if err != nil {
 		m.status = "accumulated amount error: " + err.Error()
+
 		return m, nil
 	}
+
 	if accumulated > target {
 		m.status = "accumulated amount cannot be more than target"
+
 		return m, nil
 	}
 
 	dateStarted, err := parseRequiredDate(strings.TrimSpace(m.editGoalForm.DateStartedInput.Value()))
 	if err != nil {
 		m.status = err.Error()
+
 		return m, nil
 	}
+
 	targetDate, err := parseOptionalDatePointer(strings.TrimSpace(m.editGoalForm.TargetDateInput.Value()))
 	if err != nil {
 		m.status = err.Error()
+
 		return m, nil
 	}
 
@@ -491,12 +533,14 @@ func (m TheApplication) saveGoalEdit() (tea.Model, tea.Cmd) {
 
 	if err := m.storage.SaveGoal(&selected); err != nil {
 		m.status = "save failed: " + err.Error()
+
 		return m, nil
 	}
 
 	m.goals[index] = selected
 	m.screen = screenGoalList
 	m.status = "updated goal " + selected.Name
+
 	return m, nil
 }
 
@@ -512,12 +556,14 @@ func (m TheApplication) applyGoalLogDelta() (tea.Model, tea.Cmd) {
 		m.status = "log delta error: " + err.Error()
 		return m, nil
 	}
+
 	if delta == 0 {
 		m.status = "delta cannot be zero"
 		return m, nil
 	}
 
 	selected := m.goals[index]
+
 	nextAccumulated := selected.AmountAccumulatedCents + delta
 	if nextAccumulated < 0 || nextAccumulated > selected.TargetAmountCents {
 		m.status = "delta makes accumulated amount out of range"
@@ -533,6 +579,7 @@ func (m TheApplication) applyGoalLogDelta() (tea.Model, tea.Cmd) {
 	now := time.Now()
 	selected.AmountAccumulatedCents = nextAccumulated
 	selected.LastUpdatedAt = now
+
 	if err := m.storage.SaveGoal(&selected); err != nil {
 		m.status = "goal update failed: " + err.Error()
 		return m, nil
@@ -542,14 +589,17 @@ func (m TheApplication) applyGoalLogDelta() (tea.Model, tea.Cmd) {
 	if note == "" {
 		note = "manual accumulated adjustment"
 	}
+
 	entry := goal.GoalLog{
 		GoalID:                selected.ID,
 		DeltaAccumulatedCents: delta,
 		Note:                  note,
 		CreatedAt:             entryTime,
 	}
+
 	if err := m.storage.CreateGoalLog(&entry); err != nil {
 		m.status = "log save failed: " + err.Error()
+
 		return m, nil
 	}
 
@@ -560,6 +610,7 @@ func (m TheApplication) applyGoalLogDelta() (tea.Model, tea.Cmd) {
 	m.editGoalForm.LogDateInput.SetValue(time.Now().Format("02.01.2006"))
 	m.editGoalForm.LogCommentInput.SetValue("")
 	m.status = "applied goal log delta"
+
 	return m, nil
 }
 
@@ -569,6 +620,7 @@ func (m TheApplication) findGoalIndex(id uint) int {
 			return i
 		}
 	}
+
 	return -1
 }
 
@@ -576,6 +628,7 @@ func (m TheApplication) filteredGoals() []goal.Goal {
 	filtered := make([]goal.Goal, 0, len(m.goals))
 	for _, item := range m.goals {
 		done := item.AmountAccumulatedCents >= item.TargetAmountCents
+
 		switch m.goalMode {
 		case goalListActive:
 			if !done {
@@ -597,9 +650,11 @@ func (m TheApplication) goalProgressTotalsBase(items []goal.Goal) (accumulated i
 		if itemTarget < 0 {
 			itemTarget = 0
 		}
+
 		if itemAccumulated < 0 {
 			itemAccumulated = 0
 		}
+
 		if itemAccumulated > itemTarget {
 			itemAccumulated = itemTarget
 		}
@@ -609,6 +664,7 @@ func (m TheApplication) goalProgressTotalsBase(items []goal.Goal) (accumulated i
 		if targetOK && accumulatedOK {
 			target += targetBase
 			accumulated += accumulatedBase
+
 			continue
 		}
 
@@ -619,9 +675,11 @@ func (m TheApplication) goalProgressTotalsBase(items []goal.Goal) (accumulated i
 	if accumulated > target {
 		accumulated = target
 	}
+
 	if accumulated < 0 {
 		accumulated = 0
 	}
+
 	if target < 0 {
 		target = 0
 	}
