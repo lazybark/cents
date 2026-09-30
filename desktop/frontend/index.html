@@ -7,15 +7,8 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <header class="header">
-    <h1 class="title">cents</h1>
-    <div id="toolbar" class="toolbar" hidden>
-      <button id="add-account" class="button button-primary" type="button">Add account</button>
-      <button id="refresh" class="button" type="button">Refresh</button>
-    </div>
-  </header>
-
-  <main id="setup" hidden>
+  <main id="setup" class="setup" hidden>
+    <h1 class="brand">cents</h1>
     <section class="panel">
       <h2 class="section-title">Choose a database</h2>
       <p id="setup-note" class="negative" hidden></p>
@@ -28,40 +21,105 @@
     </section>
   </main>
 
-  <main id="dashboard" hidden>
-    <section class="panel">
-      <div class="label">Total balance</div>
-      <div id="total" class="amount">—</div>
-      <ul id="currency-totals" class="currency-totals" hidden></ul>
-      <div id="notes" class="muted"></div>
-    </section>
+  <div id="app" class="app" hidden>
+    <nav class="sidebar" aria-label="Main menu">
+      <h1 class="brand">cents</h1>
+      <button class="nav-item" type="button" data-view="overview">Overview</button>
+      <button class="nav-item" type="button" data-view="accounts">Accounts</button>
+      <div class="nav-spacer"></div>
+      <button class="nav-item" type="button" data-view="settings">Settings</button>
+    </nav>
 
-    <section class="panel">
-      <div class="panel-head">
-        <h2 class="section-title">Accounts</h2>
-        <label class="inline-field">
-          <span class="muted">Sort</span>
-          <select id="sort"></select>
-        </label>
-      </div>
-      <table class="table accounts">
-        <thead>
-          <tr>
-            <th>Name</th>
-            <th>Currency</th>
-            <th class="num">Amount</th>
-            <th id="base-heading" class="num">In base</th>
-            <th>Updated</th>
-          </tr>
-        </thead>
-        <tbody id="accounts"></tbody>
-      </table>
-      <p id="empty" class="muted" hidden>No accounts yet. Use “Add account” to create one.</p>
-      <p id="accounts-hint" class="hint">Click an account to update its amount, edit its value history or delete it.</p>
-    </section>
-  </main>
+    <div class="content">
+      <header class="content-head">
+        <h2 id="view-title" class="view-title"></h2>
+        <div class="toolbar">
+          <button id="add-account" class="button button-primary" type="button" hidden>Add account</button>
+          <button id="refresh" class="button" type="button">Refresh</button>
+        </div>
+      </header>
 
-  <footer id="status" class="status"></footer>
+      <!-- Overview: same figures as the TUI home screen. -->
+      <section id="view-overview" class="view" hidden>
+        <section class="panel">
+          <div class="label">Net worth</div>
+          <div id="net-worth" class="amount">—</div>
+          <p class="hint">Accounts plus debts and invoices owed to you, minus debts, taxes and invoices you owe.</p>
+        </section>
+        <div class="columns">
+          <section class="panel">
+            <h3 class="section-title">Financial summary</h3>
+            <dl id="financial" class="stats"></dl>
+          </section>
+          <section class="panel">
+            <h3 class="section-title">Obligations</h3>
+            <dl id="obligations" class="stats"></dl>
+          </section>
+        </div>
+      </section>
+
+      <section id="view-accounts" class="view" hidden>
+        <section class="panel">
+          <div class="label">Total balance</div>
+          <div id="total" class="amount">—</div>
+          <ul id="currency-totals" class="currency-totals" hidden></ul>
+          <div id="notes" class="muted"></div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <h3 class="section-title">Accounts</h3>
+            <label class="inline-field">
+              <span class="muted">Sort</span>
+              <select id="sort"></select>
+            </label>
+          </div>
+          <table class="table accounts">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Currency</th>
+                <th class="num">Amount</th>
+                <th id="base-heading" class="num">In base</th>
+                <th>Updated</th>
+              </tr>
+            </thead>
+            <tbody id="accounts"></tbody>
+          </table>
+          <p id="empty" class="muted" hidden>No accounts yet. Use “Add account” to create one.</p>
+          <p id="accounts-hint" class="hint">Click an account to update its amount, edit its value history or delete it.</p>
+        </section>
+      </section>
+
+      <section id="view-settings" class="view" hidden>
+        <section class="panel">
+          <h3 class="section-title">Database</h3>
+          <p id="settings-db" class="path"></p>
+          <p class="hint">Chosen on first launch and remembered in config.yml.</p>
+        </section>
+        <section class="panel">
+          <h3 class="section-title">Currencies</h3>
+          <dl class="stats">
+            <dt>Base currency</dt>
+            <dd id="settings-base"></dd>
+          </dl>
+          <table class="table">
+            <thead>
+              <tr>
+                <th>Currency</th>
+                <th class="num">Rate to base</th>
+              </tr>
+            </thead>
+            <tbody id="settings-currencies"></tbody>
+          </table>
+          <p id="settings-currencies-empty" class="muted" hidden>No other currencies yet.</p>
+          <p class="hint">Settings are read-only here for now; edit them in the terminal UI (--mode=t).</p>
+        </section>
+      </section>
+
+      <footer id="status" class="status"></footer>
+    </div>
+  </div>
 
   <dialog id="add-dialog" class="dialog">
     <form id="add-form" class="form" novalidate>
@@ -165,6 +223,6 @@
     </div>
   </dialog>
 
-  <script src="main.js"></script>
+  <script type="module" src="js/main.js"></script>
 </body>
 </html>

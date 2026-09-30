@@ -9,7 +9,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/lazybark/cents/flows/export"
 	"github.com/lazybark/cents/flows/settings"
-	"github.com/lazybark/cents/flows/subscription"
+	"github.com/lazybark/cents/summary"
 )
 
 const (
@@ -358,99 +358,23 @@ func (m TheApplication) renderDataExport(width int) string {
 func (m TheApplication) renderDashboard(width int) string {
 	base := m.baseCurrencyLabel()
 
-	// Monthly net: income - expenses for current month.
-	var monthlyIncome int64
-	var monthlyExpense int64
-
-	for _, item := range m.filteredCashflowsForMonth() {
-		amountBase, ok := m.convertToBaseCents(item.Currency, item.AmountCents)
-		if !ok {
-			continue
-		}
-
-		if item.IsIncome {
-			monthlyIncome += amountBase
-		} else {
-			monthlyExpense += amountBase
-		}
-	}
-
-	monthlyNet := monthlyIncome - monthlyExpense
-
-	// Subscription totals.
-	activeSubscriptions := make([]subscription.Subscription, 0)
-	for _, sub := range m.subscriptions {
-		if sub.IsActive {
-			activeSubscriptions = append(activeSubscriptions, sub)
-		}
-	}
-
-	monthlySubCost, yearlySubProjection := m.subscriptionTotalsInBaseCents(activeSubscriptions)
-
-	// Total accounts.
-	totalAccounts := m.sumAccountsInBaseCents()
-
-	// Unpaid debts (separate by direction).
-	var unPaidDebtToMe int64
-
-	var unPaidDebtByMe int64
-
-	for _, d := range m.debts {
-		if d.AmountPaidCents >= d.AmountCents {
-			continue
-		}
-
-		converted, ok := m.convertToBaseCents(d.Currency, d.AmountCents-d.AmountPaidCents)
-		if !ok {
-			continue
-		}
-
-		if d.IsOwedToUser {
-			unPaidDebtToMe += converted
-		} else {
-			unPaidDebtByMe += converted
-		}
-	}
-
-	// Unpaid taxes.
-	var unpaidTaxes int64
-
-	for _, tax := range m.taxes {
-		if tax.AmountPaidCents < tax.AmountDueCents {
-			converted, ok := m.convertToBaseCents(base, tax.AmountDueCents-tax.AmountPaidCents)
-
-			if !ok {
-				continue
-			}
-
-			unpaidTaxes += converted
-		}
-	}
-
-	// Unpaid invoices (separate by direction).
-	var unpaidInvoiceToMe int64
-
-	var unpaidInvoiceByMe int64
-
-	for _, inv := range m.invoices {
-		if inv.Paid {
-			continue
-		}
-
-		converted, ok := m.convertToBaseCents(inv.Currency, inv.AmountCents)
-		if !ok {
-			continue
-		}
-
-		if inv.IsIncoming {
-			unpaidInvoiceToMe += converted
-		} else {
-			unpaidInvoiceByMe += converted
-		}
-	}
-
-	// Goals progress.
-	accumulatedBase, targetBase := m.goalProgressTotalsBase(m.goals)
+	sum := summary.Compute(summary.Data{
+		Settings:      m.settings,
+		Accounts:      m.accounts,
+		Subscriptions: m.subscriptions,
+		Debts:         m.debts,
+		Goals:         m.goals,
+		Taxes:         m.taxes,
+		Invoices:      m.invoices,
+		Cashflows:     m.cashflows,
+	}, m.cashflowHistoryMonth)
+	monthlyNet := sum.MonthlyNetCents
+	monthlySubCost, yearlySubProjection := sum.MonthlySubscriptionsCents, sum.YearlySubscriptionsCents
+	totalAccounts := sum.AccountsCents
+	unPaidDebtToMe, unPaidDebtByMe := sum.DebtsToMeCents, sum.DebtsByMeCents
+	unpaidTaxes := sum.UnpaidTaxesCents
+	unpaidInvoiceToMe, unpaidInvoiceByMe := sum.InvoicesToMeCents, sum.InvoicesByMeCents
+	accumulatedBase, targetBase := sum.GoalsAccumulatedCents, sum.GoalsTargetCents
 
 	var goalsProgressStr string
 

@@ -1,25 +1,25 @@
-// Go methods bound in desktop.Run are exposed by the Wails runtime as
-// window.go.<package>.<Struct>.<Method>() and return Promises. A Go error
-// rejects the Promise with its message.
-const api = window.go.desktop.API;
+// Accounts: totals, the account table and every account operation the TUI
+// offers (add, update amount, value history, delete).
+import { api } from "../api.js";
+import {
+  busy,
+  cell,
+  formatAmount,
+  formatMoney,
+  formatUpdatedAt,
+  formError,
+  loadedStatus,
+  localDate,
+  setStatus,
+  signClass,
+} from "../ui.js";
 
 const SORT_KEY = "cents.accountSort";
 
 const $ = (id) => document.getElementById(id);
 
 const el = {
-  toolbar: $("toolbar"),
-  refresh: $("refresh"),
   addAccount: $("add-account"),
-  status: $("status"),
-
-  setup: $("setup"),
-  setupNote: $("setup-note"),
-  setupError: $("setup-error"),
-  createDB: $("create-db"),
-  openDB: $("open-db"),
-
-  dashboard: $("dashboard"),
   total: $("total"),
   currencyTotals: $("currency-totals"),
   notes: $("notes"),
@@ -47,52 +47,45 @@ const el = {
 };
 
 const state = {
-  dbPath: "",
   sort: readSort(),
   overview: null,
   // The account open in the account dialog.
   current: null,
 };
 
-// --- formatting ------------------------------------------------------------
+export const title = "Accounts";
 
-// Mirrors renderMoneyWithCurrency in app/render.go: "-$ 12.34".
-function formatMoney(currency, cents) {
-  const sign = cents < 0 ? "-" : "";
-  const amount = formatAmount(Math.abs(cents));
-
-  return currency ? `${sign}${currency} ${amount}` : `${sign}${amount}`;
+export function init() {
+  el.addAccount.addEventListener("click", openAddAccount);
+  el.sort.addEventListener("change", () => {
+    state.sort = Number(el.sort.value);
+    writeSort(state.sort);
+    show();
+  });
+  el.addForm.addEventListener("submit", saveNewAccount);
+  el.amountForm.addEventListener("submit", saveAmount);
+  el.logForm.addEventListener("submit", saveLog);
+  el.deleteAccount.addEventListener("click", askDelete);
+  el.confirmDelete.addEventListener("click", confirmDelete);
 }
 
-// Mirrors formatAmount in app/format.go, for prefilling inputs.
-function formatAmount(cents) {
-  return (cents / 100).toFixed(2);
+// show reloads the accounts; message replaces the default status line.
+export async function show(message) {
+  try {
+    const overview = await api.Accounts(state.sort);
+    state.overview = overview;
+    state.sort = overview.sort;
+
+    renderTotal(overview);
+    renderSortOptions(overview);
+    renderAccounts(overview);
+
+    if (message) setStatus(message);
+    else loadedStatus(overview.loadedAt);
+  } catch (err) {
+    setStatus(`Failed to load accounts: ${err}`);
+  }
 }
-
-// Mirrors formatUpdatedAt in app/format.go: accounts never updated carry a
-// 1970 placeholder date.
-function formatUpdatedAt(value) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime()) || date.getFullYear() < 1971) return "—";
-
-  return `${localDate(date)} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
-}
-
-function localDate(date) {
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
-}
-
-function pad(value) {
-  return String(value).padStart(2, "0");
-}
-
-function signClass(cents) {
-  if (cents > 0) return "positive";
-  if (cents < 0) return "negative";
-  return "";
-}
-
-// --- small helpers ---------------------------------------------------------
 
 function readSort() {
   try {
@@ -111,100 +104,14 @@ function writeSort(value) {
   }
 }
 
-function setStatus(message) {
-  el.status.textContent = state.dbPath ? `${state.dbPath} · ${message}` : message;
-}
-
-function cell(content, className) {
-  const td = document.createElement("td");
-  if (content instanceof Node) td.append(content);
-  else td.textContent = content;
-  if (className) td.className = className;
-  return td;
-}
-
-function formError(form, message) {
-  const error = form.querySelector(".form-error");
-  error.textContent = message ?? "";
-  error.hidden = !message;
-}
-
-// busy disables a form's buttons while an API call is in flight.
-async function busy(container, work) {
-  const buttons = container.querySelectorAll("button");
-  buttons.forEach((button) => (button.disabled = true));
-
-  try {
-    return await work();
-  } finally {
-    buttons.forEach((button) => (button.disabled = false));
-  }
-}
-
-// --- setup -----------------------------------------------------------------
-
-function showSetup(note) {
-  el.setup.hidden = false;
-  el.dashboard.hidden = true;
-  el.toolbar.hidden = true;
-  el.setupNote.hidden = !note;
-  el.setupNote.textContent = note;
-  el.status.textContent = "No database configured yet";
-}
-
-function showDashboard(path) {
-  state.dbPath = path;
-  el.setup.hidden = true;
-  el.dashboard.hidden = false;
-  el.toolbar.hidden = false;
-  load();
-}
-
-// pick runs a setup dialog; the Go side resolves false when it was cancelled.
-async function pick(choose) {
-  el.setupError.hidden = true;
-
-  try {
-    const chosen = await busy(el.setup, choose);
-    if (chosen) {
-      const status = await api.Status();
-      showDashboard(status.dbPath);
-    }
-  } catch (err) {
-    el.setupError.textContent = String(err);
-    el.setupError.hidden = false;
-  }
-}
-
-// --- accounts list ---------------------------------------------------------
-
-async function load(message) {
-  el.refresh.disabled = true;
-
-  try {
-    const overview = await api.Accounts(state.sort);
-    state.overview = overview;
-    state.sort = overview.sort;
-
-    renderTotal(overview);
-    renderSortOptions(overview);
-    renderAccounts(overview);
-    setStatus(message ?? `updated ${new Date(overview.loadedAt).toLocaleString()}`);
-  } catch (err) {
-    setStatus(`Failed to load accounts: ${err}`);
-  } finally {
-    el.refresh.disabled = false;
-  }
-}
+// --- list ------------------------------------------------------------------
 
 function renderTotal(overview) {
   el.total.textContent = formatMoney(overview.baseCurrency, overview.totalCents);
   el.total.className = `amount ${signClass(overview.totalCents)}`;
   renderCurrencyTotals(overview);
 
-  const notes = [];
-  if (overview.ignoredCount > 0) notes.push(`${overview.ignoredCount} account(s) ignored in summaries.`);
-  el.notes.textContent = notes.join(" ");
+  el.notes.textContent = overview.ignoredCount > 0 ? `${overview.ignoredCount} account(s) ignored in summaries.` : "";
 }
 
 // Non-base currencies, each in its own currency with the base equivalent.
@@ -265,8 +172,7 @@ function renderAccounts(overview) {
     const nameCell = document.createElement("div");
     nameCell.append(name, description);
 
-    let base = "no rate";
-    if (acct.hasRate) base = formatMoney(overview.baseCurrency, acct.baseCents);
+    const base = acct.hasRate ? formatMoney(overview.baseCurrency, acct.baseCents) : "no rate";
 
     row.append(
       cell(nameCell),
@@ -314,7 +220,7 @@ async function saveNewAccount(event) {
   try {
     await busy(form, () => api.CreateAccount(input));
     el.addDialog.close();
-    await load(`saved account ${input.name.trim()}`);
+    await show(`saved account ${input.name.trim()}`);
   } catch (err) {
     formError(form, String(err));
   }
@@ -381,7 +287,7 @@ async function saveAmount(event) {
     el.accountDialog.close();
 
     const warning = result.warning ? ` (${result.warning})` : "";
-    await load(`updated amount for ${acct.name}${warning}`);
+    await show(`updated amount for ${acct.name}${warning}`);
   } catch (err) {
     formError(el.amountForm, String(err));
   }
@@ -418,37 +324,8 @@ async function confirmDelete() {
     await busy(el.deleteDialog, () => api.DeleteAccount(acct.id));
     el.deleteDialog.close();
     el.accountDialog.close();
-    await load(`deleted account ${acct.name}`);
+    await show(`deleted account ${acct.name}`);
   } catch (err) {
     formError(el.deleteDialog, String(err));
   }
 }
-
-// --- wiring ----------------------------------------------------------------
-
-async function start() {
-  const status = await api.Status();
-  if (status.ready) showDashboard(status.dbPath);
-  else showSetup(status.note);
-}
-
-document.querySelectorAll("[data-close]").forEach((button) => {
-  button.addEventListener("click", () => button.closest("dialog").close());
-});
-
-el.createDB.addEventListener("click", () => pick(api.CreateDatabase));
-el.openDB.addEventListener("click", () => pick(api.OpenDatabase));
-el.refresh.addEventListener("click", () => load());
-el.addAccount.addEventListener("click", openAddAccount);
-el.sort.addEventListener("change", () => {
-  state.sort = Number(el.sort.value);
-  writeSort(state.sort);
-  load();
-});
-el.addForm.addEventListener("submit", saveNewAccount);
-el.amountForm.addEventListener("submit", saveAmount);
-el.logForm.addEventListener("submit", saveLog);
-el.deleteAccount.addEventListener("click", askDelete);
-el.confirmDelete.addEventListener("click", confirmDelete);
-
-start();

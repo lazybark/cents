@@ -29,27 +29,151 @@ body {
 }
 
 body {
-  display: flex;
-  flex-direction: column;
   min-height: 100vh;
-  padding: 16px;
-  gap: 16px;
 }
 
 [hidden] {
   display: none !important;
 }
 
-.header {
+/* Layout: sidebar menu + content */
+
+.app {
+  display: grid;
+  grid-template-columns: 168px minmax(0, 1fr);
+  min-height: 100vh;
+}
+
+.sidebar {
+  position: sticky;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  height: 100vh;
+  padding: 16px 12px;
+  border-right: 1px solid var(--row-border);
+}
+
+.brand {
+  margin: 0 0 12px;
+  padding: 0 8px;
+  font-size: 18px;
+}
+
+.nav-item {
+  font: inherit;
+  text-align: left;
+  color: var(--text);
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+  padding: 6px 8px;
+  cursor: pointer;
+}
+
+.nav-item:hover,
+.nav-item:focus-visible {
+  background: var(--surface);
+  outline: none;
+}
+
+.nav-item[aria-current="page"] {
+  color: var(--bg);
+  background: var(--headline);
+  font-weight: bold;
+}
+
+.nav-spacer {
+  flex: 1;
+}
+
+.content {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+  padding: 16px;
+}
+
+.content-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
+  min-height: 30px;
 }
 
-.title {
+.view-title {
   margin: 0;
-  font-size: 18px;
+  font-size: 16px;
+  color: var(--headline);
+}
+
+.view {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  flex: 1;
+}
+
+.columns {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 16px;
+}
+
+.setup {
+  max-width: 640px;
+  padding: 16px;
+}
+
+/* Label/value lists */
+
+.stats {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 6px 16px;
+  margin: 10px 0 0;
+}
+
+.stats dt {
+  color: var(--hint);
+}
+
+.stats dd {
+  margin: 0;
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/* A value too long to share a row with its label goes on its own line. */
+.stats dd.wide {
+  grid-column: 1 / -1;
+  margin-top: -4px;
+}
+
+.stats + .table {
+  margin-top: 12px;
+}
+
+.progress {
+  height: 6px;
+  margin-top: 4px;
+  border-radius: 3px;
+  background: #5F5A52;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background: var(--positive);
+}
+
+.path {
+  margin: 8px 0 0;
+  overflow-wrap: anywhere;
 }
 
 .toolbar,
@@ -61,13 +185,6 @@ body {
 
 .actions {
   margin: 16px 0 4px;
-}
-
-main {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  flex: 1;
 }
 
 .panel {
@@ -165,6 +282,11 @@ main {
   padding: 6px 12px 6px 0;
   border-top: 1px solid var(--row-border);
   vertical-align: top;
+}
+
+.table th:last-child,
+.table td:last-child {
+  padding-right: 0;
 }
 
 .table .num {

@@ -1,0 +1,85 @@
+package summary
+
+import (
+	"testing"
+	"time"
+
+	"github.com/lazybark/cents/flows/account"
+	"github.com/lazybark/cents/flows/cashflow"
+	"github.com/lazybark/cents/flows/debt"
+	"github.com/lazybark/cents/flows/goal"
+	"github.com/lazybark/cents/flows/invoice"
+	"github.com/lazybark/cents/flows/settings"
+	"github.com/lazybark/cents/flows/subscription"
+	"github.com/lazybark/cents/flows/tax"
+)
+
+func TestCompute(t *testing.T) {
+	month := time.Date(2026, 9, 1, 0, 0, 0, 0, time.Local)
+	inMonth := time.Date(2026, 9, 12, 10, 0, 0, 0, time.Local)
+	otherMonth := time.Date(2026, 8, 30, 10, 0, 0, 0, time.Local)
+
+	data := Data{
+		Settings: settings.AppSettings{
+			BaseCurrency: "€",
+			Currencies:   []settings.SettingCurrency{{CurrencyName: "USD", RateToBase: 0.5}},
+		},
+		Accounts: []account.Account{
+			{Currency: "€", BalanceCents: 100000},
+			{Currency: "USD", BalanceCents: 20000},
+			{Currency: "€", BalanceCents: 99999, IgnoreInSummaries: true},
+		},
+		Subscriptions: []subscription.Subscription{
+			{Currency: "€", AmountCents: 1000, Period: "month", IsActive: true},
+			{Currency: "USD", AmountCents: 12000, Period: "year", IsActive: true},
+			{Currency: "€", AmountCents: 5000, Period: "month", IsActive: false},
+		},
+		Debts: []debt.Debt{
+			{Currency: "€", AmountCents: 3000, AmountPaidCents: 1000, IsOwedToUser: true},
+			{Currency: "USD", AmountCents: 4000, IsOwedToUser: false},
+			{Currency: "€", AmountCents: 500, AmountPaidCents: 500, IsOwedToUser: false},
+			{Currency: "BTC", AmountCents: 1, IsOwedToUser: false},
+		},
+		Taxes: []tax.Tax{
+			{AmountDueCents: 7000, AmountPaidCents: 2000},
+			{AmountDueCents: 100, AmountPaidCents: 100},
+		},
+		Invoices: []invoice.Invoice{
+			{Currency: "€", AmountCents: 800, IsIncoming: true},
+			{Currency: "USD", AmountCents: 600, IsIncoming: false},
+			{Currency: "€", AmountCents: 999, IsIncoming: true, Paid: true},
+		},
+		Goals: []goal.Goal{
+			{Currency: "€", TargetAmountCents: 10000, AmountAccumulatedCents: 2500},
+			{Currency: "€", TargetAmountCents: 1000, AmountAccumulatedCents: 5000},
+		},
+		Cashflows: []cashflow.CashflowEntry{
+			{Currency: "€", AmountCents: 50000, IsIncome: true, EntryDate: inMonth},
+			{Currency: "USD", AmountCents: 10000, IsIncome: false, EntryDate: inMonth},
+			{Currency: "€", AmountCents: 77777, IsIncome: true, EntryDate: otherMonth},
+		},
+	}
+
+	got := Compute(data, month)
+	want := Summary{
+		MonthlyNetCents:           50000 - 5000,
+		MonthlySubscriptionsCents: 1000,
+		YearlySubscriptionsCents:  6000 + 12*1000,
+		AccountsCents:             100000 + 10000,
+		DebtsToMeCents:            2000,
+		DebtsByMeCents:            2000,
+		UnpaidTaxesCents:          5000,
+		InvoicesToMeCents:         800,
+		InvoicesByMeCents:         300,
+		GoalsAccumulatedCents:     2500 + 1000,
+		GoalsTargetCents:          11000,
+	}
+
+	if got != want {
+		t.Fatalf("summary mismatch\n got: %+v\nwant: %+v", got, want)
+	}
+
+	if net := got.NetWorthCents(); net != 110000+2000+800-2000-5000-300 {
+		t.Fatalf("unexpected net worth %d", net)
+	}
+}

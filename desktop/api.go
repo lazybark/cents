@@ -10,13 +10,25 @@ import (
 	"time"
 
 	"github.com/lazybark/cents/flows/account"
+	"github.com/lazybark/cents/flows/cashflow"
+	"github.com/lazybark/cents/flows/debt"
+	"github.com/lazybark/cents/flows/goal"
+	"github.com/lazybark/cents/flows/invoice"
 	"github.com/lazybark/cents/flows/settings"
+	"github.com/lazybark/cents/flows/subscription"
+	"github.com/lazybark/cents/flows/tax"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 type StorageWorker interface {
 	LoadAppSettings() (settings.AppSettings, error)
 	LoadAccounts() ([]account.Account, error)
+	LoadSubscriptions() ([]subscription.Subscription, error)
+	LoadDebts() ([]debt.Debt, error)
+	LoadGoals() ([]goal.Goal, error)
+	LoadTaxes() ([]tax.Tax, error)
+	LoadInvoices() ([]invoice.Invoice, error)
+	LoadCashflows() ([]cashflow.CashflowEntry, error)
 	CreateAccount(entry *account.Account) error
 	UpdateAccountAmount(id uint, amountCents int64, ignoreInSummaries bool, updatedAt time.Time) error
 	DeleteAccount(id uint) error

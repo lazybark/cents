@@ -176,3 +176,29 @@ func TestAccountsWithoutDatabaseFails(t *testing.T) {
 		t.Fatal("expected error without storage")
 	}
 }
+
+func TestOverviewAndSettings(t *testing.T) {
+	api := newTestAPI(t)
+	api.dbPath = "/tmp/cents.db"
+	mustCreate(t, api, NewAccountInput{Name: "Checking", Description: "main", Currency: "$", Amount: "100"})
+	mustCreate(t, api, NewAccountInput{Name: "Savings", Description: "eu", Currency: "EUR", Amount: "50"})
+
+	overview, err := api.Overview()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if overview.Accounts != 10000+5400 || overview.NetWorth != overview.Accounts || overview.BaseCurrency != "$" {
+		t.Fatalf("unexpected overview %+v", overview)
+	}
+	if now := time.Now(); overview.Month.Year() != now.Year() || overview.Month.Month() != now.Month() || overview.Month.Day() != 1 {
+		t.Fatalf("expected current month, got %v", overview.Month)
+	}
+
+	view, err := api.Settings()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view.DBPath != "/tmp/cents.db" || view.BaseCurrency != "$" || len(view.Currencies) != 1 || view.Currencies[0] != (CurrencyRate{Name: "EUR", RateToBase: 1.08}) {
+		t.Fatalf("unexpected settings %+v", view)
+	}
+}

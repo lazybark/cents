@@ -436,28 +436,7 @@ func (m TheApplication) updateSubscriptionEdit(msg tea.KeyMsg) (tea.Model, tea.C
 }
 
 func (m TheApplication) subscriptionTotalsInBaseCents(subs []subscription.Subscription) (monthlyTotal int64, yearlyProjection int64) {
-	var yearlyOnly int64
-
-	for _, sub := range subs {
-		converted, ok := m.convertToBaseCents(sub.Currency, sub.AmountCents)
-		if !ok {
-			continue
-		}
-
-		if strings.EqualFold(strings.TrimSpace(sub.Period), "month") {
-			monthlyTotal += converted
-
-			continue
-		}
-
-		if strings.EqualFold(strings.TrimSpace(sub.Period), "year") {
-			yearlyOnly += converted
-		}
-	}
-
-	yearlyProjection = yearlyOnly + monthlyTotal*12
-
-	return monthlyTotal, yearlyProjection
+	return subscription.TotalsInBaseCents(subs, m.settings)
 }
 
 func (m TheApplication) filteredSubscriptions() []subscription.Subscription {

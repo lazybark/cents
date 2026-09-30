@@ -24,6 +24,30 @@ func (s *SQLiteStorage) LoadAccounts() ([]account.Account, error) {
 	return LoadAccounts(s.db)
 }
 
+func (s *SQLiteStorage) LoadSubscriptions() ([]subscription.Subscription, error) {
+	return LoadSubscriptions(s.db)
+}
+
+func (s *SQLiteStorage) LoadDebts() ([]debt.Debt, error) {
+	return LoadDebts(s.db)
+}
+
+func (s *SQLiteStorage) LoadGoals() ([]goal.Goal, error) {
+	return LoadGoals(s.db)
+}
+
+func (s *SQLiteStorage) LoadTaxes() ([]tax.Tax, error) {
+	return LoadTaxes(s.db)
+}
+
+func (s *SQLiteStorage) LoadInvoices() ([]invoice.Invoice, error) {
+	return LoadInvoices(s.db)
+}
+
+func (s *SQLiteStorage) LoadCashflows() ([]cashflow.CashflowEntry, error) {
+	return LoadCashflows(s.db)
+}
+
 func (s *SQLiteStorage) ExportData(request ExportRequest) (ExportResult, error) {
 	return ExportData(s.db, request)
 }
