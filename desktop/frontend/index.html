@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>cents</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="header">
+    <h1 class="title">cents</h1>
+    <button id="refresh" class="button" type="button" hidden>Refresh</button>
+  </header>
+
+  <main id="setup" hidden>
+    <section class="panel">
+      <h2 class="section-title">Choose a database</h2>
+      <p id="setup-note" class="negative" hidden></p>
+      <p class="muted">Your choice is saved, so this screen only shows up again if the database goes missing.</p>
+      <div class="actions">
+        <button id="create-db" class="button button-primary" type="button">Create new database</button>
+        <button id="open-db" class="button" type="button">Open existing database</button>
+      </div>
+      <p id="setup-error" class="negative" hidden></p>
+    </section>
+  </main>
+
+  <main id="dashboard" hidden>
+    <section class="panel total">
+      <div class="label">Total balance</div>
+      <div id="total" class="amount">—</div>
+      <div id="notes" class="muted"></div>
+    </section>
+
+    <section class="panel">
+      <h2 class="section-title">Accounts</h2>
+      <table class="accounts">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th class="num">Balance</th>
+            <th class="num">In base</th>
+          </tr>
+        </thead>
+        <tbody id="accounts"></tbody>
+      </table>
+      <p id="empty" class="muted" hidden>No accounts yet.</p>
+    </section>
+  </main>
+
+  <footer id="status" class="status"></footer>
+
+  <script src="main.js"></script>
+</body>
+</html>

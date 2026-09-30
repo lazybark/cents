@@ -618,22 +618,7 @@ func (m TheApplication) focusEditAmountField() TheApplication {
 }
 
 func (m TheApplication) sumAccountsInBaseCents() int64 {
-	var total int64
-
-	for _, acct := range m.accounts {
-		if acct.IgnoreInSummaries {
-			continue
-		}
-
-		converted, ok := m.convertToBaseCents(acct.Currency, acct.BalanceCents)
-		if !ok {
-			continue
-		}
-
-		total += converted
-	}
-
-	return total
+	return account.SumInBaseCents(m.accounts, m.settings)
 }
 
 func (m TheApplication) confirmDeleteAccount() (tea.Model, tea.Cmd) {

@@ -20,6 +20,10 @@ func (s *SQLiteStorage) LoadAppSettings() (settings.AppSettings, error) {
 	return LoadAppSettings(s.db)
 }
 
+func (s *SQLiteStorage) LoadAccounts() ([]account.Account, error) {
+	return LoadAccounts(s.db)
+}
+
 func (s *SQLiteStorage) ExportData(request ExportRequest) (ExportResult, error) {
 	return ExportData(s.db, request)
 }

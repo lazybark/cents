@@ -3,7 +3,6 @@ package sqlite
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/lazybark/cents/flows/account"
@@ -22,42 +21,68 @@ type SQLiteStorage struct {
 	db *gorm.DB
 }
 
-func NewSQLiteStorage() (*SQLiteStorage, error) {
-	db, _, _, err := OpenDatabase()
-	if err != nil {
-		return nil, fmt.Errorf("failed to open SQLite database: %w", err)
-	}
-
-	return &SQLiteStorage{db: db}, nil
+func NewSQLiteStorage(db *gorm.DB) *SQLiteStorage {
+	return &SQLiteStorage{db: db}
 }
 
-func OpenDatabase() (*gorm.DB, string, bool, error) {
-	workingDir, err := os.Getwd()
-	if err != nil {
-		return nil, "", false, fmt.Errorf("failed to get working directory: %w", err)
-	}
-
-	dbPath := filepath.Join(workingDir, "cents.db")
+// OpenDatabase opens (creating it if missing) the database at dbPath and
+// migrates it to the current schema. created reports whether the file was new.
+func OpenDatabase(dbPath string) (*gorm.DB, bool, error) {
 	_, statErr := os.Stat(dbPath)
 	created := os.IsNotExist(statErr)
 	if statErr != nil && !os.IsNotExist(statErr) {
-		return nil, "", false, statErr
+		return nil, false, statErr
 	}
 
 	db, err := gorm.Open(sqlite.Open(dbPath), &gorm.Config{})
 	if err != nil {
-		return nil, "", false, fmt.Errorf("failed to open SQLite database: %w", err)
+		return nil, false, fmt.Errorf("failed to open SQLite database: %w", err)
 	}
 
 	if err := db.AutoMigrate(&account.Account{}, &account.AccountValueLog{}, &subscription.Subscription{}, &debt.Debt{}, &debt.DebtLog{}, &goal.Goal{}, &goal.GoalLog{}, &tax.Tax{}, &tax.TaxLog{}, &invoice.Invoice{}, &cashflow.CashflowEntry{}, &settings.SettingRecord{}, &settings.SettingCurrency{}, &settings.SettingPaymentMethod{}, &settings.SettingTaxType{}, &settings.SettingIncomeCategory{}, &settings.SettingExpenseCategory{}); err != nil {
-		return nil, "", false, fmt.Errorf("failed to auto-migrate SQLite database: %w", err)
+		return nil, false, fmt.Errorf("failed to auto-migrate SQLite database: %w", err)
 	}
 
 	if err := EnsureSettingsDefaults(db); err != nil {
-		return nil, "", false, fmt.Errorf("failed to ensure settings defaults: %w", err)
+		return nil, false, fmt.Errorf("failed to ensure settings defaults: %w", err)
 	}
 
-	return db, dbPath, created, nil
+	return db, created, nil
+}
+
+// CheckDatabase reports whether dbPath is an existing cents database, without
+// modifying it. Any SQLite file that has the settings table qualifies.
+func CheckDatabase(dbPath string) error {
+	info, err := os.Stat(dbPath)
+	if err != nil {
+		return fmt.Errorf("failed to read database file: %w", err)
+	}
+
+	if info.IsDir() {
+		return fmt.Errorf("%s is a directory, not a database file", dbPath)
+	}
+
+	db, err := gorm.Open(sqlite.Open(dbPath), &gorm.Config{})
+	if err != nil {
+		return fmt.Errorf("failed to open SQLite database: %w", err)
+	}
+
+	sqlDB, err := db.DB()
+	if err != nil {
+		return fmt.Errorf("failed to access SQLite connection: %w", err)
+	}
+	defer func() { _ = sqlDB.Close() }()
+
+	var count int64
+	if err := db.Raw("SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = ?", "setting_records").Scan(&count).Error; err != nil {
+		return fmt.Errorf("%s is not a SQLite database: %w", dbPath, err)
+	}
+
+	if count == 0 {
+		return fmt.Errorf("%s is not a cents database (no settings table)", dbPath)
+	}
+
+	return nil
 }
 
 func EnsureSettingsDefaults(db *gorm.DB) error {

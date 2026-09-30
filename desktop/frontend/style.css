@@ -1,0 +1,157 @@
+/* Same palette as the TUI (see app/styling.go). */
+:root {
+  --bg: #1F1A17;
+  --panel-border: #6F5F47;
+  --text: #F4E9D8;
+  --muted: #9C927F;
+  --headline: #E7C96D;
+  --table-header: #DCC48A;
+  --button: #4E4334;
+  --positive: #8EC07C;
+  --negative: #FF6B6B;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 14px/1.5 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  padding: 16px;
+  gap: 16px;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.title {
+  margin: 0;
+  font-size: 18px;
+}
+
+main {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  flex: 1;
+}
+
+.panel {
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  padding: 12px 16px;
+}
+
+.label {
+  color: var(--headline);
+  font-weight: bold;
+}
+
+.amount {
+  font-size: 32px;
+  font-weight: bold;
+  font-variant-numeric: tabular-nums;
+}
+
+.section-title {
+  margin: 0 0 8px;
+  font-size: 14px;
+  color: var(--headline);
+  text-decoration: underline;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.positive {
+  color: var(--positive);
+}
+
+.negative {
+  color: var(--negative);
+}
+
+.accounts {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.accounts th {
+  color: var(--table-header);
+  text-align: left;
+  padding: 4px 8px 4px 0;
+}
+
+.accounts td {
+  padding: 4px 8px 4px 0;
+  border-top: 1px solid #3A322A;
+}
+
+.accounts .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.accounts tr.ignored td {
+  color: var(--muted);
+}
+
+.button {
+  font: inherit;
+  color: var(--text);
+  background: var(--button);
+  border: 0;
+  border-radius: 4px;
+  padding: 4px 12px;
+  cursor: pointer;
+}
+
+.button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.button-primary {
+  color: var(--bg);
+  background: var(--headline);
+  font-weight: bold;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 16px 0 4px;
+}
+
+.button:hover,
+.button:focus-visible {
+  color: var(--bg);
+  background: var(--headline);
+  outline: none;
+}
+
+.status {
+  color: var(--muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+[hidden] {
+  display: none !important;
+}
