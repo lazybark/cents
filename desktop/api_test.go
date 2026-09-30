@@ -69,6 +69,9 @@ func TestAccountsSumsConvertibleAccountsInBaseCurrency(t *testing.T) {
 	if got := overview.Accounts[0]; got.Name != "Savings" || got.Currency != "EUR" || got.BaseCents != 1296000 {
 		t.Fatalf("expected EUR savings first with canonical currency, got %+v", got)
 	}
+	if len(overview.CurrencyTotals) != 1 || overview.CurrencyTotals[0] != (CurrencyTotal{Currency: "EUR", Cents: 1200000, BaseCents: 1296000, HasRate: true}) {
+		t.Fatalf("expected one EUR subtotal, got %+v", overview.CurrencyTotals)
+	}
 	if strings.Join(overview.Currencies, ",") != "$,EUR" {
 		t.Fatalf("unexpected currency options %v", overview.Currencies)
 	}

@@ -21,6 +21,7 @@ const el = {
 
   dashboard: $("dashboard"),
   total: $("total"),
+  currencyTotals: $("currency-totals"),
   notes: $("notes"),
   sort: $("sort"),
   baseHeading: $("base-heading"),
@@ -199,11 +200,33 @@ async function load(message) {
 function renderTotal(overview) {
   el.total.textContent = formatMoney(overview.baseCurrency, overview.totalCents);
   el.total.className = `amount ${signClass(overview.totalCents)}`;
+  renderCurrencyTotals(overview);
 
   const notes = [];
   if (overview.ignoredCount > 0) notes.push(`${overview.ignoredCount} account(s) ignored in summaries.`);
-  if (overview.missingRates > 0) notes.push(`${overview.missingRates} account(s) excluded: missing conversion rate.`);
   el.notes.textContent = notes.join(" ");
+}
+
+// Non-base currencies, each in its own currency with the base equivalent.
+function renderCurrencyTotals(overview) {
+  const totals = overview.currencyTotals ?? [];
+  el.currencyTotals.hidden = totals.length === 0;
+  el.currencyTotals.replaceChildren(
+    ...totals.map((total) => {
+      const item = document.createElement("li");
+
+      const amount = document.createElement("span");
+      amount.className = "currency-amount";
+      amount.textContent = formatMoney(total.currency, total.cents);
+
+      const base = document.createElement("span");
+      base.className = total.hasRate ? "muted" : "negative";
+      base.textContent = total.hasRate ? `≈ ${formatMoney(overview.baseCurrency, total.baseCents)}` : "no rate, not in total";
+
+      item.append(amount, base);
+      return item;
+    }),
+  );
 }
 
 function renderSortOptions(overview) {

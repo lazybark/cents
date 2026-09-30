@@ -27,16 +27,24 @@ type AccountRow struct {
 	LastUpdatedAt     time.Time `json:"lastUpdatedAt"`
 }
 
+type CurrencyTotal struct {
+	Currency  string `json:"currency"`
+	Cents     int64  `json:"cents"`
+	BaseCents int64  `json:"baseCents"`
+	HasRate   bool   `json:"hasRate"`
+}
+
 type AccountsOverview struct {
-	BaseCurrency string       `json:"baseCurrency"`
-	TotalCents   int64        `json:"totalCents"`
-	IgnoredCount int          `json:"ignoredCount"`
-	MissingRates int          `json:"missingRates"`
-	Accounts     []AccountRow `json:"accounts"`
-	Currencies   []string     `json:"currencies"`
-	SortOptions  []string     `json:"sortOptions"`
-	Sort         int          `json:"sort"`
-	LoadedAt     time.Time    `json:"loadedAt"`
+	BaseCurrency   string          `json:"baseCurrency"`
+	TotalCents     int64           `json:"totalCents"`
+	CurrencyTotals []CurrencyTotal `json:"currencyTotals"`
+	IgnoredCount   int             `json:"ignoredCount"`
+	MissingRates   int             `json:"missingRates"`
+	Accounts       []AccountRow    `json:"accounts"`
+	Currencies     []string        `json:"currencies"`
+	SortOptions    []string        `json:"sortOptions"`
+	Sort           int             `json:"sort"`
+	LoadedAt       time.Time       `json:"loadedAt"`
 }
 
 type NewAccountInput struct {
@@ -104,6 +112,12 @@ func (a *API) Accounts(sort int) (AccountsOverview, error) {
 		SortOptions:  sortOptions,
 		Sort:         sort,
 		LoadedAt:     time.Now(),
+	}
+
+	byCurrency := account.TotalsByCurrency(accounts, stts)
+	result.CurrencyTotals = make([]CurrencyTotal, 0, len(byCurrency))
+	for _, total := range byCurrency {
+		result.CurrencyTotals = append(result.CurrencyTotals, CurrencyTotal(total))
 	}
 
 	for _, acct := range accounts {
