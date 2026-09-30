@@ -8,13 +8,13 @@ import (
 	"github.com/lazybark/cents/flows/settings"
 )
 
-type accountSortField int
+type accountSortField = account.SortField
 
 const (
-	accountSortBaseAmount accountSortField = iota
-	accountSortName
-	accountSortCurrency
-	accountSortUpdated
+	accountSortBaseAmount = account.SortBaseAmount
+	accountSortName       = account.SortName
+	accountSortCurrency   = account.SortCurrency
+	accountSortUpdated    = account.SortUpdated
 )
 
 func incomeCategorySelectionOptions(settings settings.AppSettings) []string {

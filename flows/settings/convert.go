@@ -41,3 +41,28 @@ func (s AppSettings) ConvertToBaseCents(currency string, cents int64) (int64, bo
 
 	return int64(math.Round(float64(cents) * rate)), true
 }
+
+// CurrencyOptions lists the currencies an entry can use: the base currency
+// first, then every configured currency once.
+func (s AppSettings) CurrencyOptions() []string {
+	base := s.BaseCurrencyLabel()
+	options := []string{base}
+	seen := map[string]struct{}{strings.ToLower(base): {}}
+
+	for _, currency := range s.Currencies {
+		name := strings.TrimSpace(currency.CurrencyName)
+		if name == "" {
+			continue
+		}
+
+		key := strings.ToLower(name)
+		if _, exists := seen[key]; exists {
+			continue
+		}
+
+		seen[key] = struct{}{}
+		options = append(options, name)
+	}
+
+	return options
+}

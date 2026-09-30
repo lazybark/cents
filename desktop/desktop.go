@@ -28,10 +28,10 @@ func Run(opts Options) error {
 
 	err = wails.Run(&options.App{
 		Title:            "cents",
-		Width:            720,
-		Height:           640,
-		MinWidth:         420,
-		MinHeight:        360,
+		Width:            960,
+		Height:           720,
+		MinWidth:         640,
+		MinHeight:        480,
 		BackgroundColour: &options.RGBA{R: 0x1F, G: 0x1A, B: 0x17, A: 0xFF},
 		AssetServer:      &assetserver.Options{Assets: frontend},
 		OnStartup:        api.startup,

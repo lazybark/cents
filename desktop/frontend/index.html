@@ -9,7 +9,10 @@
 <body>
   <header class="header">
     <h1 class="title">cents</h1>
-    <button id="refresh" class="button" type="button" hidden>Refresh</button>
+    <div id="toolbar" class="toolbar" hidden>
+      <button id="add-account" class="button button-primary" type="button">Add account</button>
+      <button id="refresh" class="button" type="button">Refresh</button>
+    </div>
   </header>
 
   <main id="setup" hidden>
@@ -26,29 +29,140 @@
   </main>
 
   <main id="dashboard" hidden>
-    <section class="panel total">
+    <section class="panel">
       <div class="label">Total balance</div>
       <div id="total" class="amount">—</div>
       <div id="notes" class="muted"></div>
     </section>
 
     <section class="panel">
-      <h2 class="section-title">Accounts</h2>
-      <table class="accounts">
+      <div class="panel-head">
+        <h2 class="section-title">Accounts</h2>
+        <label class="inline-field">
+          <span class="muted">Sort</span>
+          <select id="sort"></select>
+        </label>
+      </div>
+      <table class="table accounts">
         <thead>
           <tr>
             <th>Name</th>
-            <th class="num">Balance</th>
-            <th class="num">In base</th>
+            <th>Currency</th>
+            <th class="num">Amount</th>
+            <th id="base-heading" class="num">In base</th>
+            <th>Updated</th>
           </tr>
         </thead>
         <tbody id="accounts"></tbody>
       </table>
-      <p id="empty" class="muted" hidden>No accounts yet.</p>
+      <p id="empty" class="muted" hidden>No accounts yet. Use “Add account” to create one.</p>
+      <p id="accounts-hint" class="hint">Click an account to update its amount, edit its value history or delete it.</p>
     </section>
   </main>
 
   <footer id="status" class="status"></footer>
+
+  <dialog id="add-dialog" class="dialog">
+    <form id="add-form" class="form" novalidate>
+      <h2 class="dialog-title">Add account</h2>
+      <label class="field">
+        <span class="field-label">Name</span>
+        <input name="name" maxlength="80" placeholder="Emergency Fund" autocomplete="off" autofocus>
+      </label>
+      <label class="field">
+        <span class="field-label">Description</span>
+        <input name="description" maxlength="80" placeholder="Rainy day savings" autocomplete="off">
+      </label>
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">Currency</span>
+          <select name="currency"></select>
+        </label>
+        <label class="field">
+          <span class="field-label">Amount</span>
+          <input name="amount" inputmode="decimal" maxlength="24" placeholder="2500.00" autocomplete="off">
+        </label>
+      </div>
+      <label class="check">
+        <input type="checkbox" name="ignoreInSummaries">
+        <span>Ignore in summaries</span>
+      </label>
+      <p class="hint">Use this for meta-accounts and historical records; ignored accounts stay out of totals.</p>
+      <p class="form-error negative" hidden></p>
+      <div class="dialog-actions">
+        <button type="button" class="button" data-close>Cancel</button>
+        <button type="submit" class="button button-primary">Save account</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="account-dialog" class="dialog dialog-wide">
+    <h2 id="account-title" class="dialog-title"></h2>
+    <p id="account-subtitle" class="muted"></p>
+
+    <form id="amount-form" class="form" novalidate>
+      <h3 class="subhead">Update amount</h3>
+      <label class="field">
+        <span class="field-label">Amount</span>
+        <input name="amount" inputmode="decimal" maxlength="24" placeholder="1234.56" autocomplete="off" autofocus>
+      </label>
+      <label class="check">
+        <input type="checkbox" name="updateLog">
+        <span>Update log on save</span>
+      </label>
+      <label class="check">
+        <input type="checkbox" name="ignoreInSummaries">
+        <span>Ignore in summaries</span>
+      </label>
+      <p class="form-error negative" hidden></p>
+      <div class="form-actions">
+        <button type="submit" class="button button-primary">Save amount</button>
+      </div>
+    </form>
+
+    <form id="log-form" class="form" novalidate>
+      <h3 class="subhead">Value history</h3>
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">Date</span>
+          <input type="date" name="date">
+        </label>
+        <label class="field">
+          <span class="field-label">Value</span>
+          <input name="value" inputmode="decimal" maxlength="24" placeholder="1234.56" autocomplete="off">
+        </label>
+        <button type="submit" class="button field-button">Save value</button>
+      </div>
+      <p class="hint">Saving a date that already has a value replaces it.</p>
+      <p class="form-error negative" hidden></p>
+    </form>
+
+    <table class="table logs">
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th class="num">Value</th>
+        </tr>
+      </thead>
+      <tbody id="logs"></tbody>
+    </table>
+    <p id="logs-empty" class="muted" hidden>No historical values yet.</p>
+
+    <div class="dialog-actions spread">
+      <button id="delete-account" type="button" class="button button-danger">Delete account</button>
+      <button type="button" class="button" data-close>Close</button>
+    </div>
+  </dialog>
+
+  <dialog id="delete-dialog" class="dialog">
+    <h2 class="dialog-title">Delete account?</h2>
+    <p id="delete-message"></p>
+    <p class="form-error negative" hidden></p>
+    <div class="dialog-actions">
+      <button type="button" class="button" data-close autofocus>Cancel</button>
+      <button id="confirm-delete" type="button" class="button button-danger">Delete</button>
+    </div>
+  </dialog>
 
   <script src="main.js"></script>
 </body>

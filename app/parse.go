@@ -3,25 +3,16 @@ package app
 import (
 	"errors"
 	"fmt"
-	"math"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/lazybark/cents/flows/tax"
+	"github.com/lazybark/cents/money"
 )
 
 func parseAmountCents(raw string) (int64, error) {
-	amount, err := strconv.ParseFloat(strings.TrimSpace(raw), 64)
-	if err != nil {
-		return 0, errors.New("amount must be a number")
-	}
-
-	if amount < 0 {
-		return 0, errors.New("amount cannot be negative")
-	}
-
-	return int64(math.Round(amount * 100)), nil
+	return money.ParseAmountCents(raw)
 }
 
 func parseOptionalAmountCents(raw string) (int64, error) {

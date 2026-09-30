@@ -2,8 +2,6 @@ package app
 
 import (
 	"fmt"
-	"math"
-	"sort"
 	"strings"
 	"time"
 
@@ -286,41 +284,11 @@ func (m TheApplication) renderAccountSortMenu(width int) string {
 }
 
 func accountSortOptions() []string {
-	return []string{
-		"Balance in base currency",
-		"Name",
-		"Currency",
-		"Last updated",
-	}
+	return account.SortOptions()
 }
 
 func accountSortLabel(field accountSortField) string {
-	options := accountSortOptions()
-	index := int(field)
-	if index < 0 || index >= len(options) {
-		return options[0]
-	}
-
-	return options[index]
-}
-
-func comparableAccountBaseCents(acct account.Account, settings settings.AppSettings) int64 {
-	base := strings.TrimSpace(settings.BaseCurrency)
-	if base == "" {
-		base = "$"
-	}
-
-	if strings.EqualFold(strings.TrimSpace(acct.Currency), base) {
-		return acct.BalanceCents
-	}
-
-	for _, entry := range settings.Currencies {
-		if strings.EqualFold(strings.TrimSpace(entry.CurrencyName), strings.TrimSpace(acct.Currency)) && entry.RateToBase > 0 {
-			return int64(math.Round(float64(acct.BalanceCents) * entry.RateToBase))
-		}
-	}
-
-	return acct.BalanceCents
+	return account.SortLabel(field)
 }
 
 func findAccountIndex(accounts []account.Account, id uint) int {
@@ -340,49 +308,7 @@ func accountLogDay(value time.Time) time.Time {
 }
 
 func sortAccounts(accounts []account.Account, settings settings.AppSettings, field accountSortField) []account.Account {
-	if len(accounts) < 2 {
-		return accounts
-	}
-
-	cloned := make([]account.Account, len(accounts))
-	copy(cloned, accounts)
-	sort.SliceStable(cloned, func(i, j int) bool {
-		left := cloned[i]
-		right := cloned[j]
-
-		switch field {
-		case accountSortName:
-			leftName := strings.ToLower(strings.TrimSpace(left.Name))
-			rightName := strings.ToLower(strings.TrimSpace(right.Name))
-			if leftName != rightName {
-				return leftName < rightName
-			}
-		case accountSortCurrency:
-			leftCurrency := strings.ToLower(strings.TrimSpace(left.Currency))
-			rightCurrency := strings.ToLower(strings.TrimSpace(right.Currency))
-			if leftCurrency != rightCurrency {
-				return leftCurrency < rightCurrency
-			}
-		case accountSortUpdated:
-			if !left.LastUpdatedAt.Equal(right.LastUpdatedAt) {
-				return left.LastUpdatedAt.After(right.LastUpdatedAt)
-			}
-		default:
-			leftComparable := comparableAccountBaseCents(left, settings)
-			rightComparable := comparableAccountBaseCents(right, settings)
-			if leftComparable != rightComparable {
-				return leftComparable > rightComparable
-			}
-		}
-
-		if left.CreatedAt.Equal(right.CreatedAt) {
-			return left.ID > right.ID
-		}
-
-		return left.CreatedAt.After(right.CreatedAt)
-	})
-
-	return cloned
+	return account.Sort(accounts, settings, field)
 }
 
 func (m TheApplication) updateAddAccount(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -693,39 +619,14 @@ func (m TheApplication) applyAccountLogValue() (tea.Model, tea.Cmd) {
 
 func (m TheApplication) saveAccountFromForm() (tea.Model, tea.Cmd) {
 	name := strings.TrimSpace(m.addForm.Fields[0].Value())
-	description := strings.TrimSpace(m.addForm.Fields[1].Value())
+	description := m.addForm.Fields[1].Value()
 	currency := selectedCurrencyOption(m.addForm.CurrencyOptions, m.addForm.CurrencyIndex)
-	amountRaw := strings.TrimSpace(m.addForm.Fields[3].Value())
+	amountRaw := m.addForm.Fields[3].Value()
 
-	if name == "" {
-		m.status = "name is required"
-		return m, nil
-	}
-	if description == "" {
-		m.status = "description is required"
-		return m, nil
-	}
-	if currency == "" {
-		m.status = "currency is required"
-		return m, nil
-	}
-
-	amount, err := parseAmountCents(amountRaw)
+	newAccount, err := account.New(name, description, currency, amountRaw, m.addForm.IgnoreInSummaries, time.Now())
 	if err != nil {
-		m.status = "amount error: " + err.Error()
+		m.status = err.Error()
 		return m, nil
-	}
-
-	now := time.Now()
-
-	newAccount := account.Account{
-		Name:              name,
-		Description:       description,
-		Currency:          currency,
-		BalanceCents:      amount,
-		LeftoverCents:     amount,
-		IgnoreInSummaries: m.addForm.IgnoreInSummaries,
-		LastUpdatedAt:     now,
 	}
 
 	if err := m.storage.CreateAccount(&newAccount); err != nil {

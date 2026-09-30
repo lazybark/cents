@@ -15,8 +15,13 @@ import (
 )
 
 type StorageWorker interface {
-	LoadAccounts() ([]account.Account, error)
 	LoadAppSettings() (settings.AppSettings, error)
+	LoadAccounts() ([]account.Account, error)
+	CreateAccount(entry *account.Account) error
+	UpdateAccountAmount(id uint, amountCents int64, ignoreInSummaries bool, updatedAt time.Time) error
+	DeleteAccount(id uint) error
+	LoadAccountValueLogs(accountID uint) ([]account.AccountValueLog, error)
+	UpsertAccountValueLog(accountID uint, day time.Time, valueCents int64) error
 }
 
 // Options configure the desktop app. Storage is nil when no database has
@@ -47,24 +52,6 @@ type Status struct {
 	Ready  bool   `json:"ready"`
 	DBPath string `json:"dbPath"`
 	Note   string `json:"note"`
-}
-
-type AccountBalance struct {
-	Name              string `json:"name"`
-	Currency          string `json:"currency"`
-	BalanceCents      int64  `json:"balanceCents"`
-	BaseCents         int64  `json:"baseCents"`
-	HasRate           bool   `json:"hasRate"`
-	IgnoreInSummaries bool   `json:"ignoreInSummaries"`
-}
-
-type Balance struct {
-	BaseCurrency string           `json:"baseCurrency"`
-	TotalCents   int64            `json:"totalCents"`
-	IgnoredCount int              `json:"ignoredCount"`
-	MissingRates int              `json:"missingRates"`
-	Accounts     []AccountBalance `json:"accounts"`
-	LoadedAt     time.Time        `json:"loadedAt"`
 }
 
 var errNoDatabase = errors.New("no database chosen yet")
@@ -146,54 +133,16 @@ func (a *API) choose(path string, create bool) (bool, error) {
 	return true, nil
 }
 
-// Balance reads accounts fresh from storage on every call, so changes made
-// in the TUI (or elsewhere) show up after a refresh.
-func (a *API) Balance() (Balance, error) {
+// currentStorage returns the open storage, or an error before setup is done.
+func (a *API) currentStorage() (StorageWorker, error) {
 	a.mu.Lock()
-	storage := a.storage
-	a.mu.Unlock()
+	defer a.mu.Unlock()
 
-	if storage == nil {
-		return Balance{}, errNoDatabase
+	if a.storage == nil {
+		return nil, errNoDatabase
 	}
 
-	stts, err := storage.LoadAppSettings()
-	if err != nil {
-		return Balance{}, fmt.Errorf("failed to load settings: %w", err)
-	}
-
-	accounts, err := storage.LoadAccounts()
-	if err != nil {
-		return Balance{}, fmt.Errorf("failed to load accounts: %w", err)
-	}
-
-	result := Balance{
-		BaseCurrency: stts.BaseCurrencyLabel(),
-		TotalCents:   account.SumInBaseCents(accounts, stts),
-		Accounts:     make([]AccountBalance, 0, len(accounts)),
-		LoadedAt:     time.Now(),
-	}
-
-	for _, acct := range accounts {
-		baseCents, ok := stts.ConvertToBaseCents(acct.Currency, acct.BalanceCents)
-
-		if acct.IgnoreInSummaries {
-			result.IgnoredCount++
-		} else if !ok {
-			result.MissingRates++
-		}
-
-		result.Accounts = append(result.Accounts, AccountBalance{
-			Name:              acct.Name,
-			Currency:          acct.Currency,
-			BalanceCents:      acct.BalanceCents,
-			BaseCents:         baseCents,
-			HasRate:           ok,
-			IgnoreInSummaries: acct.IgnoreInSummaries,
-		})
-	}
-
-	return result, nil
+	return a.storage, nil
 }
 
 func databaseFilters() []runtime.FileFilter {

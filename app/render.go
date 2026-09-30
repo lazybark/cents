@@ -268,30 +268,7 @@ func selectedStringOption(options []string, index int) string {
 }
 
 func currencySelectionOptions(settings settings.AppSettings) []string {
-	base := strings.TrimSpace(settings.BaseCurrency)
-	if base == "" {
-		base = "$"
-	}
-
-	options := []string{base}
-	seen := map[string]struct{}{strings.ToLower(base): {}}
-
-	for _, currency := range settings.Currencies {
-		name := strings.TrimSpace(currency.CurrencyName)
-		if name == "" {
-			continue
-		}
-
-		key := strings.ToLower(name)
-		if _, exists := seen[key]; exists {
-			continue
-		}
-
-		seen[key] = struct{}{}
-		options = append(options, name)
-	}
-
-	return options
+	return settings.CurrencyOptions()
 }
 
 func paymentMethodSelectionOptions(settings settings.AppSettings) []string {
