@@ -20,6 +20,34 @@ func (s *SQLiteStorage) LoadAppSettings() (settings.AppSettings, error) {
 	return LoadAppSettings(s.db)
 }
 
+func (s *SQLiteStorage) LoadAccounts() ([]account.Account, error) {
+	return LoadAccounts(s.db)
+}
+
+func (s *SQLiteStorage) LoadSubscriptions() ([]subscription.Subscription, error) {
+	return LoadSubscriptions(s.db)
+}
+
+func (s *SQLiteStorage) LoadDebts() ([]debt.Debt, error) {
+	return LoadDebts(s.db)
+}
+
+func (s *SQLiteStorage) LoadGoals() ([]goal.Goal, error) {
+	return LoadGoals(s.db)
+}
+
+func (s *SQLiteStorage) LoadTaxes() ([]tax.Tax, error) {
+	return LoadTaxes(s.db)
+}
+
+func (s *SQLiteStorage) LoadInvoices() ([]invoice.Invoice, error) {
+	return LoadInvoices(s.db)
+}
+
+func (s *SQLiteStorage) LoadCashflows() ([]cashflow.CashflowEntry, error) {
+	return LoadCashflows(s.db)
+}
+
 func (s *SQLiteStorage) ExportData(request ExportRequest) (ExportResult, error) {
 	return ExportData(s.db, request)
 }
@@ -87,7 +115,20 @@ func (s *SQLiteStorage) UpdateAccountAmount(id uint, amountCents int64, ignoreIn
 	}).Error
 }
 
+// SetAccountArchived archives an account or brings it back.
+func (s *SQLiteStorage) SetAccountArchived(id uint, archived bool) error {
+	if err := s.db.Model(&account.Account{}).Where("id = ?", id).Update("archived", archived).Error; err != nil {
+		return fmt.Errorf("failed to archive account: %w", err)
+	}
+
+	return nil
+}
+
 func (s *SQLiteStorage) DeleteAccount(id uint) error {
+	if err := checkUnused(s.db, "account", id); err != nil {
+		return err
+	}
+
 	if err := s.db.Where("account_id = ?", id).Delete(&account.AccountValueLog{}).Error; err != nil {
 		return fmt.Errorf("failed to delete account value logs: %w", err)
 	}
@@ -96,30 +137,115 @@ func (s *SQLiteStorage) DeleteAccount(id uint) error {
 }
 
 func (s *SQLiteStorage) CreateSubscription(entry *subscription.Subscription) error {
-	err := s.db.Create(entry).Error
-	if err != nil {
-		return fmt.Errorf("failed to create subscription: %w", err)
-	}
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		l, err := loadLinks(tx)
+		if err != nil {
+			return err
+		}
 
-	return nil
+		if err := l.linkSubscription(tx, entry); err != nil {
+			return err
+		}
+
+		if err := tx.Create(entry).Error; err != nil {
+			return fmt.Errorf("failed to create subscription: %w", err)
+		}
+
+		return nil
+	})
 }
 
 func (s *SQLiteStorage) SaveSubscription(entry *subscription.Subscription) error {
-	err := s.db.Save(entry).Error
-	if err != nil {
-		return fmt.Errorf("failed to save subscription: %w", err)
-	}
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		l, err := loadLinks(tx)
+		if err != nil {
+			return err
+		}
 
-	return nil
+		if err := l.linkSubscription(tx, entry); err != nil {
+			return err
+		}
+
+		if err := tx.Save(entry).Error; err != nil {
+			return fmt.Errorf("failed to save subscription: %w", err)
+		}
+
+		return nil
+	})
 }
 
+// DeleteSubscription deletes a subscription with its payment records.
 func (s *SQLiteStorage) DeleteSubscription(id uint) error {
-	err := s.db.Delete(&subscription.Subscription{}, id).Error
-	if err != nil {
-		return fmt.Errorf("failed to delete subscription: %w", err)
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("subscription_id = ?", id).Delete(&subscription.SubscriptionPayment{}).Error; err != nil {
+			return fmt.Errorf("failed to delete subscription payments: %w", err)
+		}
+
+		if err := tx.Delete(&subscription.Subscription{}, id).Error; err != nil {
+			return fmt.Errorf("failed to delete subscription: %w", err)
+		}
+
+		return nil
+	})
+}
+
+// LoadSubscriptionPayments returns a subscription's payments marked paid,
+// latest first.
+func (s *SQLiteStorage) LoadSubscriptionPayments(subscriptionID uint) ([]subscription.SubscriptionPayment, error) {
+	var payments []subscription.SubscriptionPayment
+	if err := s.db.Where("subscription_id = ?", subscriptionID).Order("paid_for desc, id desc").Find(&payments).Error; err != nil {
+		return nil, fmt.Errorf("failed to load subscription payments: %w", err)
 	}
 
-	return nil
+	return payments, nil
+}
+
+// AddSubscriptionPayment records a payment marked paid and saves entry
+// (the subscription with it as the latest paid) together.
+func (s *SQLiteStorage) AddSubscriptionPayment(entry *subscription.Subscription, payment *subscription.SubscriptionPayment) error {
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(payment).Error; err != nil {
+			return fmt.Errorf("failed to record payment: %w", err)
+		}
+
+		if err := tx.Save(entry).Error; err != nil {
+			return fmt.Errorf("failed to save subscription: %w", err)
+		}
+
+		return nil
+	})
+}
+
+// DeleteSubscriptionPayment deletes one payment record and makes the latest
+// remaining one (if any) the latest paid, saving entry with it, together.
+func (s *SQLiteStorage) DeleteSubscriptionPayment(entry *subscription.Subscription, paymentID uint) error {
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		result := tx.Where("id = ? AND subscription_id = ?", paymentID, entry.ID).Delete(&subscription.SubscriptionPayment{})
+		if result.Error != nil {
+			return fmt.Errorf("failed to delete payment: %w", result.Error)
+		}
+
+		if result.RowsAffected == 0 {
+			return ErrLogNotFound
+		}
+
+		var latest subscription.SubscriptionPayment
+		err := tx.Where("subscription_id = ?", entry.ID).Order("paid_for desc, id desc").First(&latest).Error
+		switch {
+		case err == nil:
+			entry.LastPaidDate = &latest.PaidFor
+		case errors.Is(err, gorm.ErrRecordNotFound):
+			entry.LastPaidDate = nil
+		default:
+			return fmt.Errorf("failed to find the latest payment: %w", err)
+		}
+
+		if err := tx.Save(entry).Error; err != nil {
+			return fmt.Errorf("failed to save subscription: %w", err)
+		}
+
+		return nil
+	})
 }
 
 func (s *SQLiteStorage) CreateDebt(entry *debt.Debt) error {
@@ -215,7 +341,16 @@ func (s *SQLiteStorage) DeleteGoal(id uint) error {
 }
 
 func (s *SQLiteStorage) CreateTax(entry *tax.Tax) error {
-	err := s.db.Create(entry).Error
+	l, err := loadLinks(s.db)
+	if err != nil {
+		return err
+	}
+
+	if err := l.linkTax(entry); err != nil {
+		return err
+	}
+
+	err = s.db.Create(entry).Error
 	if err != nil {
 		return fmt.Errorf("failed to create tax: %w", err)
 	}
@@ -224,7 +359,16 @@ func (s *SQLiteStorage) CreateTax(entry *tax.Tax) error {
 }
 
 func (s *SQLiteStorage) SaveTax(entry *tax.Tax) error {
-	err := s.db.Save(entry).Error
+	l, err := loadLinks(s.db)
+	if err != nil {
+		return err
+	}
+
+	if err := l.linkTax(entry); err != nil {
+		return err
+	}
+
+	err = s.db.Save(entry).Error
 	if err != nil {
 		return fmt.Errorf("failed to save tax: %w", err)
 	}
@@ -267,24 +411,26 @@ func (s *SQLiteStorage) DeleteTax(id uint) error {
 }
 
 func (s *SQLiteStorage) CreateCashflow(entry *cashflow.CashflowEntry) error {
-	err := s.db.Create(entry).Error
-	if err != nil {
-		return fmt.Errorf("failed to create cashflow entry: %w", err)
-	}
-
-	return nil
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		return createCashflow(tx, entry)
+	})
 }
 
 func (s *SQLiteStorage) DeleteCashflow(id uint) error {
-	err := s.db.Delete(&cashflow.CashflowEntry{}, id).Error
-	if err != nil {
-		return fmt.Errorf("failed to delete cashflow entry: %w", err)
-	}
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		if err := untagEntry(tx, id); err != nil {
+			return err
+		}
 
-	return nil
+		if err := tx.Delete(&cashflow.CashflowEntry{}, id).Error; err != nil {
+			return fmt.Errorf("failed to delete cashflow entry: %w", err)
+		}
+
+		return nil
+	})
 }
 
-func (s *SQLiteStorage) CreteInvoice(entry *invoice.Invoice) error {
+func (s *SQLiteStorage) CreateInvoice(entry *invoice.Invoice) error {
 	err := s.db.Create(entry).Error
 	if err != nil {
 		return fmt.Errorf("failed to create invoice entry: %w", err)
@@ -294,9 +440,29 @@ func (s *SQLiteStorage) CreteInvoice(entry *invoice.Invoice) error {
 }
 
 func (s *SQLiteStorage) DeleteSetting(targetType string, id uint) error {
+	// What records link to can't just go; see Merge.
+	if err := checkUnused(s.db, targetType, id); err != nil {
+		return err
+	}
+
 	switch targetType {
 	case "currency":
-		return s.db.Delete(&settings.SettingCurrency{}, id).Error
+		return s.db.Transaction(func(tx *gorm.DB) error {
+			if base, err := isBaseCurrency(tx, id); err != nil || base {
+				return errors.Join(err, errBaseCurrency)
+			}
+
+			uid, err := uidOf(tx, "setting_currencies", id)
+			if err != nil {
+				return err
+			}
+
+			if err := tx.Table("rate_records").Where("currency_uid = ? OR base_uid = ?", uid, uid).Delete(nil).Error; err != nil {
+				return fmt.Errorf("failed to delete its rate history: %w", err)
+			}
+
+			return tx.Delete(&settings.SettingCurrency{}, id).Error
+		})
 	case "payment_method":
 		if err := s.db.Delete(&settings.SettingPaymentMethod{}, id).Error; err != nil {
 			return err
@@ -314,21 +480,17 @@ func (s *SQLiteStorage) DeleteSetting(targetType string, id uint) error {
 }
 
 func (s *SQLiteStorage) SaveSettingRecord(entry *settings.SettingRecord) error {
-	err := s.db.Save(entry).Error
-	if err != nil {
-		return fmt.Errorf("failed to save setting record: %w", err)
-	}
-
-	return nil
+	return s.SaveSettingRecords([]settings.SettingRecord{*entry})
 }
 
 func (s *SQLiteStorage) SaveSettingCurrency(entry *settings.SettingCurrency) error {
-	err := s.db.Save(entry).Error
-	if err != nil {
-		return fmt.Errorf("failed to save setting currency: %w", err)
-	}
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Save(entry).Error; err != nil {
+			return fmt.Errorf("failed to save setting currency: %w", err)
+		}
 
-	return nil
+		return recordRates(tx, []settings.SettingCurrency{*entry}, time.Now())
+	})
 }
 
 func (s *SQLiteStorage) SaveSettingPaymentMethod(entry *settings.SettingPaymentMethod) error {
@@ -377,10 +539,10 @@ func (s *SQLiteStorage) SaveSettingExpenseCategory(entry *settings.SettingExpens
 	return nil
 }
 
+// accountLogDay is value's day at midnight in the zone value is in, so a
+// day typed in a form stays that day.
 func accountLogDay(value time.Time) time.Time {
-	local := value.Local()
-
-	return time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, local.Location())
+	return time.Date(value.Year(), value.Month(), value.Day(), 0, 0, 0, 0, value.Location())
 }
 
 func (s *SQLiteStorage) SaveInvoice(entry *invoice.Invoice) error {
@@ -392,10 +554,226 @@ func (s *SQLiteStorage) SaveInvoice(entry *invoice.Invoice) error {
 	return nil
 }
 
+// DeleteInvoice deletes an invoice and the expense or income added when it
+// was marked paid, if there is one.
 func (s *SQLiteStorage) DeleteInvoice(id uint) error {
-	err := s.db.Delete(&invoice.Invoice{}, id).Error
-	if err != nil {
-		return fmt.Errorf("failed to delete invoice entry: %w", err)
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		var entry invoice.Invoice
+		if err := tx.First(&entry, id).Error; err == nil {
+			if err := deleteLinkedCashflow(tx, entry.CashflowEntryID); err != nil {
+				return err
+			}
+		}
+
+		if err := tx.Delete(&invoice.Invoice{}, id).Error; err != nil {
+			return fmt.Errorf("failed to delete invoice entry: %w", err)
+		}
+
+		return nil
+	})
+}
+
+// SaveInvoicePaid saves an invoice (a new one too) with the cashflow entry
+// made for it, if any, and deletes unlink, the entry of an invoice no longer
+// paid (0 for none), all together.
+func (s *SQLiteStorage) SaveInvoicePaid(entry *invoice.Invoice, cash *cashflow.CashflowEntry, unlink uint) error {
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		if err := deleteLinkedCashflow(tx, unlink); err != nil {
+			return err
+		}
+
+		if cash != nil {
+			if err := createCashflow(tx, cash); err != nil {
+				return err
+			}
+
+			entry.CashflowEntryID = cash.ID
+		}
+
+		if err := tx.Save(entry).Error; err != nil {
+			return fmt.Errorf("failed to save invoice entry: %w", err)
+		}
+
+		return nil
+	})
+}
+
+// ErrLogNotFound is returned when a log entry to delete doesn't exist or
+// belongs to another record.
+var ErrLogNotFound = errors.New("log entry not found")
+
+// DeleteAccountValueLog removes one value history entry of an account.
+func (s *SQLiteStorage) DeleteAccountValueLog(accountID uint, logID uint) error {
+	result := s.db.Where("id = ? AND account_id = ?", logID, accountID).Delete(&account.AccountValueLog{})
+	if result.Error != nil {
+		return fmt.Errorf("failed to delete account value log: %w", result.Error)
+	}
+
+	if result.RowsAffected == 0 {
+		return ErrLogNotFound
+	}
+
+	return nil
+}
+
+// DeleteDebtLog removes one payment log entry and saves entry (the debt with
+// that payment undone) in the same transaction, so the two can't disagree.
+func (s *SQLiteStorage) DeleteDebtLog(entry *debt.Debt, logID uint) error {
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		var log debt.DebtLog
+		if err := tx.Where("id = ? AND debt_id = ?", logID, entry.ID).First(&log).Error; err == nil {
+			if err := deleteLinkedCashflow(tx, log.CashflowEntryID); err != nil {
+				return err
+			}
+		}
+
+		result := tx.Where("id = ? AND debt_id = ?", logID, entry.ID).Delete(&debt.DebtLog{})
+		if result.Error != nil {
+			return fmt.Errorf("failed to delete debt log: %w", result.Error)
+		}
+
+		if result.RowsAffected == 0 {
+			return ErrLogNotFound
+		}
+
+		if err := tx.Save(entry).Error; err != nil {
+			return fmt.Errorf("failed to save debt: %w", err)
+		}
+
+		return nil
+	})
+}
+
+// DeleteGoalLog removes one logged change of a goal and saves the goal as
+// given (with the change undone) in the same transaction.
+func (s *SQLiteStorage) DeleteGoalLog(entry *goal.Goal, logID uint) error {
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		result := tx.Where("id = ? AND goal_id = ?", logID, entry.ID).Delete(&goal.GoalLog{})
+		if result.Error != nil {
+			return fmt.Errorf("failed to delete goal log: %w", result.Error)
+		}
+
+		if result.RowsAffected == 0 {
+			return ErrLogNotFound
+		}
+
+		if err := tx.Save(entry).Error; err != nil {
+			return fmt.Errorf("failed to save goal: %w", err)
+		}
+
+		return nil
+	})
+}
+
+// SaveCashflows saves income and expense entries together, so a rate set
+// on several of them lands on all or none.
+func (s *SQLiteStorage) SaveCashflows(entries []cashflow.CashflowEntry) error {
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		l, err := loadLinks(tx)
+		if err != nil {
+			return err
+		}
+
+		for i := range entries {
+			if err := l.linkCashflow(&entries[i]); err != nil {
+				return err
+			}
+
+			if err := tx.Save(&entries[i]).Error; err != nil {
+				return fmt.Errorf("failed to save cashflow entry: %w", err)
+			}
+
+			if err := syncTags(tx, &entries[i]); err != nil {
+				return err
+			}
+		}
+
+		return nil
+	})
+}
+
+// SaveSettingRecords saves several settings records together.
+func (s *SQLiteStorage) SaveSettingRecords(records []settings.SettingRecord) error {
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		for i := range records {
+			if err := tx.Save(&records[i]).Error; err != nil {
+				return fmt.Errorf("failed to save setting %s: %w", records[i].SettingID, err)
+			}
+		}
+
+		if touchesBase(records) {
+			return syncBaseCurrency(tx)
+		}
+
+		return nil
+	})
+}
+
+// SaveRates saves fetched rates on currencies with the records saying when
+// and where from, together.
+func (s *SQLiteStorage) SaveRates(currencies []settings.SettingCurrency, records []settings.SettingRecord) error {
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		for i := range currencies {
+			if err := tx.Save(&currencies[i]).Error; err != nil {
+				return fmt.Errorf("failed to save rate of %s: %w", currencies[i].CurrencyName, err)
+			}
+		}
+
+		for i := range records {
+			if err := tx.Save(&records[i]).Error; err != nil {
+				return fmt.Errorf("failed to save setting %s: %w", records[i].SettingID, err)
+			}
+		}
+
+		// After the records, which may have changed the base currency.
+		if touchesBase(records) {
+			if err := syncBaseCurrency(tx); err != nil {
+				return err
+			}
+		}
+
+		return recordRates(tx, currencies, time.Now())
+	})
+}
+
+// AddDebtPayment saves entry (the debt with the payment applied) and the
+// payment's log together, with cash, the expense or income made for it,
+// when there is one.
+func (s *SQLiteStorage) AddDebtPayment(entry *debt.Debt, log *debt.DebtLog, cash *cashflow.CashflowEntry) error {
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		if cash != nil {
+			if err := createCashflow(tx, cash); err != nil {
+				return err
+			}
+
+			log.CashflowEntryID = cash.ID
+		}
+
+		if err := tx.Save(entry).Error; err != nil {
+			return fmt.Errorf("failed to save debt: %w", err)
+		}
+
+		if err := tx.Create(log).Error; err != nil {
+			return fmt.Errorf("failed to create debt log: %w", err)
+		}
+
+		return nil
+	})
+}
+
+// deleteLinkedCashflow deletes the expense or income a payment made, if it
+// made one (and it's still there).
+func deleteLinkedCashflow(tx *gorm.DB, id uint) error {
+	if id == 0 {
+		return nil
+	}
+
+	if err := untagEntry(tx, id); err != nil {
+		return err
+	}
+
+	if err := tx.Delete(&cashflow.CashflowEntry{}, id).Error; err != nil {
+		return fmt.Errorf("failed to delete the payment's cashflow entry: %w", err)
 	}
 
 	return nil

@@ -2,7 +2,7 @@ package app
 
 import (
 	"fmt"
-	"math"
+	"github.com/lazybark/cents/dates"
 	"strings"
 	"time"
 )
@@ -61,9 +61,7 @@ func formatRate(value float64) string {
 }
 
 func beginningOfMonth(value time.Time) time.Time {
-	local := value.Local()
-
-	return time.Date(local.Year(), local.Month(), 1, 0, 0, 0, 0, local.Location())
+	return dates.MonthOf(value)
 }
 
 func monthShift(month time.Time, delta int) time.Time {
@@ -81,41 +79,15 @@ func debtDirectionLabel(isOwedToUser bool) string {
 }
 
 func (m TheApplication) baseCurrencyLabel() string {
-	base := strings.TrimSpace(m.settings.BaseCurrency)
-	if base == "" {
-		return "$"
-	}
-
-	return base
+	return m.settings.BaseCurrencyLabel()
 }
 
 func (m TheApplication) convertToBaseCents(currency string, cents int64) (int64, bool) {
-	base := m.baseCurrencyLabel()
-	if strings.EqualFold(strings.TrimSpace(currency), base) {
-		return cents, true
-	}
-
-	rate, ok := m.rateToBase(currency)
-	if !ok {
-		return 0, false
-	}
-
-	return int64(math.Round(float64(cents) * rate)), true
+	return m.settings.ConvertToBaseCents(currency, cents)
 }
 
 func (m TheApplication) rateToBase(currency string) (float64, bool) {
-	target := strings.TrimSpace(currency)
-	if target == "" {
-		return 0, false
-	}
-
-	for _, entry := range m.settings.Currencies {
-		if strings.EqualFold(strings.TrimSpace(entry.CurrencyName), target) && entry.RateToBase > 0 {
-			return entry.RateToBase, true
-		}
-	}
-
-	return 0, false
+	return m.settings.RateToBase(currency)
 }
 
 func (m TheApplication) convertedAmountForBase(currency string, cents int64) string {

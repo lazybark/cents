@@ -1,0 +1,1442 @@
+/* Themes. Every color comes from these variables; a theme sets them on
+   :root[data-theme] (see js/theme.js). The default, Amber, is the TUI's
+   palette (see app/styling.go). */
+:root {
+  --bg: #1F1A17;
+  --surface: #26201C;
+  --panel-border: #6F5F47;
+  --row-border: #3A322A;
+  --text: #F4E9D8;
+  --muted: #9C927F;
+  --hint: #B5AC9D;
+  --headline: #E7C96D;
+  --table-header: #DCC48A;
+  --button: #4E4334;
+  --positive: #8EC07C;
+  --negative: #FF6B6B;
+  /* Bars' empty part, faint highlights, a picked row, behind dialogs. */
+  --track: #5F5A52;
+  --hover: rgba(244, 233, 216, 0.04);
+  --hover-strong: rgba(244, 233, 216, 0.06);
+  --selected: rgba(231, 201, 109, 0.08);
+  --backdrop: rgb(0 0 0 / 55%);
+  /* Charts with many series, like categories. */
+  --series-0: #E7C96D;
+  --series-1: #6CB6FF;
+  --series-2: #FF6B6B;
+  --series-3: #8EC07C;
+  --series-4: #C792EA;
+  --series-5: #F78C6C;
+  --series-6: #4FD1C5;
+  --series-7: #F06FA6;
+  --series-8: #9AA5FF;
+  --series-9: #B5AC9D;
+
+  color-scheme: dark;
+}
+
+:root[data-theme="ocean"] {
+  --bg: #121A24;
+  --surface: #172231;
+  --panel-border: #3E5873;
+  --row-border: #253447;
+  --text: #E3ECF5;
+  --muted: #8496AA;
+  --hint: #A3B3C4;
+  --headline: #6CB6FF;
+  --table-header: #9CC8F2;
+  --button: #2A3C52;
+  --positive: #7BD88F;
+  --negative: #FF7A7A;
+  --track: #34475C;
+  --hover: rgba(227, 236, 245, 0.04);
+  --hover-strong: rgba(227, 236, 245, 0.07);
+  --selected: rgba(108, 182, 255, 0.10);
+  --series-0: #6CB6FF;
+  --series-1: #E7C96D;
+}
+
+:root[data-theme="forest"] {
+  --bg: #141B16;
+  --surface: #19221B;
+  --panel-border: #4A6650;
+  --row-border: #26332A;
+  --text: #E4EEE2;
+  --muted: #8C9E8D;
+  --hint: #A8B9A6;
+  --headline: #E8B86B;
+  --table-header: #D9C08A;
+  --button: #2D3D31;
+  --positive: #8ED081;
+  --negative: #FF7B6E;
+  --track: #3A4A3E;
+  --hover: rgba(228, 238, 226, 0.04);
+  --hover-strong: rgba(228, 238, 226, 0.07);
+  --selected: rgba(232, 184, 107, 0.10);
+  --series-0: #E8B86B;
+}
+
+:root[data-theme="plum"] {
+  --bg: #1C1621;
+  --surface: #231B29;
+  --panel-border: #5E4A70;
+  --row-border: #33283D;
+  --text: #EFE6F5;
+  --muted: #9A8DA6;
+  --hint: #B6A9C2;
+  --headline: #C99BF0;
+  --table-header: #D9B8F2;
+  --button: #3D2F4A;
+  --positive: #8ED39A;
+  --negative: #FF7A8A;
+  --track: #4A3D57;
+  --hover: rgba(239, 230, 245, 0.04);
+  --hover-strong: rgba(239, 230, 245, 0.07);
+  --selected: rgba(201, 155, 240, 0.10);
+  --series-0: #C99BF0;
+  --series-4: #E7C96D;
+}
+
+:root[data-theme="graphite"] {
+  --bg: #18191B;
+  --surface: #1F2023;
+  --panel-border: #4A4D52;
+  --row-border: #2C2E32;
+  --text: #E8E8E6;
+  --muted: #8E9196;
+  --hint: #ABAEB2;
+  --headline: #4FD1C5;
+  --table-header: #8FE0D8;
+  --button: #34373C;
+  --track: #3E4146;
+  --hover: rgba(232, 232, 230, 0.04);
+  --hover-strong: rgba(232, 232, 230, 0.07);
+  --selected: rgba(79, 209, 197, 0.10);
+  --series-0: #4FD1C5;
+  --series-6: #E7C96D;
+}
+
+/* Light. */
+:root[data-theme="paper"] {
+  --bg: #F6F1E7;
+  --surface: #FFFCF6;
+  --panel-border: #CBBBA0;
+  --row-border: #E4DACA;
+  --text: #2A241E;
+  --muted: #7A6E5F;
+  --hint: #6A6054;
+  --headline: #8C5E0D;
+  --table-header: #6E4C14;
+  --button: #E6DAC4;
+  --positive: #2E7D32;
+  --negative: #C0392B;
+  --track: #DDD2BF;
+  --hover: rgba(42, 36, 30, 0.04);
+  --hover-strong: rgba(42, 36, 30, 0.07);
+  --selected: rgba(140, 94, 13, 0.10);
+  --backdrop: rgb(40 30 20 / 35%);
+  --series-0: #B8860B;
+  --series-1: #1E6FB8;
+  --series-2: #C0392B;
+  --series-3: #2E7D32;
+  --series-4: #7B4FA6;
+  --series-5: #C7652E;
+  --series-6: #0E8C80;
+  --series-7: #B03A73;
+  --series-8: #4A5AC7;
+  --series-9: #7A6E5F;
+
+  color-scheme: light;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 14px/1.5 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+
+body {
+  min-height: 100vh;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+/* Layout: sidebar menu + content */
+
+.app {
+  display: grid;
+  grid-template-columns: 200px minmax(0, 1fr);
+  min-height: 100vh;
+}
+
+.sidebar {
+  position: sticky;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  height: 100vh;
+  padding: 16px 12px;
+  border-right: 1px solid var(--row-border);
+}
+
+.brand {
+  margin: 0 0 12px;
+  padding: 0 8px;
+  font-size: 18px;
+}
+
+.nav-item {
+  font: inherit;
+  text-align: left;
+  color: var(--text);
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+  padding: 6px 8px;
+  cursor: pointer;
+}
+
+.nav-item:hover,
+.nav-item:focus-visible {
+  background: var(--surface);
+  outline: none;
+}
+
+.nav-item[aria-current="page"] {
+  color: var(--bg);
+  background: var(--headline);
+  font-weight: bold;
+}
+
+.nav-spacer {
+  flex: 1;
+}
+
+.content {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+  padding: 16px;
+}
+
+.content-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 30px;
+}
+
+.view-title {
+  margin: 0;
+  font-size: 16px;
+  color: var(--headline);
+}
+
+.view,
+.pane {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.view {
+  flex: 1;
+}
+
+/* Tabs switch between panes or filters inside a view. */
+.tabs {
+  display: flex;
+  gap: 4px;
+  align-self: flex-start;
+  padding: 3px;
+  border: 1px solid var(--row-border);
+  border-radius: 6px;
+}
+
+.tab {
+  font: inherit;
+  color: var(--hint);
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+  padding: 3px 12px;
+  cursor: pointer;
+}
+
+.tab:hover,
+.tab:focus-visible {
+  color: var(--text);
+  background: var(--surface);
+  outline: none;
+}
+
+.tab[aria-selected="true"] {
+  color: var(--bg);
+  background: var(--headline);
+  font-weight: bold;
+}
+
+.month-switch {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.month-label {
+  min-width: 160px;
+  text-align: center;
+  font-weight: bold;
+  color: var(--headline);
+}
+
+.month-switch #month-current {
+  margin-left: auto;
+}
+
+/* A row of headline numbers with labels above them. */
+.figures {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px 16px;
+}
+
+.figure {
+  font-size: 20px;
+  font-weight: bold;
+  font-variant-numeric: tabular-nums;
+}
+
+.columns {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 16px;
+}
+
+@media (max-width: 760px) {
+  .app {
+    grid-template-columns: 150px minmax(0, 1fr);
+  }
+}
+
+.setup {
+  max-width: 640px;
+  padding: 16px;
+}
+
+/* Label/value lists */
+
+.stats {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 6px 16px;
+  margin: 10px 0 0;
+}
+
+.stats dt {
+  color: var(--hint);
+}
+
+.stats dd {
+  margin: 0;
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/* A value too long to share a row with its label goes on its own line. */
+.stats dd.wide {
+  grid-column: 1 / -1;
+  margin-top: -4px;
+}
+
+.stats + .table {
+  margin-top: 12px;
+}
+
+.progress {
+  height: 6px;
+  margin-top: 4px;
+  border-radius: 3px;
+  background: var(--track);
+  overflow: hidden;
+}
+
+.progress-large {
+  height: 8px;
+  margin: 6px 0 2px;
+}
+
+.dialog > .progress {
+  margin: -4px 0 4px;
+}
+
+.progress-fill {
+  height: 100%;
+  background: var(--positive);
+}
+
+.path {
+  margin: 8px 0 0;
+  overflow-wrap: anywhere;
+}
+
+.toolbar,
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.actions {
+  margin: 16px 0 4px;
+}
+
+.panel {
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  padding: 12px 16px;
+  /* Wide tables scroll inside their panel rather than the whole page;
+     relative keeps absolutely positioned children inside that scroll. */
+  position: relative;
+  overflow-x: auto;
+}
+
+.panel-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 8px;
+}
+
+.label,
+.field-label {
+  color: var(--headline);
+  font-weight: bold;
+}
+
+.amount {
+  font-size: 32px;
+  font-weight: bold;
+  font-variant-numeric: tabular-nums;
+}
+
+.currency-totals {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 2px 16px;
+  margin: 4px 0 8px;
+  padding: 0;
+  list-style: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.currency-totals li {
+  display: contents;
+}
+
+.currency-amount {
+  font-size: 16px;
+  font-weight: bold;
+  text-align: right;
+}
+
+.currency-totals .muted,
+.currency-totals .negative {
+  align-self: center;
+}
+
+.section-title {
+  margin: 0;
+  font-size: 14px;
+  color: var(--headline);
+  text-decoration: underline;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.hint {
+  margin: 8px 0 0;
+  color: var(--hint);
+  font-style: italic;
+  font-size: 12px;
+}
+
+.positive {
+  color: var(--positive);
+}
+
+.negative {
+  color: var(--negative);
+}
+
+/* Tables */
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.table th {
+  color: var(--table-header);
+  text-align: left;
+  padding: 4px 12px 4px 0;
+  white-space: nowrap;
+}
+
+.table td {
+  padding: 6px 12px 6px 0;
+  border-top: 1px solid var(--row-border);
+  vertical-align: top;
+}
+
+.table th:last-child,
+.table td:last-child {
+  padding-right: 0;
+}
+
+.table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.clickable tbody tr {
+  cursor: pointer;
+}
+
+.clickable tbody tr:hover td,
+.clickable tbody tr:focus-visible td {
+  background: var(--surface);
+}
+
+.clickable tbody tr:focus-visible {
+  outline: 1px solid var(--headline);
+}
+
+.table tr.ignored td {
+  color: var(--muted);
+}
+
+.account-name {
+  font-weight: bold;
+}
+
+.account-description {
+  color: var(--muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 4px;
+  background: var(--button);
+  color: var(--hint);
+  font-size: 11px;
+  font-weight: normal;
+  white-space: nowrap;
+}
+
+.logs {
+  margin-top: 8px;
+}
+
+.table .nowrap {
+  white-space: nowrap;
+}
+
+.table .wrap {
+  overflow-wrap: anywhere;
+}
+
+.row-action {
+  font: inherit;
+  font-size: 12px;
+  color: var(--muted);
+  background: transparent;
+  border: 0;
+  padding: 0 2px;
+  cursor: pointer;
+}
+
+.row-action + .row-action {
+  margin-left: 8px;
+}
+
+.row-action:hover,
+.row-action:focus-visible {
+  color: var(--negative);
+  outline: none;
+  text-decoration: underline;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* Controls */
+
+.button {
+  font: inherit;
+  color: var(--text);
+  background: var(--button);
+  border: 0;
+  border-radius: 4px;
+  padding: 4px 12px;
+  cursor: pointer;
+}
+
+.button:hover,
+.button:focus-visible {
+  color: var(--bg);
+  background: var(--headline);
+  outline: none;
+}
+
+.button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.button-primary {
+  color: var(--bg);
+  background: var(--headline);
+  font-weight: bold;
+}
+
+.button-primary:hover,
+.button-primary:focus-visible {
+  background: var(--table-header);
+}
+
+.button-danger {
+  color: var(--negative);
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--negative);
+}
+
+/* A second way to save, next to the primary button. */
+.button-accent {
+  color: var(--headline);
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--headline);
+}
+
+.button-accent:hover,
+.button-accent:focus-visible {
+  color: var(--bg);
+  background: var(--headline);
+}
+
+.button-danger:hover,
+.button-danger:focus-visible {
+  color: var(--bg);
+  background: var(--negative);
+}
+
+input,
+select,
+textarea {
+  font: inherit;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 4px;
+  padding: 4px 8px;
+  min-width: 0;
+}
+
+input:not([type="checkbox"]),
+select {
+  height: 30px;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  outline: none;
+  border-color: var(--headline);
+}
+
+input[type="checkbox"] {
+  accent-color: var(--headline);
+  width: 16px;
+  height: 16px;
+  margin: 0;
+}
+
+.inline-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Forms & dialogs */
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+}
+
+.field-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px;
+}
+
+.field-button {
+  flex: none;
+  padding: 5px 12px;
+}
+
+.check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+/* The form's gap spaces its children; paragraphs add no margin of their own. */
+.form p {
+  margin: 0;
+}
+
+.form-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.dialog {
+  width: min(460px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  padding: 16px 20px;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+}
+
+.dialog-wide {
+  width: min(560px, calc(100vw - 32px));
+}
+
+.dialog::backdrop {
+  background: var(--backdrop);
+}
+
+.dialog-title {
+  margin: 0 0 4px;
+  font-size: 16px;
+  color: var(--headline);
+}
+
+.dialog > .muted {
+  margin: 0 0 12px;
+  overflow-wrap: anywhere;
+}
+
+.subhead {
+  margin: 12px 0 0;
+  font-size: 13px;
+  color: var(--table-header);
+}
+
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.dialog-actions.spread {
+  justify-content: space-between;
+}
+
+.dialog-actions-group {
+  display: flex;
+  gap: 8px;
+  /* Stays on the right even when the delete button is hidden. */
+  margin-left: auto;
+}
+
+.settings-lists {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.status {
+  color: var(--muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+/* Charts (see js/charts.js) */
+
+.chart {
+  position: relative;
+  margin-top: 8px;
+}
+
+.chart svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.chart-grid line {
+  stroke: var(--row-border);
+  stroke-width: 1;
+}
+
+.chart-grid line.chart-zero {
+  stroke: var(--panel-border);
+}
+
+.chart text {
+  fill: var(--muted);
+  font: 11px ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+
+.bar-positive {
+  fill: var(--positive);
+}
+
+.bar-negative {
+  fill: var(--negative);
+}
+
+.chart-line {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linejoin: round;
+}
+
+.chart-dots circle {
+  fill: currentColor;
+}
+
+.line-income {
+  color: var(--positive);
+  opacity: 0.55;
+}
+
+.line-expense {
+  color: var(--negative);
+  opacity: 0.55;
+}
+
+.line-value {
+  color: var(--headline);
+}
+
+.chart-hover rect {
+  fill: transparent;
+}
+
+.chart-hover rect.active {
+  fill: var(--hover-strong);
+}
+
+.chart-tip {
+  position: absolute;
+  top: 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--panel-border);
+  border-radius: 6px;
+  background: var(--surface);
+  font-size: 12px;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.chart-tip-title {
+  color: var(--headline);
+}
+
+.chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin-top: 6px;
+  color: var(--hint);
+  font-size: 12px;
+}
+
+.chart-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.chart-swatch {
+  display: inline-block;
+  width: 12px;
+  height: 4px;
+  border-radius: 2px;
+  background: currentColor;
+}
+
+.chart-swatch.bar-positive {
+  height: 10px;
+  background: linear-gradient(90deg, var(--positive) 50%, var(--negative) 50%);
+}
+
+.chart-controls {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px 16px;
+}
+
+/* Series colors for charts with many lines, like categories. */
+.series-0 { color: var(--series-0); }
+.series-1 { color: var(--series-1); }
+.series-2 { color: var(--series-2); }
+.series-3 { color: var(--series-3); }
+.series-4 { color: var(--series-4); }
+.series-5 { color: var(--series-5); }
+.series-6 { color: var(--series-6); }
+.series-7 { color: var(--series-7); }
+.series-8 { color: var(--series-8); }
+.series-9 { color: var(--series-9); }
+
+.series-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 8px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+tr.selected td {
+  background: var(--selected);
+}
+
+/* Sortable table headers: the header is a button; th[aria-sort] marks the
+   column the table is sorted by. */
+.sort-button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.sort-button:hover,
+.sort-button:focus-visible {
+  outline: none;
+  text-decoration: underline;
+}
+
+th[aria-sort="ascending"] .sort-button::after {
+  content: " ▲";
+  font-size: 10px;
+}
+
+th[aria-sort="descending"] .sort-button::after {
+  content: " ▼";
+  font-size: 10px;
+}
+
+/* A payment that's due soon. */
+.badge.badge-soon {
+  color: var(--bg);
+  background: var(--negative);
+}
+
+.due-box {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  padding: 8px 12px;
+  border: 1px solid var(--row-border);
+  border-radius: 6px;
+}
+
+/* "Also add as an expense" in a payment form. */
+.cashflow-box {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* A button that reads as a link inside text. */
+.link-button {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+/* Analytics */
+
+.subsection-title {
+  margin: 16px 0 8px;
+  font-size: 13px;
+  color: var(--table-header);
+}
+
+/* Estimated months of a line, drawn dashed. */
+.line-estimated {
+  color: var(--headline);
+  opacity: 0.6;
+}
+
+.chart-line.line-estimated {
+  stroke-dasharray: 5 4;
+}
+
+.chart-swatch.line-estimated {
+  background: repeating-linear-gradient(90deg, currentColor 0 4px, transparent 4px 6px);
+}
+
+.line-committed {
+  color: var(--table-header);
+}
+
+.chart-line.line-committed {
+  stroke-dasharray: 2 4;
+}
+
+.chart-dots.line-committed {
+  display: none;
+}
+
+/* Categories as bars of their share: name, bar, amount, percent. */
+.share-list {
+  display: grid;
+  grid-template-columns: minmax(80px, max-content) minmax(60px, 1fr) max-content 4em;
+  align-items: center;
+  gap: 6px 12px;
+}
+
+.share-bar {
+  height: 8px;
+  border-radius: 4px;
+  background: var(--track);
+  overflow: hidden;
+}
+
+.share-bar > div {
+  height: 100%;
+  background: var(--negative);
+}
+
+.share-list .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+#an-forecast-table {
+  margin-top: 12px;
+}
+
+.chart-swatch.bar-negative {
+  height: 10px;
+  background: var(--negative);
+}
+
+/* Analytics tabs, with the range picker on the right. */
+.analytics-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+}
+
+.bar-fixed {
+  fill: var(--table-header);
+}
+
+.chart-swatch.bar-fixed {
+  height: 10px;
+  background: var(--table-header);
+}
+
+/* Currency shares are neither good nor bad. */
+.share-bar-neutral > div {
+  background: var(--headline);
+}
+
+#an-exposure-table {
+  margin-top: 12px;
+}
+
+/* Five headline figures fit on one row. */
+#an-pane-summary .figures {
+  grid-template-columns: repeat(auto-fit, minmax(125px, 1fr));
+}
+
+/* Backup & export */
+
+.export-columns {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 8px 24px;
+  margin-top: 8px;
+}
+
+.export-group {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+
+.export-group legend {
+  padding: 0;
+}
+
+.check-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.export-files {
+  margin: 4px 0 0;
+  padding-left: 20px;
+  font-variant-numeric: tabular-nums;
+}
+
+.button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+/* Budgets: a row per budget with a bar of what's spent of the limit. */
+.budget-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.budget-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px 16px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--row-border);
+  cursor: pointer;
+}
+
+.budget-row:last-child {
+  border-bottom: 0;
+}
+
+.budget-row:hover,
+.budget-row:focus-visible {
+  background: var(--hover);
+  outline: none;
+}
+
+.budget-row .progress {
+  grid-column: 1 / -1;
+  height: 8px;
+  margin: 0;
+}
+
+.budget-row .budget-amounts {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.budget-row .budget-detail {
+  grid-column: 1 / -1;
+  color: var(--hint);
+  font-size: 12px;
+}
+
+.budget-close .progress-fill {
+  background: var(--headline);
+}
+
+.budget-over .progress-fill {
+  background: var(--negative);
+}
+
+.budget-total .account-name {
+  color: var(--headline);
+}
+
+.budget-compact {
+  padding: 6px 0;
+}
+
+/* The budget line in the expense dialog. */
+.budget-hint {
+  margin: -4px 0 0;
+  font-size: 12px;
+  color: var(--hint);
+}
+
+.budget-hint .negative {
+  font-weight: bold;
+}
+
+#overview-budgets-setup {
+  align-self: flex-start;
+  margin-top: 8px;
+}
+
+.budget-hint .close {
+  color: var(--headline);
+}
+
+textarea {
+  resize: vertical;
+  line-height: 1.4;
+}
+
+/* Month notes (see js/notes.js): a marker over the month on charts, the
+   note in the tooltip, and a line under month headings. */
+.chart-note {
+  fill: var(--table-header);
+}
+
+.chart-hover.clickable rect {
+  cursor: pointer;
+}
+
+.chart-tip-note {
+  max-width: 260px;
+  margin-top: 4px;
+  white-space: normal;
+  color: var(--table-header);
+}
+
+.chart-tip-hint {
+  margin-top: 4px;
+  color: var(--muted);
+  font-style: italic;
+}
+
+.month-note {
+  margin: 8px 0 12px;
+  color: var(--table-header);
+  white-space: pre-line;
+}
+
+.month-note .link-button {
+  margin-left: 8px;
+}
+
+.months-note {
+  color: var(--table-header);
+  font-size: 12px;
+  white-space: normal;
+}
+
+/* Settings → Appearance: a card per theme with its colors. */
+.theme-picker {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.theme-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  font: inherit;
+  text-align: left;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--row-border);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.theme-card:hover,
+.theme-card:focus-visible {
+  border-color: var(--panel-border);
+  outline: none;
+}
+
+.theme-card[aria-checked="true"] {
+  border-color: var(--headline);
+  box-shadow: inset 0 0 0 1px var(--headline);
+}
+
+.theme-swatch {
+  display: flex;
+  height: 28px;
+  border-radius: 4px;
+  overflow: hidden;
+  border: 1px solid var(--row-border);
+}
+
+.theme-swatch span {
+  flex: 1;
+}
+
+.theme-swatch span:last-child {
+  flex: 0 0 30%;
+}
+
+.theme-name {
+  font-weight: bold;
+}
+
+.theme-note {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/* Incomes & expenses → Search */
+.search-text {
+  width: 100%;
+  height: 36px !important;
+  font-size: 15px;
+}
+
+.search-filters {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 8px 12px;
+}
+
+.search-bulk {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+  border: 1px solid var(--headline);
+  border-radius: 6px;
+  background: var(--selected);
+}
+
+.search-bulk-action {
+  display: inline-flex;
+  gap: 6px;
+}
+
+.search-bulk .hint {
+  flex-basis: 100%;
+  margin: 0;
+}
+
+.check-cell {
+  width: 28px;
+}
+
+/* Tags: chips in a box like an input (see js/tags-input.js), and the tags
+   shown on entries. */
+.tags-input {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  min-height: 30px;
+  padding: 2px 4px;
+  background: var(--bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 4px;
+  cursor: text;
+}
+
+.tags-input:focus-within {
+  border-color: var(--headline);
+}
+
+.tags-input input {
+  flex: 1;
+  min-width: 120px;
+  height: 24px !important;
+  border: 0;
+  padding: 0 4px;
+  background: transparent;
+}
+
+.tag-chip,
+.tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 6px;
+  border-radius: 10px;
+  font-size: 12px;
+  color: var(--table-header);
+  background: var(--selected);
+  border: 1px solid var(--row-border);
+  white-space: nowrap;
+}
+
+.tag {
+  margin: 2px 4px 0 0;
+}
+
+.tag-remove {
+  padding: 0 2px;
+  font: inherit;
+  line-height: 1;
+  color: var(--muted);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+
+.tag-remove:hover {
+  color: var(--negative);
+}
+
+.tag-breakdown td {
+  background: var(--surface);
+}
+
+.tag-breakdown .stats {
+  margin: 4px 0 8px;
+}
+
+#unlock-path {
+  margin-bottom: 12px;
+}

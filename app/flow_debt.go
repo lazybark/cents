@@ -7,6 +7,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/lazybark/cents/dates"
 	"github.com/lazybark/cents/flows/debt"
 )
 
@@ -92,7 +93,7 @@ func (m TheApplication) renderDebtTableRow(width int, index int, item debt.Debt)
 
 	due := "-"
 	if item.DueDate != nil {
-		due = item.DueDate.Local().Format("2006-01-02")
+		due = item.DueDate.Format("2006-01-02")
 	}
 
 	dir := "out"
@@ -223,49 +224,7 @@ func (m TheApplication) renderDebtChoiceRow(field int, label string, options []s
 }
 
 func (m TheApplication) debtProgressTotalsBase(items []debt.Debt) (paid int64, total int64) {
-	for _, item := range items {
-		itemTotal := item.AmountCents
-		itemPaid := item.AmountPaidCents
-
-		if itemTotal < 0 {
-			itemTotal = 0
-		}
-
-		if itemPaid < 0 {
-			itemPaid = 0
-		}
-
-		if itemPaid > itemTotal {
-			itemPaid = itemTotal
-		}
-
-		totalBase, totalOK := m.convertToBaseCents(item.Currency, itemTotal)
-		paidBase, paidOK := m.convertToBaseCents(item.Currency, itemPaid)
-
-		if totalOK && paidOK {
-			total += totalBase
-			paid += paidBase
-
-			continue
-		}
-
-		total += itemTotal
-		paid += itemPaid
-	}
-
-	if paid > total {
-		paid = total
-	}
-
-	if paid < 0 {
-		paid = 0
-	}
-
-	if total < 0 {
-		total = 0
-	}
-
-	return paid, total
+	return debt.ProgressInBaseCents(items)
 }
 
 func (m TheApplication) confirmDeleteDebt() (tea.Model, tea.Cmd) {
@@ -394,9 +353,9 @@ func (m TheApplication) openDebtEditor(selected debt.Debt) tea.Model {
 	m.editDebtForm = debt.NewEditDebtForm()
 	m.editDebtForm.AmountInput.SetValue(formatAmount(selected.AmountCents))
 	m.editDebtForm.AmountPaidInput.SetValue(formatAmount(selected.AmountPaidCents))
-	m.editDebtForm.DebtCreatedInput.SetValue(selected.DebtCreatedAt.Local().Format("02.01.2006"))
+	m.editDebtForm.DebtCreatedInput.SetValue(selected.DebtCreatedAt.Format("02.01.2006"))
 	if selected.DueDate != nil {
-		m.editDebtForm.DueDateInput.SetValue(selected.DueDate.Local().Format("02.01.2006"))
+		m.editDebtForm.DueDateInput.SetValue(selected.DueDate.Format("02.01.2006"))
 	}
 	m.editDebtForm.CommentInput.SetValue(selected.Comment)
 	m.editDebtForm.LogDateInput.SetValue(time.Now().Format("02.01.2006"))
@@ -462,59 +421,19 @@ func (m TheApplication) updateDebtEdit(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m TheApplication) saveDebtFromForm() (tea.Model, tea.Cmd) {
-	peer := strings.TrimSpace(m.addDebtForm.Inputs[0].Value())
 	currency := selectedCurrencyOption(m.addDebtForm.CurrencyOptions, m.addDebtForm.CurrencyIndex)
-	amountRaw := strings.TrimSpace(m.addDebtForm.Inputs[1].Value())
-	amountPaidRaw := strings.TrimSpace(m.addDebtForm.Inputs[2].Value())
-	debtCreatedRaw := strings.TrimSpace(m.addDebtForm.Inputs[3].Value())
-	dueRaw := strings.TrimSpace(m.addDebtForm.Inputs[4].Value())
-	comment := strings.TrimSpace(m.addDebtForm.Inputs[5].Value())
+	inputs := m.addDebtForm.Inputs
 
-	if peer == "" {
-		m.status = "peer is required"
-		return m, nil
-	}
+	// The TUI keeps the currency's rate in settings now with the debt.
+	rate, _ := m.settings.EntryRate(currency, "")
 
-	amount, err := parseAmountCents(amountRaw)
-	if err != nil {
-		m.status = "amount error: " + err.Error()
-		return m, nil
-	}
-
-	amountPaid, err := parseAmountCents(amountPaidRaw)
-	if err != nil {
-		m.status = "amount paid error: " + err.Error()
-		return m, nil
-	}
-	if amountPaid > amount {
-		m.status = "amount paid cannot be more than amount"
-		return m, nil
-	}
-
-	debtCreatedAt, err := parseRequiredDate(debtCreatedRaw)
+	newDebt, err := debt.New(m.addDebtForm.IsOwedToUser, inputs[0].Value(), currency, rate, inputs[1].Value(), inputs[2].Value(), inputs[3].Value(), inputs[4].Value(), inputs[5].Value(), dates.TUI, time.Now())
 	if err != nil {
 		m.status = err.Error()
 		return m, nil
 	}
 
-	dueDate, err := parseOptionalDatePointer(dueRaw)
-	if err != nil {
-		m.status = err.Error()
-		return m, nil
-	}
-
-	now := time.Now()
-	newDebt := debt.Debt{
-		Peer:            peer,
-		Currency:        currency,
-		AmountCents:     amount,
-		AmountPaidCents: amountPaid,
-		IsOwedToUser:    m.addDebtForm.IsOwedToUser,
-		DebtCreatedAt:   debtCreatedAt,
-		DueDate:         dueDate,
-		Comment:         comment,
-		LastUpdatedAt:   now,
-	}
+	peer := newDebt.Peer
 
 	if err := m.storage.CreateDebt(&newDebt); err != nil {
 		m.status = "save failed: " + err.Error()
@@ -541,39 +460,12 @@ func (m TheApplication) saveDebtEdit() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	amount, err := parseAmountCents(strings.TrimSpace(m.editDebtForm.AmountInput.Value()))
-	if err != nil {
-		m.status = "amount error: " + err.Error()
-		return m, nil
-	}
-	amountPaid, err := parseAmountCents(strings.TrimSpace(m.editDebtForm.AmountPaidInput.Value()))
-	if err != nil {
-		m.status = "amount paid error: " + err.Error()
-		return m, nil
-	}
-	if amountPaid > amount {
-		m.status = "amount paid cannot be more than amount"
-		return m, nil
-	}
-
-	debtCreatedAt, err := parseRequiredDate(strings.TrimSpace(m.editDebtForm.DebtCreatedInput.Value()))
+	form := m.editDebtForm
+	selected, err := m.debts[index].Edit(form.AmountInput.Value(), form.AmountPaidInput.Value(), form.DebtCreatedInput.Value(), form.DueDateInput.Value(), form.CommentInput.Value(), dates.TUI, time.Now())
 	if err != nil {
 		m.status = err.Error()
 		return m, nil
 	}
-	dueDate, err := parseOptionalDatePointer(strings.TrimSpace(m.editDebtForm.DueDateInput.Value()))
-	if err != nil {
-		m.status = err.Error()
-		return m, nil
-	}
-
-	selected := m.debts[index]
-	selected.AmountCents = amount
-	selected.AmountPaidCents = amountPaid
-	selected.DebtCreatedAt = debtCreatedAt
-	selected.DueDate = dueDate
-	selected.Comment = strings.TrimSpace(m.editDebtForm.CommentInput.Value())
-	selected.LastUpdatedAt = time.Now()
 
 	if err := m.storage.SaveDebt(&selected); err != nil {
 		m.status = "save failed: " + err.Error()
@@ -593,46 +485,18 @@ func (m TheApplication) applyDebtLogDelta() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	delta, err := parseSignedAmountCents(strings.TrimSpace(m.editDebtForm.LogDeltaInput.Value()))
-	if err != nil {
-		m.status = "log delta error: " + err.Error()
-		return m, nil
-	}
-	if delta == 0 {
-		m.status = "delta cannot be zero"
-		return m, nil
-	}
-
-	selected := m.debts[index]
-	nextPaid := selected.AmountPaidCents + delta
-	if nextPaid < 0 || nextPaid > selected.AmountCents {
-		m.status = "delta makes amount paid out of range"
-		return m, nil
-	}
-
-	entryTime, err := parseLogDateOrToday(strings.TrimSpace(m.editDebtForm.LogDateInput.Value()))
+	form := m.editDebtForm
+	selected, entry, err := m.debts[index].ApplyPayment(form.LogDeltaInput.Value(), form.LogDateInput.Value(), form.LogCommentInput.Value(), dates.TUI, time.Now())
 	if err != nil {
 		m.status = err.Error()
 		return m, nil
 	}
-	now := time.Now()
-	selected.AmountPaidCents = nextPaid
-	selected.LastUpdatedAt = now
+
 	if err := m.storage.SaveDebt(&selected); err != nil {
 		m.status = "debt update failed: " + err.Error()
 		return m, nil
 	}
 
-	note := strings.TrimSpace(m.editDebtForm.LogCommentInput.Value())
-	if note == "" {
-		note = "manual paid adjustment"
-	}
-	entry := debt.DebtLog{
-		DebtID:         selected.ID,
-		DeltaPaidCents: delta,
-		Note:           note,
-		CreatedAt:      entryTime,
-	}
 	if err := m.storage.CreateDebtLog(&entry); err != nil {
 		m.status = "log save failed: " + err.Error()
 		return m, nil
@@ -658,23 +522,12 @@ func (m TheApplication) findDebtIndex(id uint) int {
 }
 
 func (m TheApplication) filteredDebts() []debt.Debt {
-	filtered := make([]debt.Debt, 0, len(m.debts))
-	for _, item := range m.debts {
-		paid := item.AmountPaidCents >= item.AmountCents
-		switch m.debtMode {
-		case debtListOutgoing:
-			if !item.IsOwedToUser && !paid {
-				filtered = append(filtered, item)
-			}
-		case debtListIncoming:
-			if item.IsOwedToUser && !paid {
-				filtered = append(filtered, item)
-			}
-		case debtListHistory:
-			if paid {
-				filtered = append(filtered, item)
-			}
-		}
+	switch m.debtMode {
+	case debtListIncoming:
+		return debt.Filter(m.debts, debt.ListIncoming)
+	case debtListHistory:
+		return debt.Filter(m.debts, debt.ListPaid)
+	default:
+		return debt.Filter(m.debts, debt.ListOutgoing)
 	}
-	return filtered
 }

@@ -1,0 +1,361 @@
+package desktop
+
+import (
+	"fmt"
+	"time"
+
+	"github.com/lazybark/cents/flows/analytics"
+	"github.com/lazybark/cents/flows/cashflow"
+	"github.com/lazybark/cents/summary"
+)
+
+const (
+	dayLayout = "2006-01-02"
+
+	// The headline figures go by the last year of full months, whatever
+	// range is picked for the charts.
+	headlineMonths = 12
+	forecastDays   = 90
+)
+
+// Analytics is the Analytics screen: headline figures, net worth over time,
+// where the money goes over the picked range, and what's coming due. Money
+// is in cents of the base currency.
+type Analytics struct {
+	BaseCurrency string `json:"baseCurrency"`
+	// Months is the picked range, 0 for all time.
+	Months int `json:"months"`
+
+	// The averages over the last full months (AveragedMonths of them, up to
+	// a year).
+	AveragedMonths int     `json:"averagedMonths"`
+	AverageIncome  int64   `json:"averageIncomeCents"`
+	AverageExpense int64   `json:"averageExpenseCents"`
+	SavingsRate    float64 `json:"savingsRate"`
+	HasSavingsRate bool    `json:"hasSavingsRate"`
+
+	// Runway is how many months the accounts would cover the average
+	// expense.
+	Accounts     int64   `json:"accountsCents"`
+	RunwayMonths float64 `json:"runwayMonths"`
+	HasRunway    bool    `json:"hasRunway"`
+
+	// Committed is what subscriptions and obligations cost a month; FixedShare
+	// is that as a part of the average expense, in percent.
+	Committed     int64   `json:"committedCents"`
+	FixedShare    float64 `json:"fixedShare"`
+	HasFixedShare bool    `json:"hasFixedShare"`
+
+	// NetWorth now, and how it changed since the end of last year (or since
+	// the first month there's a value for, ChangeSince). When that start is
+	// an estimate (ChangeEstimated), the change is in what's owned only, as
+	// the estimate has nothing else.
+	NetWorth        int64  `json:"netWorthCents"`
+	Change          int64  `json:"changeCents"`
+	HasChange       bool   `json:"hasChange"`
+	ChangeSince     string `json:"changeSince"`
+	ChangeEstimated bool   `json:"changeEstimated"`
+
+	NetWorthHistory []NetWorthPoint `json:"netWorthHistory"`
+
+	// Over the picked range, the running month included.
+	Spending []CategorySpending `json:"spending"`
+	Monthly  []MonthTotals      `json:"monthly"`
+
+	Forecast []ForecastItem `json:"forecast"`
+	// What the forecast adds up to out and in, and what usually comes in
+	// over as many days going by the average income.
+	ForecastDays    int   `json:"forecastDays"`
+	ForecastOut     int64 `json:"forecastOutCents"`
+	ForecastIn      int64 `json:"forecastInCents"`
+	TypicalIncome   int64 `json:"typicalIncomeCents"`
+	ForecastMissing int   `json:"forecastMissing"`
+
+	// RangeStart is the picked range's first month.
+	RangeStart  string      `json:"rangeStart"`
+	Commitments Commitments `json:"commitments"`
+	// This month so far and last month against the usual.
+	ThisMonth   UsualComparison `json:"thisMonth"`
+	LastMonth   UsualComparison `json:"lastMonth"`
+	Exposure    []ExposureRow   `json:"exposure"`
+	FX          FXView          `json:"fx"`
+	Property    AssetGrowthView `json:"property"`
+	Investments AssetGrowthView `json:"investments"`
+	Goals       []GoalPaceRow   `json:"goals"`
+}
+
+// NetWorthPoint is a month of net worth history. Source says where its
+// value comes from: "saved" by the app, "entered" by the user, or
+// "estimated".
+type NetWorthPoint struct {
+	Month     string `json:"month"`
+	Cents     int64  `json:"cents"`
+	Estimated bool   `json:"estimated"`
+	Source    string `json:"source"`
+}
+
+const (
+	SourceSaved     = "saved"
+	SourceEntered   = "entered"
+	SourceEstimated = "estimated"
+)
+
+// NetWorthInput is a net worth entered for a month (YYYY-MM).
+type NetWorthInput struct {
+	Month  string `json:"month"`
+	Amount string `json:"amount"`
+}
+
+type CategorySpending struct {
+	Category string  `json:"category"`
+	Cents    int64   `json:"cents"`
+	Share    float64 `json:"share"`
+}
+
+// MonthTotals is a month's income and expense with the part of income
+// kept, and the expense split into fixed (what subscriptions and
+// obligations cost a month now, at most the whole expense) and flexible.
+type MonthTotals struct {
+	Month          string  `json:"month"`
+	IncomeCents    int64   `json:"incomeCents"`
+	ExpenseCents   int64   `json:"expenseCents"`
+	SavingsRate    float64 `json:"savingsRate"`
+	HasSavingsRate bool    `json:"hasSavingsRate"`
+	FixedCents     int64   `json:"fixedCents"`
+	FlexibleCents  int64   `json:"flexibleCents"`
+}
+
+type ForecastItem struct {
+	Date      string `json:"date"`
+	Kind      string `json:"kind"`
+	Name      string `json:"name"`
+	Incoming  bool   `json:"incoming"`
+	Currency  string `json:"currency"`
+	IsBase    bool   `json:"isBase"`
+	Cents     int64  `json:"cents"`
+	BaseCents int64  `json:"baseCents"`
+	HasRate   bool   `json:"hasRate"`
+	Overdue   bool   `json:"overdue"`
+}
+
+// Analytics builds the Analytics screen for the last months months (0 for
+// all time) and keeps this month's net worth for its history.
+func (a *API) Analytics(months int) (Analytics, error) {
+	if months < 0 {
+		return Analytics{}, fmt.Errorf("the range can't be negative")
+	}
+
+	storage, err := a.currentStorage()
+	if err != nil {
+		return Analytics{}, err
+	}
+
+	data, err := loadSummaryData(storage)
+	if err != nil {
+		return Analytics{}, err
+	}
+
+	now := time.Now()
+	sum := summary.Compute(data, now)
+	if err := keepSnapshot(storage, sum, now); err != nil {
+		return Analytics{}, err
+	}
+
+	h, err := loadHistory(storage, data)
+	if err != nil {
+		return Analytics{}, err
+	}
+
+	history := analytics.NetWorthHistory(h, now)
+
+	// Like Statistics, real numbers: archived categories count.
+	rows, _ := cashflow.MonthlyOverview(data.Cashflows)
+	first := rangeStart(months, now, rows, h)
+	avg := analytics.Average(analytics.Window(rows, now, headlineMonths))
+	stts := data.Settings
+
+	result := Analytics{
+		BaseCurrency:    stts.BaseCurrencyLabel(),
+		Months:          months,
+		AveragedMonths:  avg.Months,
+		AverageIncome:   avg.IncomeCents,
+		AverageExpense:  avg.ExpenseCents,
+		SavingsRate:     avg.SavingsRate,
+		HasSavingsRate:  avg.HasRate,
+		Accounts:        sum.AccountsCents,
+		Committed:       analytics.CommittedPerMonth(data.Subscriptions, stts),
+		NetWorth:        sum.NetWorthCents(),
+		NetWorthHistory: make([]NetWorthPoint, 0, len(history)),
+		Spending:        make([]CategorySpending, 0),
+		Monthly:         monthTotals(rows, first, now),
+		RangeStart:      first.Format(monthLayout),
+		Forecast:        make([]ForecastItem, 0),
+		ForecastDays:    forecastDays,
+		TypicalIncome:   avg.IncomeCents * forecastDays / 30,
+	}
+
+	if avg.ExpenseCents > 0 {
+		result.RunwayMonths = float64(sum.AccountsCents) / float64(avg.ExpenseCents)
+		result.HasRunway = true
+		result.FixedShare = float64(result.Committed) / float64(avg.ExpenseCents) * 100
+		result.HasFixedShare = true
+	}
+
+	for _, point := range history {
+		source := SourceSaved
+		switch {
+		case point.Estimated:
+			source = SourceEstimated
+		case point.Manual:
+			source = SourceEntered
+		}
+
+		result.NetWorthHistory = append(result.NetWorthHistory, NetWorthPoint{Month: point.Month.Format(monthLayout), Cents: point.Cents, Estimated: point.Estimated, Source: source})
+	}
+
+	if start, ok := yearStart(history, now); ok {
+		result.Change = result.NetWorth - start.Cents
+		if start.Estimated {
+			result.Change = analytics.Snapshot(sum, now).OwnedCents - start.Cents
+		}
+
+		result.HasChange = true
+		result.ChangeSince = start.Month.Format(monthLayout)
+		result.ChangeEstimated = start.Estimated
+	}
+
+	for _, share := range analytics.SpendingByCategory(data.Cashflows, now, months) {
+		result.Spending = append(result.Spending, CategorySpending(share))
+	}
+
+	for _, due := range analytics.Forecast(data, now, forecastDays) {
+		result.Forecast = append(result.Forecast, ForecastItem{
+			Date:      due.Date.Format(dayLayout),
+			Kind:      due.Kind,
+			Name:      due.Name,
+			Incoming:  due.Incoming,
+			Currency:  due.Currency,
+			IsBase:    due.Currency == "" || stts.IsBase(due.Currency),
+			Cents:     due.Cents,
+			BaseCents: due.BaseCents,
+			HasRate:   due.HasRate,
+			Overdue:   due.Overdue,
+		})
+
+		switch {
+		case !due.HasRate:
+			result.ForecastMissing++
+		case due.Incoming:
+			result.ForecastIn += due.BaseCents
+		default:
+			result.ForecastOut += due.BaseCents
+		}
+	}
+
+	if err := addMore(&result, storage, data, h, rows, first, now); err != nil {
+		return Analytics{}, err
+	}
+
+	return result, nil
+}
+
+// SetNetWorth keeps a net worth the user entered for a month, to backfill
+// or correct the history. The app doesn't replace it, even for this month.
+func (a *API) SetNetWorth(input NetWorthInput) error {
+	storage, err := a.currentStorage()
+	if err != nil {
+		return err
+	}
+
+	snapshot, err := analytics.Manual(input.Month, input.Amount, time.Now())
+	if err != nil {
+		return err
+	}
+
+	return storage.SetNetWorthSnapshot(&snapshot)
+}
+
+// DeleteNetWorth deletes what's kept for a month (YYYY-MM): the month goes
+// back to an estimate, or for this month to the value the app keeps.
+func (a *API) DeleteNetWorth(month string) error {
+	storage, err := a.currentStorage()
+	if err != nil {
+		return err
+	}
+
+	parsed, err := analytics.ParseMonth(month, time.Now())
+	if err != nil {
+		return err
+	}
+
+	return storage.DeleteNetWorthSnapshot(parsed)
+}
+
+// keepSnapshot keeps net worth now as this month's, so the history has it
+// once the month is over.
+func keepSnapshot(storage StorageWorker, sum summary.Summary, now time.Time) error {
+	snapshot := analytics.Snapshot(sum, now)
+	if err := storage.SaveNetWorthSnapshot(&snapshot); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// loadHistory loads what net worth history and holdings over time go by.
+func loadHistory(storage StorageWorker, data summary.Data) (analytics.History, error) {
+	h := analytics.History{Accounts: data.Accounts, Assets: data.Assets, Settings: data.Settings}
+
+	var err error
+	if h.Snapshots, err = storage.LoadNetWorthSnapshots(); err != nil {
+		return h, err
+	}
+
+	if h.AccountLogs, err = storage.LoadAllAccountValueLogs(); err != nil {
+		return h, err
+	}
+
+	if h.AssetLogs, err = storage.LoadAllAssetValueLogs(); err != nil {
+		return h, err
+	}
+
+	return h, nil
+}
+
+// yearStart is net worth as the year began: last December's, else the first
+// month this year there's a value for, unless that's this month.
+func yearStart(history []analytics.MonthValue, now time.Time) (analytics.MonthValue, bool) {
+	december := analytics.MonthStart(now)
+	december = december.AddDate(0, -int(december.Month()), 0)
+
+	for _, point := range history {
+		if point.Month.Equal(december) {
+			return point, true
+		}
+
+		if point.Month.After(december) {
+			return point, !point.Month.Equal(analytics.MonthStart(now))
+		}
+	}
+
+	return analytics.MonthValue{}, false
+}
+
+// monthTotals is income and expense for each month from first to the
+// running one, oldest first.
+func monthTotals(rows []cashflow.CashflowMonthlyOverviewRow, first, now time.Time) []MonthTotals {
+	byMonth := map[string]cashflow.CashflowMonthlyOverviewRow{}
+	for _, row := range rows {
+		byMonth[row.Month.Format(monthLayout)] = row
+	}
+
+	last := cashflow.MonthStart(now)
+
+	totals := make([]MonthTotals, 0)
+	for month := first; !month.After(last); month = month.AddDate(0, 1, 0) {
+		row := byMonth[month.Format(monthLayout)]
+		totals = append(totals, MonthTotals{Month: month.Format(monthLayout), IncomeCents: row.IncomeBase, ExpenseCents: row.ExpenseBase})
+	}
+
+	return totals
+}

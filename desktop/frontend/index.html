@@ -1,0 +1,2452 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>cents</title>
+  <!-- The saved theme (see js/theme.js), before anything draws. -->
+  <script>
+    try {
+      var theme = localStorage.getItem("cents.theme") || "amber";
+      if (theme === "system") theme = window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches ? "paper" : "amber";
+      if (theme !== "amber") document.documentElement.dataset.theme = theme;
+    } catch (e) {}
+  </script>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main id="setup" class="setup" hidden>
+    <h1 class="brand">cents</h1>
+    <section class="panel">
+      <h2 class="section-title">Choose a database</h2>
+      <p id="setup-note" class="negative" hidden></p>
+      <p class="muted">Your choice is saved, so this screen only shows up again if the database goes missing.</p>
+      <div class="actions">
+        <button id="create-db" class="button button-primary" type="button">Create new database</button>
+        <button id="open-db" class="button" type="button">Open existing database</button>
+      </div>
+      <p id="setup-error" class="negative" hidden></p>
+    </section>
+  </main>
+
+  <main id="unlock" class="setup" hidden>
+    <h1 class="brand">cents</h1>
+    <section class="panel">
+      <h2 class="section-title">This database has a password</h2>
+      <p id="unlock-path" class="path"></p>
+      <form id="unlock-form" class="form" novalidate>
+        <label class="field">
+          <span class="field-label">Password</span>
+          <input type="password" name="password" autocomplete="current-password">
+        </label>
+        <p class="form-error negative" hidden></p>
+        <div class="actions">
+          <button type="submit" class="button button-primary">Unlock</button>
+          <button id="unlock-other" type="button" class="button">Choose another database</button>
+        </div>
+      </form>
+      <p class="hint">The password can't be recovered: without it, the data can't be read.</p>
+    </section>
+  </main>
+
+  <main id="currency-setup" class="setup" hidden>
+    <h1 class="brand">cents</h1>
+    <section class="panel">
+      <h2 class="section-title">Pick your currencies</h2>
+      <p class="muted">Add the currencies you use and mark the one every total should be shown in. Rates are fetched for you and updated once a day.</p>
+      <form id="currency-pick-form" class="form" novalidate>
+        <div class="field-row">
+          <label class="field">
+            <span class="field-label">Find a currency</span>
+            <input id="currency-search" list="currency-catalog" placeholder="EUR, euro, lari, €…" autocomplete="off" autofocus>
+          </label>
+          <button class="button field-button" type="submit">Add</button>
+        </div>
+        <p class="form-error negative" hidden></p>
+      </form>
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Currency</th>
+            <th>Base</th>
+            <th><span class="visually-hidden">Actions</span></th>
+          </tr>
+        </thead>
+        <tbody id="currency-picked"></tbody>
+      </table>
+      <p id="currency-picked-empty" class="muted">No currencies yet.</p>
+      <h3 class="subsection-title">Password (optional)</h3>
+      <p class="muted">Encrypts the database, so the file can't be read without it. It can't be recovered if forgotten; you can also set one later in Settings.</p>
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">Password</span>
+          <input id="setup-password" type="password" autocomplete="new-password">
+        </label>
+        <label class="field">
+          <span class="field-label">Repeat it</span>
+          <input id="setup-password-again" type="password" autocomplete="new-password">
+        </label>
+      </div>
+      <p id="currency-setup-error" class="negative" hidden></p>
+      <div class="actions">
+        <button id="currency-save" class="button button-primary" type="button">Save currencies</button>
+        <button id="currency-skip" class="button" type="button">Skip for now</button>
+      </div>
+      <p class="hint">You can add, link or remove currencies later in Settings.</p>
+    </section>
+  </main>
+
+  <div id="app" class="app" hidden>
+    <nav class="sidebar" aria-label="Main menu">
+      <h1 class="brand">cents</h1>
+      <button class="nav-item" type="button" data-view="overview">Overview</button>
+      <button class="nav-item" type="button" data-view="analytics">Analytics</button>
+      <button class="nav-item" type="button" data-view="accounts">Accounts</button>
+      <button class="nav-item" type="button" data-view="property">Property</button>
+      <button class="nav-item" type="button" data-view="investments">Investments</button>
+      <button class="nav-item" type="button" data-view="cashflow">Incomes &amp; expenses</button>
+      <button class="nav-item" type="button" data-view="budgets">Budgets</button>
+      <button class="nav-item" type="button" data-view="subscriptions">Subscriptions</button>
+      <button class="nav-item" type="button" data-view="obligations">Obligations</button>
+      <button class="nav-item" type="button" data-view="invoices">Invoices</button>
+      <button class="nav-item" type="button" data-view="debts">Debts</button>
+      <button class="nav-item" type="button" data-view="credits">Credits</button>
+      <button class="nav-item" type="button" data-view="goals">Goals</button>
+      <button class="nav-item" type="button" data-view="taxes">Taxes</button>
+      <div class="nav-spacer"></div>
+      <button class="nav-item" type="button" data-view="backup">Backup &amp; export</button>
+      <button class="nav-item" type="button" data-view="settings">Settings</button>
+    </nav>
+
+    <div class="content">
+      <header class="content-head">
+        <h2 id="view-title" class="view-title"></h2>
+        <div class="toolbar">
+          <button id="add-income" class="button button-primary" type="button" data-for="cashflow" hidden>Add income</button>
+          <button id="add-expense" class="button" type="button" data-for="cashflow" hidden>Add expense</button>
+          <button id="add-subscription" class="button button-primary" type="button" data-for="subscriptions" hidden>Add subscription</button>
+          <button id="add-obligation" class="button button-primary" type="button" data-for="obligations" hidden>Add obligation</button>
+          <button id="add-account" class="button button-primary" type="button" data-for="accounts" hidden>Add account</button>
+          <button id="add-budget" class="button button-primary" type="button" data-for="budgets" hidden>Add budget</button>
+          <button id="add-property" class="button button-primary" type="button" data-for="property" hidden>Add property</button>
+          <button id="add-investment" class="button button-primary" type="button" data-for="investments" hidden>Add investment</button>
+          <button id="add-invoice" class="button button-primary" type="button" data-for="invoices" hidden>Add invoice</button>
+          <button id="add-debt" class="button button-primary" type="button" data-for="debts" hidden>Add debt</button>
+          <button id="add-credit" class="button button-primary" type="button" data-for="credits" hidden>Add credit</button>
+          <button id="add-goal" class="button button-primary" type="button" data-for="goals" hidden>Add goal</button>
+          <button id="add-tax" class="button button-primary" type="button" data-for="taxes" hidden>Add tax</button>
+          <button id="refresh" class="button" type="button">Refresh</button>
+        </div>
+      </header>
+
+      <!-- Overview: same figures as the TUI home screen. -->
+      <section id="view-overview" class="view" hidden>
+        <section class="panel">
+          <div class="label">Net worth</div>
+          <div id="net-worth" class="amount">—</div>
+          <p class="hint">Accounts, property and investments plus debts and invoices owed to you, minus debts, taxes, invoices and credits you owe.</p>
+        </section>
+        <div class="columns">
+          <section class="panel">
+            <h3 class="section-title">Financial summary</h3>
+            <dl id="financial" class="stats"></dl>
+          </section>
+          <section class="panel">
+            <h3 class="section-title">Obligations</h3>
+            <dl id="obligations" class="stats"></dl>
+          </section>
+        </div>
+        <section id="overview-budgets" class="panel">
+          <h3 class="section-title">Budgets this month</h3>
+          <div id="overview-budgets-list" class="budget-list"></div>
+          <p id="overview-budgets-note" class="hint"></p>
+          <button id="overview-budgets-setup" class="button" type="button" hidden>Set budgets</button>
+        </section>
+        <section class="panel">
+          <h3 class="section-title">Coming up</h3>
+          <table id="upcoming-table" class="table clickable">
+            <tbody id="upcoming-rows"></tbody>
+          </table>
+          <p id="upcoming-empty" class="muted" hidden>No regular payments due soon.</p>
+          <p id="upcoming-unscheduled" class="negative" hidden></p>
+          <p id="upcoming-hint" class="hint" hidden>Click one to open it.</p>
+          <p class="hint">Active subscriptions and obligations due within 5 days (monthly), 2 days (weekly), 2 weeks (quarterly) or a month (yearly).</p>
+        </section>
+      </section>
+
+      <section id="view-analytics" class="view" hidden>
+        <div class="analytics-head">
+          <div id="an-tabs" class="tabs" role="tablist">
+            <button class="tab" type="button" role="tab" data-tab="summary">Summary</button>
+            <button class="tab" type="button" role="tab" data-tab="spending">Spending</button>
+            <button class="tab" type="button" role="tab" data-tab="currencies">Currencies</button>
+            <button class="tab" type="button" role="tab" data-tab="assets">Assets &amp; goals</button>
+          </div>
+          <label id="an-range-field" class="inline-field">
+            <span class="field-label">Show</span>
+            <select id="an-range">
+              <option value="3">Last 3 months</option>
+              <option value="6">Last 6 months</option>
+              <option value="12" selected>Last 12 months</option>
+              <option value="24">Last 24 months</option>
+              <option value="0">All months</option>
+            </select>
+          </label>
+        </div>
+
+        <div id="an-pane-summary" class="pane">
+          <section class="panel">
+            <div class="figures">
+              <div>
+                <div class="label">Savings rate</div>
+                <div id="an-savings" class="figure"></div>
+                <div id="an-savings-note" class="hint"></div>
+              </div>
+              <div>
+                <div class="label">Runway</div>
+                <div id="an-runway" class="figure"></div>
+                <div id="an-runway-note" class="hint"></div>
+              </div>
+              <div>
+                <div class="label">Fixed costs</div>
+                <div id="an-fixed" class="figure"></div>
+                <div id="an-fixed-note" class="hint"></div>
+              </div>
+              <div>
+                <div class="label">Commitments</div>
+                <div id="an-commitments" class="figure"></div>
+                <div id="an-commitments-note" class="hint"></div>
+              </div>
+              <div>
+                <div class="label">Net worth this year</div>
+                <div id="an-change" class="figure"></div>
+                <div id="an-change-note" class="hint"></div>
+              </div>
+            </div>
+            <p id="an-averages" class="hint"></p>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <h3 class="section-title">Net worth over time</h3>
+              <button id="an-networth-edit" type="button" class="button">Edit history</button>
+            </div>
+            <div id="an-networth-chart"></div>
+            <div id="an-networth-legend" class="chart-legend"></div>
+            <p id="an-networth-note" class="hint"></p>
+          </section>
+
+          <section class="panel">
+            <h3 id="an-forecast-title" class="section-title">Next 90 days</h3>
+            <div class="figures">
+              <div>
+                <div class="label">Going out</div>
+                <div id="an-out" class="figure"></div>
+              </div>
+              <div>
+                <div class="label">Coming in, known</div>
+                <div id="an-in" class="figure"></div>
+              </div>
+              <div>
+                <div class="label">Usual income</div>
+                <div id="an-typical" class="figure"></div>
+              </div>
+            </div>
+            <table id="an-forecast-table" class="table clickable">
+              <tbody id="an-forecast-rows"></tbody>
+            </table>
+            <p id="an-forecast-empty" class="muted" hidden>Nothing with a date is due.</p>
+            <p id="an-forecast-missing" class="hint" hidden></p>
+            <p class="hint">Active subscriptions and obligations, plus unpaid debts, credits, taxes and invoices with a due date, overdue ones first. Click one to go to its list.</p>
+          </section>
+        </div>
+
+        <div id="an-pane-spending" class="pane" hidden>
+          <section class="panel">
+            <h3 class="section-title">Savings rate by month</h3>
+            <div id="an-rate-chart"></div>
+            <div id="an-rate-legend" class="chart-legend"></div>
+            <p class="hint">The part of each month's income that wasn't spent. Months without income have no rate; the chart stops at −100%.</p>
+          </section>
+
+          <section class="panel">
+            <h3 class="section-title">Fixed and flexible spending</h3>
+            <div id="an-monthly-chart"></div>
+            <div id="an-monthly-legend" class="chart-legend"></div>
+            <p class="hint">Fixed is what your subscriptions and obligations cost a month now (no more than the month's spending), flexible is everything else. In the base currency; archived categories count, like in Statistics.</p>
+            <h4 class="subsection-title">By category</h4>
+            <div id="an-spending" class="share-list"></div>
+            <p id="an-spending-empty" class="muted" hidden>No expenses in this range.</p>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <h3 class="section-title">Compared with your usual</h3>
+              <div id="an-usual-tabs" class="tabs" role="tablist">
+                <button class="tab" type="button" role="tab" data-which="this">This month</button>
+                <button class="tab" type="button" role="tab" data-which="last">Last month</button>
+              </div>
+            </div>
+            <p id="an-usual-summary" class="muted"></p>
+            <div id="an-usual-note"></div>
+            <table id="an-usual-table" class="table">
+              <thead>
+                <tr>
+                  <th>Category</th>
+                  <th class="num" id="an-usual-month-head">This month</th>
+                  <th class="num">Usual</th>
+                  <th class="num">Difference</th>
+                </tr>
+              </thead>
+              <tbody id="an-usual-rows"></tbody>
+            </table>
+            <p id="an-usual-empty" class="muted" hidden></p>
+            <p class="hint">Usual is the average a month over the 12 months before (fewer when your records start later). Marked are changes of 30% or more either way that are also at least 2% of your usual monthly spending.</p>
+          </section>
+        </div>
+
+        <div id="an-pane-currencies" class="pane" hidden>
+          <section class="panel">
+            <h3 class="section-title">Currency exposure</h3>
+            <div id="an-exposure" class="share-list"></div>
+            <table id="an-exposure-table" class="table">
+              <thead>
+                <tr>
+                  <th>Currency</th>
+                  <th class="num">Owned</th>
+                  <th class="num">Owed to me</th>
+                  <th class="num">I owe</th>
+                  <th class="num">Net</th>
+                </tr>
+              </thead>
+              <tbody id="an-exposure-rows"></tbody>
+            </table>
+            <p id="an-exposure-empty" class="muted" hidden>Nothing held yet.</p>
+            <p id="an-exposure-missing" class="hint" hidden></p>
+            <p class="hint">Owned is accounts counted in summaries plus property and investments counted in net worth; the bars split it by currency in the base currency at today's rates. Owed is what's left on debts, invoices, credits and taxes.</p>
+          </section>
+
+          <section class="panel">
+            <h3 class="section-title">Effect of exchange rates</h3>
+            <div class="figures">
+              <div>
+                <div class="label">Over the range</div>
+                <div id="an-fx-total" class="figure"></div>
+                <div id="an-fx-since" class="hint"></div>
+              </div>
+            </div>
+            <div id="an-fx-chart"></div>
+            <p id="an-fx-none" class="muted" hidden>Rates didn't change the value of anything you held in other currencies in this range, or nothing in them had a value logged before it.</p>
+            <dl id="an-fx-currencies" class="stats"></dl>
+            <p id="an-fx-missing" class="hint" hidden></p>
+            <p class="hint">How much what you held in other currencies at the start of each month gained or lost in the base currency from rate changes alone. Holdings go by the value history of accounts and assets; past rates by the rates recorded with your entries and, from now on, the rates the app keeps every day.</p>
+          </section>
+        </div>
+
+        <div id="an-pane-assets" class="pane" hidden>
+          <section class="panel">
+            <h3 class="section-title">Investments</h3>
+            <div id="an-investments-figures" class="figures"></div>
+            <div id="an-investments-chart"></div>
+            <div id="an-investments-legend" class="chart-legend"></div>
+            <p id="an-investments-empty" class="muted" hidden>No investments counted in net worth.</p>
+          </section>
+
+          <section class="panel">
+            <h3 class="section-title">Property</h3>
+            <div id="an-property-figures" class="figures"></div>
+            <div id="an-property-chart"></div>
+            <div id="an-property-legend" class="chart-legend"></div>
+            <p id="an-property-empty" class="muted" hidden>No property counted in net worth.</p>
+          </section>
+          <p class="hint">Value goes by each one's value history, in the base currency at today's rates so rate changes don't count as gains. Gain is value minus what was paid, for those with a cost given.</p>
+
+          <section class="panel">
+            <h3 class="section-title">Goals pace</h3>
+            <table id="an-goals-table" class="table clickable">
+              <thead>
+                <tr>
+                  <th>Goal</th>
+                  <th class="num">Left</th>
+                  <th class="num">Lately a month</th>
+                  <th>At this pace</th>
+                </tr>
+              </thead>
+              <tbody id="an-goals-rows"></tbody>
+            </table>
+            <p id="an-goals-empty" class="muted" hidden>No goals in progress.</p>
+            <p class="hint">The pace is what was added over the last 6 months (or since the goal started). Click one to go to Goals.</p>
+          </section>
+        </div>
+      </section>
+
+      <section id="view-accounts" class="view" hidden>
+        <section class="panel">
+          <div class="label">Total balance</div>
+          <div id="total" class="amount">—</div>
+          <ul id="currency-totals" class="currency-totals" hidden></ul>
+          <div id="notes" class="muted"></div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <h3 class="section-title">Accounts</h3>
+            <label class="inline-field">
+              <span class="muted">Sort</span>
+              <select id="sort"></select>
+            </label>
+          </div>
+          <table class="table accounts clickable">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Currency</th>
+                <th class="num">Amount</th>
+                <th id="base-heading" class="num">In base</th>
+                <th>Updated</th>
+              </tr>
+            </thead>
+            <tbody id="accounts"></tbody>
+          </table>
+          <p id="empty" class="muted" hidden>No accounts yet. Use “Add account” to create one.</p>
+          <p id="accounts-hint" class="hint">Click an account to update its amount, edit its value history or delete it.</p>
+        </section>
+      </section>
+
+      <section id="view-property" class="view" hidden>
+        <section class="panel">
+          <div class="figures">
+            <div>
+              <div class="label">Total value</div>
+              <div class="figure asset-total"></div>
+            </div>
+            <div>
+              <div class="label">Gain / loss</div>
+              <div class="figure asset-gain"></div>
+            </div>
+          </div>
+          <p class="hint asset-hint"></p>
+        </section>
+
+        <section class="panel asset-types-panel" hidden>
+          <h3 class="section-title">By type</h3>
+          <dl class="stats asset-types"></dl>
+        </section>
+
+        <section class="panel">
+          <table class="table clickable">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Type</th>
+                <th class="asset-acquired-heading">Acquired</th>
+                <th class="num asset-cost-heading">Cost</th>
+                <th class="num">Value</th>
+                <th class="num">Gain</th>
+              </tr>
+            </thead>
+            <tbody class="asset-rows"></tbody>
+          </table>
+          <p class="muted asset-empty" hidden></p>
+          <p class="hint asset-click-hint">Click one to edit it, log its value or delete it.</p>
+        </section>
+      </section>
+
+      <section id="view-investments" class="view" hidden>
+        <section class="panel">
+          <div class="figures">
+            <div>
+              <div class="label">Total value</div>
+              <div class="figure asset-total"></div>
+            </div>
+            <div>
+              <div class="label">Gain / loss</div>
+              <div class="figure asset-gain"></div>
+            </div>
+          </div>
+          <p class="hint asset-hint"></p>
+        </section>
+
+        <section class="panel asset-types-panel" hidden>
+          <h3 class="section-title">By type</h3>
+          <dl class="stats asset-types"></dl>
+        </section>
+
+        <section class="panel">
+          <table class="table clickable">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Type</th>
+                <th class="asset-acquired-heading">Acquired</th>
+                <th class="num asset-cost-heading">Cost</th>
+                <th class="num">Value</th>
+                <th class="num">Gain</th>
+              </tr>
+            </thead>
+            <tbody class="asset-rows"></tbody>
+          </table>
+          <p class="muted asset-empty" hidden></p>
+          <p class="hint asset-click-hint">Click one to edit it, log its value or delete it.</p>
+        </section>
+      </section>
+
+      <section id="view-cashflow" class="view" hidden>
+        <div class="tabs" role="tablist">
+          <button class="tab" type="button" role="tab" data-tab="month">Month</button>
+          <button class="tab" type="button" role="tab" data-tab="months">All months</button>
+          <button class="tab" type="button" role="tab" data-tab="stats">Statistics</button>
+          <button class="tab" type="button" role="tab" data-tab="categories">Categories</button>
+          <button class="tab" type="button" role="tab" data-tab="tags">Tags</button>
+          <button class="tab" type="button" role="tab" data-tab="search">Search</button>
+        </div>
+
+        <div id="cashflow-month" class="pane">
+          <section class="panel">
+            <div class="month-switch">
+              <button id="month-prev" class="button" type="button" aria-label="Previous month">‹</button>
+              <span id="month-label" class="month-label"></span>
+              <button id="month-next" class="button" type="button" aria-label="Next month">›</button>
+              <button id="month-current" class="button" type="button">This month</button>
+            </div>
+            <div id="month-note"></div>
+            <div class="figures">
+              <div>
+                <div class="label">Income</div>
+                <div id="month-income" class="figure positive"></div>
+              </div>
+              <div>
+                <div class="label">Expense</div>
+                <div id="month-expense" class="figure"></div>
+              </div>
+              <div>
+                <div class="label">Net</div>
+                <div id="month-net" class="figure"></div>
+              </div>
+            </div>
+            <p id="month-missing" class="hint" hidden></p>
+          </section>
+
+          <section id="month-budgets" class="panel" hidden>
+            <div class="panel-head">
+              <h3 class="section-title">Budgets</h3>
+              <button id="month-budgets-open" class="link-button" type="button">All budgets</button>
+            </div>
+            <div id="month-budgets-list" class="budget-list"></div>
+          </section>
+
+          <section class="panel">
+            <table id="month-table" class="table">
+              <thead>
+                <tr>
+                  <th><button class="sort-button" type="button" data-sort="date">Date</button></th>
+                  <th><button class="sort-button" type="button" data-sort="category">Category</button></th>
+                  <th><button class="sort-button" type="button" data-sort="account">Account</button></th>
+                  <th><button class="sort-button" type="button" data-sort="comment">Comment</button></th>
+                  <th class="num"><button class="sort-button" type="button" data-sort="amount">Amount</button></th>
+                  <th class="num"><button class="sort-button" type="button" data-sort="base"><span id="month-base-heading">In base</span></button></th>
+                  <th><span class="visually-hidden">Actions</span></th>
+                </tr>
+              </thead>
+              <tbody id="month-entries"></tbody>
+            </table>
+            <p id="month-empty" class="muted" hidden>No records for this month.</p>
+          </section>
+        </div>
+
+        <div id="cashflow-months" class="pane" hidden>
+          <section class="panel">
+            <table class="table clickable">
+              <thead>
+                <tr>
+                  <th>Month</th>
+                  <th id="months-income-heading" class="num">Income</th>
+                  <th id="months-expense-heading" class="num">Expense</th>
+                  <th id="months-net-heading" class="num">Net</th>
+                  <th class="num">Net vs previous</th>
+                </tr>
+              </thead>
+              <tbody id="months-rows"></tbody>
+            </table>
+            <p id="months-empty" class="muted" hidden>No records yet.</p>
+            <p id="months-missing" class="hint" hidden></p>
+            <p id="months-hint" class="hint">Click a month to see its entries.</p>
+          </section>
+        </div>
+
+        <div id="cashflow-stats" class="pane" hidden>
+          <section class="panel">
+            <div class="panel-head">
+              <h3 class="section-title">Net result by month</h3>
+              <div class="chart-controls">
+                <label class="inline-field">
+                  <span class="field-label">Show</span>
+                  <select id="stats-range">
+                    <option value="12">Last 12 months</option>
+                    <option value="24">Last 24 months</option>
+                    <option value="36">Last 36 months</option>
+                    <option value="0">All months</option>
+                  </select>
+                </label>
+                <label class="check">
+                  <!-- Statistics show the real numbers by default, archived
+                       categories included; Categories leave them out. -->
+                  <input id="stats-archived" type="checkbox" checked>
+                  <span>Include archived</span>
+                </label>
+              </div>
+            </div>
+            <div id="stats-chart"></div>
+            <div id="stats-legend" class="chart-legend"></div>
+            <p id="stats-empty" class="muted" hidden>No records yet.</p>
+            <p id="stats-missing" class="hint" hidden></p>
+            <p id="stats-archived-note" class="hint" hidden></p>
+          </section>
+          <section id="stats-figures-panel" class="panel">
+            <div class="figures">
+              <div>
+                <div class="label">Average net a month</div>
+                <div id="stats-average" class="figure"></div>
+              </div>
+              <div>
+                <div class="label">Total net</div>
+                <div id="stats-total" class="figure"></div>
+              </div>
+              <div>
+                <div class="label">Best month</div>
+                <div id="stats-best" class="figure"></div>
+                <div id="stats-best-month" class="hint"></div>
+              </div>
+              <div>
+                <div class="label">Worst month</div>
+                <div id="stats-worst" class="figure"></div>
+                <div id="stats-worst-month" class="hint"></div>
+              </div>
+            </div>
+            <dl id="stats-more" class="stats"></dl>
+          </section>
+        </div>
+
+        <div id="cashflow-search" class="pane" hidden>
+          <section class="panel">
+            <form id="search-form" class="form" novalidate>
+              <input name="text" type="search" class="search-text" placeholder="Search comments, categories, accounts, amounts…" autocomplete="off" spellcheck="false">
+              <div class="search-filters">
+                <label class="field">
+                  <span class="field-label">Type</span>
+                  <select name="kind">
+                    <option value="">Both</option>
+                    <option value="expense">Expenses</option>
+                    <option value="income">Incomes</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span class="field-label">Category</span>
+                  <select name="category"></select>
+                </label>
+                <label class="field">
+                  <span class="field-label">Account</span>
+                  <select name="account"></select>
+                </label>
+                <label class="field">
+                  <span class="field-label">Currency</span>
+                  <select name="currency"></select>
+                </label>
+                <label class="field">
+                  <span class="field-label">Tag</span>
+                  <select name="tag"></select>
+                </label>
+                <label class="field">
+                  <span class="field-label">From</span>
+                  <input type="date" name="from">
+                </label>
+                <label class="field">
+                  <span class="field-label">To</span>
+                  <input type="date" name="to">
+                </label>
+                <label class="field">
+                  <span class="field-label" id="search-min-label">At least</span>
+                  <input name="minBase" inputmode="decimal" maxlength="24" placeholder="0" autocomplete="off">
+                </label>
+                <label class="field">
+                  <span class="field-label" id="search-max-label">At most</span>
+                  <input name="maxBase" inputmode="decimal" maxlength="24" placeholder="any" autocomplete="off">
+                </label>
+              </div>
+              <p>
+                <button id="search-clear" class="link-button" type="button">Clear the search</button>
+              </p>
+              <p class="form-error negative" hidden></p>
+            </form>
+            <div id="search-summary" class="figures"></div>
+          </section>
+
+          <section class="panel">
+            <div id="search-bulk" class="search-bulk" hidden>
+              <span id="search-selected" class="label"></span>
+              <span class="search-bulk-action">
+                <select id="bulk-category" aria-label="New category"></select>
+                <button id="bulk-category-apply" class="button" type="button">Change category</button>
+              </span>
+              <span class="search-bulk-action">
+                <select id="bulk-account" aria-label="New account"></select>
+                <button id="bulk-account-apply" class="button" type="button">Change account</button>
+              </span>
+              <span class="search-bulk-action">
+                <input id="bulk-tag" list="tag-suggestions" maxlength="40" placeholder="Tag" aria-label="Tag" autocomplete="off">
+                <button id="bulk-tag-add" class="button" type="button">Add tag</button>
+                <button id="bulk-tag-remove" class="button" type="button">Remove tag</button>
+              </span>
+              <button id="search-unselect" class="link-button" type="button">Clear selection</button>
+              <p id="search-bulk-note" class="hint" hidden></p>
+            </div>
+            <table id="search-table" class="table clickable">
+              <thead>
+                <tr>
+                  <th class="check-cell"><input id="search-all" type="checkbox" aria-label="Select all shown"></th>
+                  <th>Date</th>
+                  <th>Category</th>
+                  <th>Account</th>
+                  <th>Comment</th>
+                  <th class="num">Amount</th>
+                  <th class="num" id="search-base-heading">In base</th>
+                </tr>
+              </thead>
+              <tbody id="search-rows"></tbody>
+            </table>
+            <p id="search-empty" class="muted" hidden>Nothing matches.</p>
+            <p id="search-more" class="hint" hidden></p>
+            <p class="hint">Click an entry to edit it; tick several to change their category or account together. ⌘F / Ctrl+F opens the search from anywhere.</p>
+          </section>
+        </div>
+
+        <div id="cashflow-tags-pane" class="pane" hidden>
+          <section class="panel">
+            <h3 class="section-title">Tags</h3>
+            <table id="tags-table" class="table clickable">
+              <thead>
+                <tr>
+                  <th>Tag</th>
+                  <th>When</th>
+                  <th class="num">Entries</th>
+                  <th class="num" id="tags-expense-head">Spent</th>
+                  <th class="num" id="tags-income-head">Received</th>
+                </tr>
+              </thead>
+              <tbody id="tags-rows"></tbody>
+            </table>
+            <p id="tags-empty" class="muted" hidden>No tags yet. Add tags to entries for things that go across categories, like “Trip to Japan”: flights, hotels and food then add up here together.</p>
+            <p id="tags-unused" class="hint" hidden></p>
+            <p class="hint">Click a tag to see what it's made of. Tags are added in the entry dialog, or to many entries at once in Search; they're renamed, archived or deleted in Settings.</p>
+          </section>
+        </div>
+
+        <div id="cashflow-categories" class="pane" hidden>
+          <section class="panel">
+            <div class="panel-head">
+              <h3 id="cat-title" class="section-title"></h3>
+              <div class="chart-controls">
+                <label class="inline-field">
+                  <span class="field-label">Of</span>
+                  <select id="cat-kind">
+                    <option value="expense">Expenses</option>
+                    <option value="income">Incomes</option>
+                  </select>
+                </label>
+                <label class="inline-field">
+                  <span class="field-label">Category</span>
+                  <select id="cat-pick"></select>
+                </label>
+                <label class="inline-field">
+                  <span class="field-label">Show</span>
+                  <select id="cat-range">
+                    <option value="12">Last 12 months</option>
+                    <option value="24">Last 24 months</option>
+                    <option value="36">Last 36 months</option>
+                    <option value="0">All months</option>
+                  </select>
+                </label>
+                <label class="check">
+                  <input id="cat-archived" type="checkbox">
+                  <span>Include archived</span>
+                </label>
+              </div>
+            </div>
+            <div id="cat-chart"></div>
+            <div id="cat-legend" class="chart-legend"></div>
+            <p id="cat-empty" class="muted" hidden></p>
+            <p id="cat-note" class="hint"></p>
+            <p id="cat-archived-note" class="hint" hidden></p>
+          </section>
+
+          <section id="cat-figures-panel" class="panel" hidden>
+            <div class="figures">
+              <div>
+                <div class="label">Total</div>
+                <div id="cat-total" class="figure"></div>
+              </div>
+              <div>
+                <div class="label">Average a month</div>
+                <div id="cat-average" class="figure"></div>
+              </div>
+              <div>
+                <div class="label">Highest month</div>
+                <div id="cat-high" class="figure"></div>
+                <div id="cat-high-month" class="hint"></div>
+              </div>
+              <div>
+                <div id="cat-share-label" class="label"></div>
+                <div id="cat-share" class="figure"></div>
+              </div>
+            </div>
+            <dl id="cat-more" class="stats"></dl>
+          </section>
+
+          <section id="cat-table-panel" class="panel">
+            <table class="table clickable">
+              <thead>
+                <tr>
+                  <th>Category</th>
+                  <th class="num">Total</th>
+                  <th class="num">Share</th>
+                  <th class="num">Per month</th>
+                  <th class="num">Entries</th>
+                </tr>
+              </thead>
+              <tbody id="cat-rows"></tbody>
+            </table>
+            <p class="hint">Click a category to see it on its own.</p>
+          </section>
+        </div>
+      </section>
+
+      <section id="view-subscriptions" class="view" hidden>
+        <div class="tabs" role="tablist">
+          <button class="tab" type="button" role="tab" data-mode="active">Active</button>
+          <button class="tab" type="button" role="tab" data-mode="all">All</button>
+        </div>
+
+        <section class="panel">
+          <div class="figures">
+            <div>
+              <div class="label">Active monthly</div>
+              <div class="figure regular-active-monthly"></div>
+            </div>
+            <div>
+              <div class="label">Active yearly</div>
+              <div class="figure regular-active-yearly"></div>
+            </div>
+            <div class="inactive-total" hidden>
+              <div class="label">Inactive monthly</div>
+              <div class="figure muted regular-inactive-monthly"></div>
+            </div>
+            <div class="inactive-total" hidden>
+              <div class="label">Inactive yearly</div>
+              <div class="figure muted regular-inactive-yearly"></div>
+            </div>
+          </div>
+          <p class="hint">Monthly counts what's paid every month or week; yearly counts everything over a year (weeks, months, quarters and years).</p>
+        </section>
+
+        <section class="panel">
+          <table class="table clickable">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Next payment</th>
+                <th>Every</th>
+                <th>Payment method</th>
+                <th class="num">Amount</th>
+                <th class="num regular-base-heading">In base</th>
+              </tr>
+            </thead>
+            <tbody class="regular-rows"></tbody>
+          </table>
+          <p class="muted regular-empty" hidden></p>
+          <p class="hint regular-hint">Click one to edit it, mark it paid, move it to obligations or delete it. Minor regular payments go here: streaming, apps, software.</p>
+        </section>
+      </section>
+
+      <section id="view-obligations" class="view" hidden>
+        <div class="tabs" role="tablist">
+          <button class="tab" type="button" role="tab" data-mode="active">Active</button>
+          <button class="tab" type="button" role="tab" data-mode="all">All</button>
+        </div>
+
+        <section class="panel">
+          <div class="figures">
+            <div>
+              <div class="label">Active monthly</div>
+              <div class="figure regular-active-monthly"></div>
+            </div>
+            <div>
+              <div class="label">Active yearly</div>
+              <div class="figure regular-active-yearly"></div>
+            </div>
+            <div class="inactive-total" hidden>
+              <div class="label">Inactive monthly</div>
+              <div class="figure muted regular-inactive-monthly"></div>
+            </div>
+            <div class="inactive-total" hidden>
+              <div class="label">Inactive yearly</div>
+              <div class="figure muted regular-inactive-yearly"></div>
+            </div>
+          </div>
+          <p class="hint">Monthly counts what's paid every month or week; yearly counts everything over a year (weeks, months, quarters and years).</p>
+        </section>
+
+        <section class="panel">
+          <table class="table clickable">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Next payment</th>
+                <th>Every</th>
+                <th>Payment method</th>
+                <th class="num">Amount</th>
+                <th class="num regular-base-heading">In base</th>
+              </tr>
+            </thead>
+            <tbody class="regular-rows"></tbody>
+          </table>
+          <p class="muted regular-empty" hidden></p>
+          <p class="hint regular-hint">Click one to edit it, mark it paid, move it to subscriptions or delete it. Serious regular payments go here: rent, insurance, utilities, loan payments.</p>
+        </section>
+      </section>
+
+      <section id="view-invoices" class="view" hidden>
+        <div class="tabs" role="tablist">
+          <button class="tab" type="button" role="tab" data-mode="outgoing">They pay me</button>
+          <button class="tab" type="button" role="tab" data-mode="incoming">I pay</button>
+          <button class="tab" type="button" role="tab" data-mode="paid">Paid</button>
+        </div>
+
+        <section class="panel">
+          <div class="figures">
+            <div>
+              <div class="label">Unpaid, owed to me</div>
+              <div id="invoices-to-me" class="figure"></div>
+            </div>
+            <div>
+              <div class="label">Unpaid, I owe</div>
+              <div id="invoices-by-me" class="figure"></div>
+            </div>
+          </div>
+          <p class="hint">All unpaid invoices, in the base currency at the rate recorded with each. <span id="invoices-not-counted"></span></p>
+        </section>
+
+        <section class="panel">
+          <table class="table clickable">
+            <thead>
+              <tr>
+                <th>Invoice</th>
+                <th>Issued</th>
+                <th>Due</th>
+                <th>Account</th>
+                <th class="num">Amount</th>
+              </tr>
+            </thead>
+            <tbody id="invoices-rows"></tbody>
+          </table>
+          <p id="invoices-empty" class="muted" hidden>No invoices here.</p>
+          <p id="invoices-hint" class="hint">Click an invoice to edit it, mark it paid or delete it.</p>
+        </section>
+      </section>
+
+      <section id="view-debts" class="view" hidden>
+        <div class="tabs" role="tablist">
+          <button class="tab" type="button" role="tab" data-mode="outgoing">I owe</button>
+          <button class="tab" type="button" role="tab" data-mode="incoming">Owed to me</button>
+          <button class="tab" type="button" role="tab" data-mode="paid">Paid</button>
+        </div>
+
+        <section class="panel">
+          <div class="label">Paid so far</div>
+          <div id="debts-progress-text" class="figure"></div>
+          <div class="progress progress-large"><div id="debts-progress-fill" class="progress-fill"></div></div>
+          <p class="hint">In the base currency, at the rate recorded with each debt. Debts without a rate count with their own amounts.</p>
+        </section>
+
+        <section class="panel">
+          <table class="table clickable">
+            <thead>
+              <tr>
+                <th>Peer</th>
+                <th>Created</th>
+                <th>Due</th>
+                <th class="num">Amount</th>
+                <th class="num">Paid</th>
+                <th class="num">Left</th>
+              </tr>
+            </thead>
+            <tbody id="debts-rows"></tbody>
+          </table>
+          <p id="debts-empty" class="muted" hidden>No debts here.</p>
+          <p id="debts-hint" class="hint">Click a debt to edit it, log a payment or delete it.</p>
+        </section>
+      </section>
+
+      <section id="view-credits" class="view" hidden>
+        <div class="tabs" role="tablist">
+          <button class="tab" type="button" role="tab" data-mode="active">Active</button>
+          <button class="tab" type="button" role="tab" data-mode="paid">Paid off</button>
+        </div>
+
+        <section class="panel">
+          <div class="figures">
+            <div>
+              <div class="label">Left to pay, all credits</div>
+              <div id="credits-left" class="figure"></div>
+            </div>
+            <div>
+              <div class="label">Paid back, this list</div>
+              <div id="credits-progress-text" class="figure"></div>
+            </div>
+          </div>
+          <div class="progress progress-large"><div id="credits-progress-fill" class="progress-fill"></div></div>
+          <p class="hint">In the base currency, at the rate recorded with each credit. What's left counts against net worth.</p>
+        </section>
+
+        <section class="panel">
+          <table class="table clickable">
+            <thead>
+              <tr>
+                <th>Credit</th>
+                <th>From</th>
+                <th>Due</th>
+                <th class="num">Total</th>
+                <th class="num">Paid</th>
+                <th class="num">Left</th>
+              </tr>
+            </thead>
+            <tbody id="credits-rows"></tbody>
+          </table>
+          <p id="credits-empty" class="muted" hidden>No credits here.</p>
+          <p id="credits-hint" class="hint">Click a credit to edit it, log a payment or an addition, or delete it.</p>
+        </section>
+      </section>
+
+      <section id="view-goals" class="view" hidden>
+        <div class="tabs" role="tablist">
+          <button class="tab" type="button" role="tab" data-mode="active">Active</button>
+          <button class="tab" type="button" role="tab" data-mode="done">Reached</button>
+        </div>
+
+        <section class="panel">
+          <div class="label">Saved so far</div>
+          <div id="goals-progress-text" class="figure"></div>
+          <div class="progress progress-large"><div id="goals-progress-fill" class="progress-fill"></div></div>
+          <p class="hint">In the base currency. Goals without a conversion rate count with their own amounts.</p>
+        </section>
+
+        <section class="panel">
+          <table class="table clickable">
+            <thead>
+              <tr>
+                <th>Goal</th>
+                <th>Started</th>
+                <th>Target date</th>
+                <th class="num">Target</th>
+                <th class="num">Saved</th>
+                <th class="num">Left</th>
+                <th class="num">Done</th>
+              </tr>
+            </thead>
+            <tbody id="goals-rows"></tbody>
+          </table>
+          <p id="goals-empty" class="muted" hidden>No goals here.</p>
+          <p id="goals-hint" class="hint">Click a goal to edit it, log money put aside or delete it.</p>
+        </section>
+      </section>
+
+      <section id="view-taxes" class="view" hidden>
+        <div class="tabs" role="tablist">
+          <button class="tab" type="button" role="tab" data-mode="unpaid">Unpaid</button>
+          <button class="tab" type="button" role="tab" data-mode="paid">Paid</button>
+        </div>
+
+        <section class="panel">
+          <div class="label">Paid so far</div>
+          <div id="taxes-progress-text" class="figure"></div>
+          <div class="progress progress-large"><div id="taxes-progress-fill" class="progress-fill"></div></div>
+          <p class="hint">In the base currency, at the rate recorded with each tax.</p>
+        </section>
+
+        <section class="panel">
+          <table class="table clickable">
+            <thead>
+              <tr>
+                <th>Tax</th>
+                <th>Period</th>
+                <th>Due date</th>
+                <th class="num">Due</th>
+                <th class="num">Paid</th>
+                <th class="num">Left</th>
+                <th class="num">Done</th>
+              </tr>
+            </thead>
+            <tbody id="taxes-rows"></tbody>
+          </table>
+          <p id="taxes-empty" class="muted" hidden>No taxes here.</p>
+          <p id="taxes-hint" class="hint">Click a tax to edit it, log a payment or delete it.</p>
+        </section>
+      </section>
+
+      <section id="view-budgets" class="view" hidden>
+        <section class="panel">
+          <div class="month-switch">
+            <button id="budgets-prev" class="button" type="button" aria-label="Previous month">‹</button>
+            <span id="budgets-month" class="month-label"></span>
+            <button id="budgets-next" class="button" type="button" aria-label="Next month">›</button>
+            <button id="budgets-current" class="button" type="button">This month</button>
+          </div>
+          <div id="budgets-note"></div>
+          <p id="budgets-summary" class="muted"></p>
+        </section>
+
+        <section class="panel">
+          <div id="budgets-list" class="budget-list"></div>
+          <p id="budgets-empty" class="muted" hidden>No budgets yet. Add one to set a monthly limit for a category, or for all your spending.</p>
+          <p id="budgets-missing" class="hint" hidden></p>
+          <p class="hint">Limits and spending are in the base currency. A budget turns yellow at 80% of its limit and red once it's over. Past months are compared with today's limits. Click one to change or delete it.</p>
+        </section>
+      </section>
+
+      <section id="view-backup" class="view" hidden>
+        <section class="panel">
+          <div class="panel-head">
+            <h3 class="section-title">Backup</h3>
+            <button id="backup-now" class="button button-primary" type="button">Back up now…</button>
+          </div>
+          <p id="backup-last"></p>
+          <p class="hint">A full copy of all your data in one file, made safely while the app is open; a database with a password gets a backup encrypted with it. To go back to a backup, open it in Settings → Database → Open another…, or put it in place of the database in use:</p>
+          <p id="backup-db" class="path"></p>
+        </section>
+
+        <section class="panel">
+          <form id="export-form" class="form" novalidate>
+            <div class="panel-head">
+              <h3 class="section-title">Export to CSV</h3>
+              <button class="button button-primary" type="submit">Export…</button>
+            </div>
+            <div class="field-row">
+              <label class="field">
+                <span class="field-label">Period</span>
+                <select name="preset">
+                  <option value="this-month">This month</option>
+                  <option value="last-month">Last month</option>
+                  <option value="this-year" selected>This year</option>
+                  <option value="last-year">Last year</option>
+                  <option value="last-12">Last 12 months</option>
+                  <option value="all">All time</option>
+                  <option value="custom">Custom</option>
+                </select>
+              </label>
+              <label class="field">
+                <span class="field-label">From</span>
+                <input type="date" name="from">
+              </label>
+              <label class="field">
+                <span class="field-label">To</span>
+                <input type="date" name="to">
+              </label>
+            </div>
+
+            <div class="export-columns">
+              <fieldset class="export-group">
+                <legend class="subsection-title">Over time, for the period</legend>
+                <div id="export-timed" class="check-list"></div>
+              </fieldset>
+              <fieldset class="export-group">
+                <legend class="subsection-title">Current records, all of them</legend>
+                <div id="export-lists" class="check-list"></div>
+              </fieldset>
+            </div>
+            <p>
+              <button id="export-all" class="link-button" type="button">Select all</button>
+              ·
+              <button id="export-none" class="link-button" type="button">Select none</button>
+            </p>
+            <p class="form-error negative" hidden></p>
+          </form>
+          <div id="export-result" hidden>
+            <p id="export-result-title"></p>
+            <ul id="export-result-files" class="export-files"></ul>
+          </div>
+          <p class="hint">One CSV file for each one picked, in a new folder inside the folder you choose. Dates read YYYY-MM-DD and amounts use a dot for decimals, without currency signs; amounts come in their own currency and in the base currency. Opens in Excel, Numbers or Google Sheets.</p>
+        </section>
+      </section>
+
+      <section id="view-settings" class="view" hidden>
+        <div class="columns">
+          <section class="panel">
+            <div class="panel-head">
+              <h3 class="section-title">Base currency</h3>
+              <button id="edit-base" class="button" type="button">Change</button>
+            </div>
+            <div id="settings-base" class="figure"></div>
+            <p id="settings-base-code" class="muted"></p>
+            <p class="hint">Every total is converted into this currency.</p>
+          </section>
+          <section class="panel">
+            <h3 class="section-title">Database</h3>
+            <p id="settings-db" class="path"></p>
+            <div class="button-row">
+              <button id="db-open" class="button" type="button">Open another…</button>
+              <button id="db-create" class="button" type="button">Create new…</button>
+            </div>
+            <p id="db-error" class="negative" hidden></p>
+            <p class="hint">The app switches to the database you pick and opens it on the next launch too; the one in use now stays as it is. A backup opens like any other database.</p>
+          </section>
+        </div>
+
+        <section class="panel">
+          <h3 class="section-title">Password</h3>
+          <p id="security-status"></p>
+          <form id="security-form" class="form" novalidate>
+            <div class="field-row">
+              <label id="security-current-field" class="field">
+                <span class="field-label">Current password</span>
+                <input type="password" name="current" autocomplete="current-password">
+              </label>
+              <label class="field">
+                <span id="security-new-label" class="field-label">New password</span>
+                <input type="password" name="next" autocomplete="new-password">
+              </label>
+              <label class="field">
+                <span class="field-label">Repeat it</span>
+                <input type="password" name="again" autocomplete="new-password">
+              </label>
+            </div>
+            <p class="form-error negative" hidden></p>
+            <div class="actions">
+              <button id="security-save" type="submit" class="button button-primary"></button>
+              <button id="security-remove" type="button" class="button button-danger" hidden>Remove the password</button>
+            </div>
+          </form>
+          <p class="hint">The file is encrypted (AES-256) and the data is kept only in memory while the app is open; changes are saved encrypted. A forgotten password can't be recovered, so keep a backup. Backups made before encrypting stay unencrypted.</p>
+        </section>
+
+        <section class="panel">
+          <h3 class="section-title">Appearance</h3>
+          <div id="theme-picker" class="theme-picker" role="radiogroup" aria-label="Theme"></div>
+          <p class="hint">Colors of the app on this computer. System follows its light or dark mode.</p>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <h3 class="section-title">Exchange rates</h3>
+            <button id="rates-refresh" class="button" type="button">Update now</button>
+          </div>
+          <p id="rates-status"></p>
+          <label class="check">
+            <input id="rates-auto" type="checkbox">
+            <span>Update rates automatically once a day</span>
+          </label>
+          <p id="rates-note" class="hint"></p>
+          <p id="rates-error" class="negative" hidden></p>
+        </section>
+
+        <!-- One panel per settings list, rendered by views/settings.js. -->
+        <div id="settings-lists" class="settings-lists"></div>
+      </section>
+
+      <footer id="status" class="status"></footer>
+    </div>
+  </div>
+
+  <dialog id="add-dialog" class="dialog">
+    <form id="add-form" class="form" novalidate>
+      <h2 class="dialog-title">Add account</h2>
+      <label class="field">
+        <span class="field-label">Name</span>
+        <input name="name" maxlength="80" placeholder="Emergency Fund" autocomplete="off" autofocus>
+      </label>
+      <label class="field">
+        <span class="field-label">Description</span>
+        <input name="description" maxlength="80" placeholder="Rainy day savings" autocomplete="off">
+      </label>
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">Currency</span>
+          <select name="currency"></select>
+        </label>
+        <label class="field">
+          <span class="field-label">Amount</span>
+          <input name="amount" inputmode="decimal" maxlength="24" placeholder="2500.00" autocomplete="off">
+        </label>
+      </div>
+      <label class="check">
+        <input type="checkbox" name="ignoreInSummaries">
+        <span>Ignore in summaries</span>
+      </label>
+      <p class="hint">Use this for meta-accounts and historical records; ignored accounts stay out of totals.</p>
+      <p class="form-error negative" hidden></p>
+      <div class="dialog-actions">
+        <button type="button" class="button" data-close>Cancel</button>
+        <button type="submit" class="button button-primary">Save account</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="account-dialog" class="dialog dialog-wide">
+    <h2 id="account-title" class="dialog-title"></h2>
+    <p id="account-subtitle" class="muted"></p>
+
+    <form id="amount-form" class="form" novalidate>
+      <h3 class="subhead">Update amount</h3>
+      <label class="field">
+        <span class="field-label">Amount</span>
+        <input name="amount" inputmode="decimal" maxlength="24" placeholder="1234.56" autocomplete="off" autofocus>
+      </label>
+      <label class="check">
+        <input type="checkbox" name="updateLog">
+        <span>Update log on save</span>
+      </label>
+      <label class="check">
+        <input type="checkbox" name="ignoreInSummaries">
+        <span>Ignore in summaries</span>
+      </label>
+      <label class="check">
+        <input type="checkbox" name="archived">
+        <span>Archived: not offered when picking an account for new records</span>
+      </label>
+      <p class="form-error negative" hidden></p>
+      <div class="form-actions">
+        <button type="submit" class="button button-primary">Save amount</button>
+      </div>
+    </form>
+
+    <div id="account-chart-block">
+      <h3 class="subhead">Month by month</h3>
+      <div id="account-chart"></div>
+      <dl id="account-chart-stats" class="stats"></dl>
+      <p id="account-chart-empty" class="muted" hidden>Log values in at least two months to see how the account changed.</p>
+    </div>
+
+    <form id="log-form" class="form" novalidate>
+      <h3 class="subhead">Value history</h3>
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">Date</span>
+          <input type="date" name="date">
+        </label>
+        <label class="field">
+          <span class="field-label">Value</span>
+          <input name="value" inputmode="decimal" maxlength="24" placeholder="1234.56" autocomplete="off">
+        </label>
+        <button type="submit" class="button field-button">Save value</button>
+      </div>
+      <p class="hint">Saving a date that already has a value replaces it.</p>
+      <p class="form-error negative" hidden></p>
+    </form>
+
+    <table class="table logs">
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th class="num">Value</th>
+          <th><span class="visually-hidden">Actions</span></th>
+        </tr>
+      </thead>
+      <tbody id="logs"></tbody>
+    </table>
+    <p id="logs-empty" class="muted" hidden>No historical values yet.</p>
+
+    <div class="dialog-actions spread">
+      <button id="delete-account" type="button" class="button button-danger">Delete account</button>
+      <button type="button" class="button" data-close>Close</button>
+    </div>
+  </dialog>
+
+  <dialog id="asset-dialog" class="dialog dialog-wide">
+    <h2 id="asset-dialog-title" class="dialog-title"></h2>
+    <p id="asset-subtitle" class="muted" hidden></p>
+
+    <form id="asset-form" class="form" novalidate>
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">Name</span>
+          <input name="name" maxlength="120" autocomplete="off" autofocus>
+        </label>
+        <label class="field">
+          <span class="field-label">Type</span>
+          <input name="type" list="asset-types" maxlength="80" placeholder="pick or type your own" autocomplete="off">
+        </label>
+      </div>
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">Value now</span>
+          <input name="value" inputmode="decimal" maxlength="24" placeholder="10000.00" autocomplete="off">
+        </label>
+        <label class="field">
+          <span class="field-label">Currency</span>
+          <select name="currency"></select>
+        </label>
+        <label class="field">
+          <span id="asset-cost-label" class="field-label"></span>
+          <input name="cost" inputmode="decimal" maxlength="24" placeholder="optional" autocomplete="off">
+        </label>
+      </div>
+      <div class="field-row">
+        <label class="field">
+          <span id="asset-acquired-label" class="field-label"></span>
+          <input type="date" name="acquiredAt">
+        </label>
+        <label class="field">
+          <span class="field-label">Description</span>
+          <input name="description" maxlength="140" placeholder="optional" autocomplete="off">
+        </label>
+      </div>
+      <label class="check">
+        <input type="checkbox" name="countInNetWorth">
+        <span>Count in net worth</span>
+      </label>
+      <p id="asset-currency-hint" class="hint"></p>
+      <p class="form-error negative" hidden></p>
+      <div class="form-actions">
+        <button type="submit" class="button button-primary">Save</button>
+      </div>
+    </form>
+
+    <div id="asset-history">
+      <form id="asset-log-form" class="form" novalidate>
+        <h3 class="subhead">Value history</h3>
+        <div class="field-row">
+          <label class="field">
+            <span class="field-label">Date</span>
+            <input type="date" name="date">
+          </label>
+          <label class="field">
+            <span class="field-label">Value</span>
+            <input name="value" inputmode="decimal" maxlength="24" autocomplete="off">
+          </label>
+          <button type="submit" class="button field-button">Log value</button>
+        </div>
+        <p class="hint">Changing “Value now” records today's value here. Values logged for other days are snapshots and don't change the current value.</p>
+        <p class="form-error negative" hidden></p>
+      </form>
+
+      <table class="table logs">
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th class="num">Value</th>
+            <th><span class="visually-hidden">Actions</span></th>
+          </tr>
+        </thead>
+        <tbody id="asset-logs"></tbody>
+      </table>
+      <p id="asset-logs-empty" class="muted" hidden>No values logged yet.</p>
+    </div>
+
+    <div class="dialog-actions spread">
+      <button id="asset-delete" type="button" class="button button-danger">Delete</button>
+      <button type="button" class="button" data-close>Close</button>
+    </div>
+  </dialog>
+
+  <dialog id="cashflow-rate-dialog" class="dialog">
+    <form id="cashflow-rate-form" class="form" novalidate>
+      <h2 class="dialog-title">Rate for this entry</h2>
+      <p id="cashflow-rate-entry" class="muted"></p>
+      <label class="field rate-field">
+        <span class="field-label rate-label">Rate</span>
+        <input name="rate" inputmode="decimal" maxlength="24" autocomplete="off" autofocus>
+      </label>
+      <label class="check">
+        <input type="checkbox" name="wholeMonth">
+        <span id="cashflow-rate-month"></span>
+      </label>
+      <p class="hint">The rate is saved with the entry; changing it in settings doesn't change entries already made.</p>
+      <p class="form-error negative" hidden></p>
+      <div class="dialog-actions">
+        <button type="button" class="button" data-close>Cancel</button>
+        <button type="submit" class="button button-primary">Save rate</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="cashflow-dialog" class="dialog">
+    <form id="cashflow-form" class="form" novalidate>
+      <h2 id="cashflow-title" class="dialog-title"></h2>
+      <p id="cashflow-no-categories" class="negative" hidden></p>
+      <!-- Only when editing: adding picks the type with its button. -->
+      <label id="cashflow-kind-field" class="field" hidden>
+        <span class="field-label">Type</span>
+        <select name="kind">
+          <option value="expense">Expense</option>
+          <option value="income">Income</option>
+        </select>
+      </label>
+      <label class="field">
+        <span class="field-label">Date</span>
+        <input type="date" name="date">
+      </label>
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">Amount</span>
+          <input name="amount" inputmode="decimal" maxlength="24" placeholder="1000.00" autocomplete="off" autofocus>
+        </label>
+        <label class="field">
+          <span class="field-label">Currency</span>
+          <select name="currency"></select>
+        </label>
+        <label class="field rate-field">
+          <span class="field-label rate-label">Rate</span>
+          <input name="rate" inputmode="decimal" maxlength="24" autocomplete="off">
+        </label>
+      </div>
+      <label class="field">
+        <span class="field-label">Category</span>
+        <select name="category"></select>
+      </label>
+      <p id="cashflow-budget" class="budget-hint" hidden></p>
+      <label class="field">
+        <span class="field-label">Account (optional)</span>
+        <select name="account"></select>
+      </label>
+      <label class="field">
+        <span class="field-label">Comment</span>
+        <input name="comment" maxlength="140" placeholder="optional comment" autocomplete="off">
+      </label>
+      <div class="field">
+        <span class="field-label">Tags (optional: for things across categories, like a trip)</span>
+        <div id="cashflow-tags"></div>
+      </div>
+      <p id="cashflow-saved" class="positive" hidden></p>
+      <p class="form-error negative" hidden></p>
+      <div class="dialog-actions">
+        <button type="button" class="button" data-close>Cancel</button>
+        <!-- Adding only: saves and keeps every value for the next entry. -->
+        <button id="cashflow-save-more" type="submit" class="button button-accent" title="⌘ / Ctrl + Enter">Save &amp; add another</button>
+        <button type="submit" class="button button-primary">Save</button>
+      </div>
+      <p id="cashflow-save-more-hint" class="hint">⌘ / Ctrl + Enter saves and keeps the dialog open with the same values.</p>
+    </form>
+  </dialog>
+
+  <dialog id="subscription-dialog" class="dialog dialog-wide">
+    <form id="subscription-form" class="form" novalidate>
+      <h2 id="subscription-title" class="dialog-title"></h2>
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">Name</span>
+          <input name="name" maxlength="80" placeholder="Rent, Netflix, car insurance…" autocomplete="off" autofocus>
+        </label>
+        <label class="field">
+          <span class="field-label">Type</span>
+          <input name="type" list="subscription-types" maxlength="60" placeholder="pick or type your own" autocomplete="off">
+        </label>
+      </div>
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">Amount</span>
+          <input name="amount" inputmode="decimal" maxlength="24" placeholder="9.99" autocomplete="off">
+        </label>
+        <label class="field">
+          <span class="field-label">Currency</span>
+          <select name="currency"></select>
+        </label>
+        <label class="field">
+          <span class="field-label">Every</span>
+          <select name="period"></select>
+        </label>
+      </div>
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">Next payment (optional)</span>
+          <input name="nextPayment" type="date">
+        </label>
+        <label class="field">
+          <span class="field-label">Payment method</span>
+          <input name="paymentMethod" list="payment-methods" maxlength="80" autocomplete="off">
+        </label>
+      </div>
+      <label class="check">
+        <input type="checkbox" name="isActive" checked>
+        <span>Active</span>
+      </label>
+      <label class="check">
+        <input type="checkbox" name="isObligation">
+        <span>Obligation: a serious regular payment (rent, insurance, bills), listed under Obligations</span>
+      </label>
+      <label class="check">
+        <input type="checkbox" name="paidManually">
+        <span>I pay it myself: a passed payment stays due (overdue) until it's marked paid</span>
+      </label>
+      <p class="hint">Payments repeat every period from the date set here. Ones charged automatically move on by themselves once their day passes.</p>
+
+      <div id="subscription-due" class="due-box" hidden>
+        <span id="subscription-due-text"></span>
+        <button id="subscription-paid" type="button" class="button button-accent">Mark paid</button>
+      </div>
+
+      <div id="subscription-payments" hidden>
+        <h3 class="subhead">Marked paid</h3>
+        <table class="table logs clickable">
+          <thead>
+            <tr>
+              <th>Payment</th>
+              <th>Marked</th>
+              <th><span class="visually-hidden">Actions</span></th>
+            </tr>
+          </thead>
+          <tbody id="subscription-payment-rows"></tbody>
+        </table>
+        <p id="subscription-payments-empty" class="muted" hidden>Nothing marked paid yet.</p>
+        <p class="hint">Click one to see its month in Incomes &amp; expenses. Delete one marked by mistake and the schedule rolls back.</p>
+      </div>
+
+      <p class="form-error negative" hidden></p>
+      <div class="dialog-actions spread">
+        <button id="subscription-delete" type="button" class="button button-danger">Delete</button>
+        <span class="dialog-actions-group">
+          <button type="button" class="button" data-close>Cancel</button>
+          <button type="submit" class="button button-primary">Save</button>
+        </span>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="debt-add-dialog" class="dialog">
+    <form id="debt-add-form" class="form" novalidate>
+      <h2 class="dialog-title">Add debt</h2>
+      <label class="field">
+        <span class="field-label">Direction</span>
+        <select name="direction">
+          <option value="outgoing">I owe someone</option>
+          <option value="incoming">Someone owes me</option>
+        </select>
+      </label>
+      <label class="field">
+        <span class="field-label">Peer</span>
+        <input name="peer" maxlength="80" placeholder="Bank, Alex…" autocomplete="off" autofocus>
+      </label>
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">Amount</span>
+          <input name="amount" inputmode="decimal" maxlength="24" placeholder="1000.00" autocomplete="off">
+        </label>
+        <label class="field">
+          <span class="field-label">Currency</span>
+          <select name="currency"></select>
+        </label>
+        <label class="field">
+          <span class="field-label">Already paid</span>
+          <input name="amountPaid" inputmode="decimal" maxlength="24" value="0" autocomplete="off">
+        </label>
+      </div>
+      <label class="field rate-field">
+        <span class="field-label rate-label">Rate</span>
+        <input name="rate" inputmode="decimal" maxlength="24" autocomplete="off">
+      </label>
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">Created</span>
+          <input type="date" name="createdAt">
+        </label>
+        <label class="field">
+          <span class="field-label">Due date (optional)</span>
+          <input type="date" name="dueDate">
+        </label>
+      </div>
+      <label class="field">
+        <span class="field-label">Comment</span>
+        <input name="comment" maxlength="140" placeholder="optional comment" autocomplete="off">
+      </label>
+      <p class="form-error negative" hidden></p>
+      <div class="dialog-actions">
+        <button type="button" class="button" data-close>Cancel</button>
+        <button type="submit" class="button button-primary">Save debt</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="debt-edit-dialog" class="dialog dialog-wide">
+    <h2 id="debt-title" class="dialog-title"></h2>
+    <p id="debt-subtitle" class="muted"></p>
+    <div class="progress"><div id="debt-progress-fill" class="progress-fill"></div></div>
+
+    <form id="debt-edit-form" class="form" novalidate>
+      <h3 class="subhead">Details</h3>
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">Amount</span>
+          <input name="amount" inputmode="decimal" maxlength="24" autocomplete="off" autofocus>
+        </label>
+        <label class="field">
+          <span class="field-label">Amount paid</span>
+          <input name="amountPaid" inputmode="decimal" maxlength="24" autocomplete="off">
+        </label>
+        <label class="field rate-field">
+          <span class="field-label rate-label">Rate</span>
+          <input name="rate" inputmode="decimal" maxlength="24" autocomplete="off">
+        </label>
+      </div>
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">Created</span>
+          <input type="date" name="createdAt">
+        </label>
+        <label class="field">
+          <span class="field-label">Due date (optional)</span>
+          <input type="date" name="dueDate">
+        </label>
+      </div>
+      <label class="field">
+        <span class="field-label">Comment</span>
+        <input name="comment" maxlength="140" autocomplete="off">
+      </label>
+      <p class="form-error negative" hidden></p>
+      <div class="form-actions">
+        <button type="submit" class="button button-primary">Save details</button>
+      </div>
+    </form>
+
+    <form id="debt-payment-form" class="form" novalidate>
+      <h3 class="subhead">Log a payment</h3>
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">Amount (+/−)</span>
+          <input name="delta" inputmode="decimal" maxlength="24" placeholder="+100 or -25" autocomplete="off">
+        </label>
+        <label class="field">
+          <span class="field-label">Date</span>
+          <input type="date" name="date">
+        </label>
+      </div>
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">Note (optional)</span>
+          <input name="note" maxlength="140" placeholder="manual paid adjustment" autocomplete="off">
+        </label>
+        <button type="submit" class="button field-button">Log payment</button>
+      </div>
+      <div class="cashflow-box">
+        <label class="check">
+          <input type="checkbox" name="addCashflow">
+          <span class="cashflow-label">Also add as an expense</span>
+        </label>
+        <div class="field-row cashflow-fields" hidden>
+          <label class="field">
+            <span class="field-label">Category</span>
+            <select name="cashflowCategory"></select>
+          </label>
+          <label class="field">
+            <span class="field-label">Account (optional)</span>
+            <select name="cashflowAccount"></select>
+          </label>
+        </div>
+        <p class="hint cashflow-none" hidden></p>
+      </div>
+      <p class="hint">Logged payments move “Amount paid”; a minus sign takes one back.</p>
+      <p class="form-error negative" hidden></p>
+    </form>
+
+    <table class="table logs">
+      <thead>
+        <tr>
+          <th>When</th>
+          <th>Note</th>
+          <th class="num">Change</th>
+          <th><span class="visually-hidden">Actions</span></th>
+        </tr>
+      </thead>
+      <tbody id="debt-logs"></tbody>
+    </table>
+    <p id="debt-logs-empty" class="muted" hidden>No payments logged yet.</p>
+
+    <div class="dialog-actions spread">
+      <button id="debt-delete" type="button" class="button button-danger">Delete debt</button>
+      <button type="button" class="button" data-close>Close</button>
+    </div>
+  </dialog>
+
+  <dialog id="invoice-dialog" class="dialog">
+    <form id="invoice-form" class="form" novalidate>
+      <h2 id="invoice-dialog-title" class="dialog-title"></h2>
+      <label class="field">
+        <span class="field-label">Title</span>
+        <input name="title" maxlength="120" placeholder="Website redesign, Hosting…" autocomplete="off" autofocus>
+      </label>
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">Direction</span>
+          <select name="direction">
+            <option value="outgoing">They pay me (I sent it)</option>
+            <option value="incoming">I pay (I received it)</option>
+          </select>
+        </label>
+        <label class="field">
+          <span class="field-label">Peer</span>
+          <input name="peer" maxlength="120" placeholder="optional" autocomplete="off">
+        </label>
+      </div>
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">Amount</span>
+          <input name="amount" inputmode="decimal" maxlength="24" placeholder="optional 1000.00" autocomplete="off">
+        </label>
+        <label class="field">
+          <span class="field-label">Currency</span>
+          <select name="currency"></select>
+        </label>
+        <label class="field rate-field">
+          <span class="field-label rate-label">Rate</span>
+          <input name="rate" inputmode="decimal" maxlength="24" autocomplete="off">
+        </label>
+      </div>
+      <label class="check">
+        <input type="checkbox" name="paid">
+        <span>Paid</span>
+      </label>
+      <!-- Shown while Paid is ticked on an invoice not yet in incomes and
+           expenses: an expense when I pay it, an income when it's paid to me. -->
+      <div class="cashflow-box" hidden>
+        <label class="check">
+          <input type="checkbox" name="addCashflow">
+          <span class="cashflow-label">Also add as an expense</span>
+        </label>
+        <div class="field-row cashflow-fields" hidden>
+          <label class="field">
+            <span class="field-label">Paid on</span>
+            <input type="date" name="paidOn">
+          </label>
+          <label class="field">
+            <span class="field-label">Category</span>
+            <select name="cashflowCategory"></select>
+          </label>
+          <label class="field">
+            <span class="field-label">Account (optional)</span>
+            <select name="cashflowAccount"></select>
+          </label>
+        </div>
+        <p class="hint cashflow-none" hidden></p>
+      </div>
+      <p id="invoice-linked" class="hint" hidden></p>
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">Invoice date (optional)</span>
+          <input type="date" name="invoiceDate">
+        </label>
+        <label class="field">
+          <span class="field-label">Due date (optional)</span>
+          <input type="date" name="dueDate">
+        </label>
+      </div>
+      <label class="field">
+        <span class="field-label">Target account</span>
+        <input name="targetAccount" list="invoice-accounts" maxlength="120" placeholder="optional: pick or type" autocomplete="off">
+      </label>
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">Link</span>
+          <input type="url" name="url" maxlength="180" placeholder="optional https://…" autocomplete="off">
+        </label>
+        <button id="invoice-open-url" type="button" class="button field-button" hidden>Open saved link</button>
+      </div>
+      <label class="field">
+        <span class="field-label">Description</span>
+        <input name="description" maxlength="180" placeholder="optional" autocomplete="off">
+      </label>
+      <p class="hint">The rate is saved with the invoice and kept while its currency stays the same. Invoices without a currency are kept but not counted in totals.</p>
+      <p class="form-error negative" hidden></p>
+      <div class="dialog-actions spread">
+        <button id="invoice-delete" type="button" class="button button-danger">Delete invoice</button>
+        <span class="dialog-actions-group">
+          <button type="button" class="button" data-close>Cancel</button>
+          <button type="submit" class="button button-primary">Save invoice</button>
+        </span>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="goal-add-dialog" class="dialog">
+    <form id="goal-add-form" class="form" novalidate>
+      <h2 class="dialog-title">Add goal</h2>
+      <label class="field">
+        <span class="field-label">Goal</span>
+        <input name="name" maxlength="120" placeholder="Emergency fund" autocomplete="off" autofocus>
+      </label>
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">Target</span>
+          <input name="target" inputmode="decimal" maxlength="24" placeholder="10000.00" autocomplete="off">
+        </label>
+        <label class="field">
+          <span class="field-label">Currency</span>
+          <select name="currency"></select>
+        </label>
+        <label class="field">
+          <span class="field-label">Already saved</span>
+          <input name="accumulated" inputmode="decimal" maxlength="24" value="0" autocomplete="off">
+        </label>
+      </div>
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">Started</span>
+          <input type="date" name="startedAt">
+        </label>
+        <label class="field">
+          <span class="field-label">Target date (optional)</span>
+          <input type="date" name="targetDate">
+        </label>
+      </div>
+      <label class="field">
+        <span class="field-label">Description</span>
+        <input name="description" maxlength="120" placeholder="optional" autocomplete="off">
+      </label>
+      <p class="form-error negative" hidden></p>
+      <div class="dialog-actions">
+        <button type="button" class="button" data-close>Cancel</button>
+        <button type="submit" class="button button-primary">Save goal</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="goal-edit-dialog" class="dialog dialog-wide">
+    <h2 id="goal-title" class="dialog-title"></h2>
+    <p id="goal-subtitle" class="muted"></p>
+    <div class="progress"><div id="goal-progress-fill" class="progress-fill"></div></div>
+
+    <form id="goal-edit-form" class="form" novalidate>
+      <h3 class="subhead">Details</h3>
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">Target</span>
+          <input name="target" inputmode="decimal" maxlength="24" autocomplete="off" autofocus>
+        </label>
+        <label class="field">
+          <span class="field-label">Saved</span>
+          <input name="accumulated" inputmode="decimal" maxlength="24" autocomplete="off">
+        </label>
+      </div>
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">Started</span>
+          <input type="date" name="startedAt">
+        </label>
+        <label class="field">
+          <span class="field-label">Target date (optional)</span>
+          <input type="date" name="targetDate">
+        </label>
+      </div>
+      <label class="field">
+        <span class="field-label">Description</span>
+        <input name="description" maxlength="120" autocomplete="off">
+      </label>
+      <p class="form-error negative" hidden></p>
+      <div class="form-actions">
+        <button type="submit" class="button button-primary">Save details</button>
+      </div>
+    </form>
+
+    <form id="goal-change-form" class="form" novalidate>
+      <h3 class="subhead">Put money aside</h3>
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">Amount (+/−)</span>
+          <input name="delta" inputmode="decimal" maxlength="24" placeholder="+100 or -25" autocomplete="off">
+        </label>
+        <label class="field">
+          <span class="field-label">Date</span>
+          <input type="date" name="date">
+        </label>
+      </div>
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">Note (optional)</span>
+          <input name="note" maxlength="120" placeholder="manual accumulated adjustment" autocomplete="off">
+        </label>
+        <button type="submit" class="button field-button">Log change</button>
+      </div>
+      <p class="hint">Logged changes move “Saved”; a minus sign takes money back out.</p>
+      <p class="form-error negative" hidden></p>
+    </form>
+
+    <table class="table logs">
+      <thead>
+        <tr>
+          <th>When</th>
+          <th>Note</th>
+          <th class="num">Change</th>
+          <th><span class="visually-hidden">Actions</span></th>
+        </tr>
+      </thead>
+      <tbody id="goal-logs"></tbody>
+    </table>
+    <p id="goal-logs-empty" class="muted" hidden>No changes logged yet.</p>
+
+    <div class="dialog-actions spread">
+      <button id="goal-delete" type="button" class="button button-danger">Delete goal</button>
+      <button type="button" class="button" data-close>Close</button>
+    </div>
+  </dialog>
+
+  <dialog id="credit-add-dialog" class="dialog dialog-wide">
+    <form id="credit-add-form" class="form" novalidate>
+      <h2 class="dialog-title">Add credit</h2>
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">Name</span>
+          <input name="name" maxlength="120" placeholder="Home mortgage" autocomplete="off" autofocus>
+        </label>
+        <label class="field">
+          <span class="field-label">Purpose</span>
+          <input name="purpose" list="credit-purposes" maxlength="80" placeholder="pick or type your own" autocomplete="off">
+        </label>
+        <label class="field">
+          <span class="field-label">Issuer</span>
+          <input name="issuer" maxlength="120" placeholder="bank or lender" autocomplete="off">
+        </label>
+      </div>
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">Amount</span>
+          <input name="total" inputmode="decimal" maxlength="24" placeholder="100000.00" autocomplete="off">
+        </label>
+        <label class="field">
+          <span class="field-label">Currency</span>
+          <select name="currency"></select>
+        </label>
+        <label class="field">
+          <span class="field-label">Already paid</span>
+          <input name="paid" inputmode="decimal" maxlength="24" value="0" autocomplete="off">
+        </label>
+        <label class="field rate-field">
+          <span class="field-label rate-label">Rate</span>
+          <input name="rate" inputmode="decimal" maxlength="24" autocomplete="off">
+        </label>
+      </div>
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">Interest, % a year</span>
+          <input name="interestPercent" inputmode="decimal" maxlength="12" placeholder="optional 4.5" autocomplete="off">
+        </label>
+        <label class="field">
+          <span class="field-label">From</span>
+          <input type="date" name="startDate">
+        </label>
+        <label class="field">
+          <span class="field-label">Due (optional)</span>
+          <input type="date" name="dueDate">
+        </label>
+      </div>
+      <label class="field">
+        <span class="field-label">Comment</span>
+        <input name="comment" maxlength="140" placeholder="optional comment" autocomplete="off">
+      </label>
+      <p class="hint">The rate is saved with the credit, so changing it in settings later won't change this credit.</p>
+      <p class="form-error negative" hidden></p>
+      <div class="dialog-actions">
+        <button type="button" class="button" data-close>Cancel</button>
+        <button type="submit" class="button button-primary">Save credit</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="credit-edit-dialog" class="dialog dialog-wide">
+    <h2 id="credit-title" class="dialog-title"></h2>
+    <p id="credit-subtitle" class="muted"></p>
+    <div class="progress"><div id="credit-progress-fill" class="progress-fill"></div></div>
+
+    <form id="credit-edit-form" class="form" novalidate>
+      <h3 class="subhead">Details</h3>
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">Name</span>
+          <input name="name" maxlength="120" placeholder="Home mortgage" autocomplete="off" autofocus>
+        </label>
+        <label class="field">
+          <span class="field-label">Purpose</span>
+          <input name="purpose" list="credit-purposes" maxlength="80" placeholder="pick or type your own" autocomplete="off">
+        </label>
+        <label class="field">
+          <span class="field-label">Issuer</span>
+          <input name="issuer" maxlength="120" placeholder="bank or lender" autocomplete="off">
+        </label>
+      </div>
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">Amount</span>
+          <input name="total" inputmode="decimal" maxlength="24" placeholder="100000.00" autocomplete="off">
+        </label>
+        <label class="field">
+          <span class="field-label">Amount paid</span>
+          <input name="paid" inputmode="decimal" maxlength="24" autocomplete="off">
+        </label>
+        <label class="field rate-field">
+          <span class="field-label rate-label">Rate</span>
+          <input name="rate" inputmode="decimal" maxlength="24" autocomplete="off">
+        </label>
+      </div>
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">Interest, % a year</span>
+          <input name="interestPercent" inputmode="decimal" maxlength="12" placeholder="optional 4.5" autocomplete="off">
+        </label>
+        <label class="field">
+          <span class="field-label">From</span>
+          <input type="date" name="startDate">
+        </label>
+        <label class="field">
+          <span class="field-label">Due (optional)</span>
+          <input type="date" name="dueDate">
+        </label>
+      </div>
+      <label class="field">
+        <span class="field-label">Comment</span>
+        <input name="comment" maxlength="140" placeholder="optional comment" autocomplete="off">
+      </label>
+      <p class="form-error negative" hidden></p>
+      <div class="form-actions">
+        <button type="submit" class="button button-primary">Save details</button>
+      </div>
+    </form>
+
+    <form id="credit-log-form" class="form" novalidate>
+      <h3 class="subhead">Log a payment or an addition</h3>
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">What</span>
+          <select name="kind">
+            <option value="payment">Payment (paid back)</option>
+            <option value="addition">Added to the credit</option>
+          </select>
+        </label>
+        <label class="field">
+          <span class="field-label">Amount</span>
+          <input name="amount" inputmode="decimal" maxlength="24" placeholder="500.00" autocomplete="off">
+        </label>
+        <label class="field">
+          <span class="field-label">Date</span>
+          <input type="date" name="date">
+        </label>
+      </div>
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">Note (optional)</span>
+          <input name="note" maxlength="140" placeholder="monthly payment, interest, fee…" autocomplete="off">
+        </label>
+        <button type="submit" class="button field-button">Log it</button>
+      </div>
+      <div class="cashflow-box">
+        <label class="check">
+          <input type="checkbox" name="addCashflow">
+          <span class="cashflow-label">Also add as an expense</span>
+        </label>
+        <div class="field-row cashflow-fields" hidden>
+          <label class="field">
+            <span class="field-label">Category</span>
+            <select name="cashflowCategory"></select>
+          </label>
+          <label class="field">
+            <span class="field-label">Account (optional)</span>
+            <select name="cashflowAccount"></select>
+          </label>
+        </div>
+        <p class="hint cashflow-none" hidden></p>
+      </div>
+      <p class="hint">Payments move “Amount paid”; additions (more drawn, interest, fees) grow the amount. Deleting an entry undoes it.</p>
+      <p class="form-error negative" hidden></p>
+    </form>
+
+    <table class="table logs">
+      <thead>
+        <tr>
+          <th>When</th>
+          <th>What</th>
+          <th>Note</th>
+          <th class="num">Amount</th>
+          <th><span class="visually-hidden">Actions</span></th>
+        </tr>
+      </thead>
+      <tbody id="credit-logs"></tbody>
+    </table>
+    <p id="credit-logs-empty" class="muted" hidden>Nothing logged yet.</p>
+
+    <div class="dialog-actions spread">
+      <button id="credit-delete" type="button" class="button button-danger">Delete credit</button>
+      <button type="button" class="button" data-close>Close</button>
+    </div>
+  </dialog>
+
+  <dialog id="tax-add-dialog" class="dialog">
+    <form id="tax-add-form" class="form" novalidate>
+      <h2 class="dialog-title">Add tax</h2>
+      <p id="tax-no-types" class="negative" hidden>No tax types yet. Add one in Settings first.</p>
+      <label class="field">
+        <span class="field-label">Tax type</span>
+        <select name="taxTypeId"></select>
+      </label>
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">Currency</span>
+          <select name="currency"></select>
+        </label>
+        <label class="field rate-field">
+          <span class="field-label rate-label">Rate</span>
+          <input name="rate" inputmode="decimal" maxlength="24" autocomplete="off">
+        </label>
+      </div>
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">Amount due</span>
+          <input name="amountDue" inputmode="decimal" maxlength="24" placeholder="1000.00" autocomplete="off" autofocus>
+        </label>
+        <label class="field">
+          <span class="field-label">Already paid</span>
+          <input name="amountPaid" inputmode="decimal" maxlength="24" value="0" autocomplete="off">
+        </label>
+      </div>
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">Period</span>
+          <input name="period" maxlength="120" placeholder="Q1 2026" autocomplete="off">
+        </label>
+        <label class="field">
+          <span class="field-label">Due date (optional)</span>
+          <input type="date" name="dueDate">
+        </label>
+      </div>
+      <label class="field">
+        <span class="field-label">Comment</span>
+        <input name="comment" maxlength="120" placeholder="optional comment" autocomplete="off">
+      </label>
+      <p id="tax-add-base" class="hint"></p>
+      <p class="form-error negative" hidden></p>
+      <div class="dialog-actions">
+        <button type="button" class="button" data-close>Cancel</button>
+        <button type="submit" class="button button-primary">Save tax</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="tax-edit-dialog" class="dialog dialog-wide">
+    <h2 id="tax-title" class="dialog-title"></h2>
+    <p id="tax-subtitle" class="muted"></p>
+    <div class="progress"><div id="tax-progress-fill" class="progress-fill"></div></div>
+
+    <form id="tax-edit-form" class="form" novalidate>
+      <h3 class="subhead">Details</h3>
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">Amount due</span>
+          <input name="amountDue" inputmode="decimal" maxlength="24" autocomplete="off" autofocus>
+        </label>
+        <label class="field">
+          <span class="field-label">Amount paid</span>
+          <input name="amountPaid" inputmode="decimal" maxlength="24" autocomplete="off">
+        </label>
+        <label class="field rate-field">
+          <span class="field-label rate-label">Rate</span>
+          <input name="rate" inputmode="decimal" maxlength="24" autocomplete="off">
+        </label>
+      </div>
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">Period</span>
+          <input name="period" maxlength="120" autocomplete="off">
+        </label>
+        <label class="field">
+          <span class="field-label">Due date (optional)</span>
+          <input type="date" name="dueDate">
+        </label>
+      </div>
+      <label class="field">
+        <span class="field-label">Comment</span>
+        <input name="comment" maxlength="120" autocomplete="off">
+      </label>
+      <p class="form-error negative" hidden></p>
+      <div class="form-actions">
+        <button type="submit" class="button button-primary">Save details</button>
+      </div>
+    </form>
+
+    <form id="tax-payment-form" class="form" novalidate>
+      <h3 class="subhead">Log a payment</h3>
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">Amount (+/−)</span>
+          <input name="delta" inputmode="decimal" maxlength="24" placeholder="+100 or -25" autocomplete="off">
+        </label>
+        <label class="field">
+          <span class="field-label">Date</span>
+          <input type="date" name="date">
+        </label>
+      </div>
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">Note (optional)</span>
+          <input name="note" maxlength="140" placeholder="manual tax paid adjustment" autocomplete="off">
+        </label>
+        <button type="submit" class="button field-button">Log payment</button>
+      </div>
+      <p class="hint">Logged payments move “Amount paid”; a minus sign takes one back.</p>
+      <p class="form-error negative" hidden></p>
+    </form>
+
+    <table class="table logs">
+      <thead>
+        <tr>
+          <th>When</th>
+          <th>Note</th>
+          <th class="num">Change</th>
+        </tr>
+      </thead>
+      <tbody id="tax-logs"></tbody>
+    </table>
+    <p id="tax-logs-empty" class="muted" hidden>No payments logged yet.</p>
+
+    <div class="dialog-actions spread">
+      <button id="tax-delete" type="button" class="button button-danger">Delete tax</button>
+      <button type="button" class="button" data-close>Close</button>
+    </div>
+  </dialog>
+
+  <datalist id="payment-methods"></datalist>
+  <datalist id="invoice-accounts"></datalist>
+  <datalist id="asset-types"></datalist>
+  <datalist id="currency-catalog"></datalist>
+  <datalist id="credit-purposes"></datalist>
+  <datalist id="subscription-types"></datalist>
+
+  <!-- Add/edit form for any settings list; views/settings.js fills the fields. -->
+  <dialog id="setting-dialog" class="dialog">
+    <form id="setting-form" class="form" novalidate>
+      <h2 id="setting-title" class="dialog-title"></h2>
+      <div id="setting-fields" class="form"></div>
+      <p id="setting-note" class="hint" hidden></p>
+      <p class="form-error negative" hidden></p>
+      <div class="dialog-actions spread">
+        <button id="setting-delete" type="button" class="button button-danger">Delete</button>
+        <span class="dialog-actions-group">
+          <button type="button" class="button" data-close>Cancel</button>
+          <button type="submit" class="button button-primary">Save</button>
+        </span>
+      </div>
+    </form>
+  </dialog>
+
+  <datalist id="tag-suggestions"></datalist>
+
+  <dialog id="note-dialog" class="dialog">
+    <form id="note-form" class="form" novalidate>
+      <h2 id="note-title" class="dialog-title"></h2>
+      <label class="field">
+        <span class="field-label">Note</span>
+        <textarea name="text" rows="4" maxlength="500" placeholder="Trip to Dubai: flights and hotel"></textarea>
+      </label>
+      <p class="hint">Shown on the charts and in Incomes &amp; expenses for this month, so later you know why it looks the way it does.</p>
+      <p class="form-error negative" hidden></p>
+      <div class="dialog-actions spread">
+        <button id="note-delete" type="button" class="button button-danger">Remove note</button>
+        <span class="dialog-actions-group">
+          <button type="button" class="button" data-close>Cancel</button>
+          <button type="submit" class="button button-primary">Save note</button>
+        </span>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="merge-dialog" class="dialog">
+    <form id="merge-form" class="form" novalidate>
+      <h2 id="merge-title" class="dialog-title"></h2>
+      <p id="merge-message"></p>
+      <label class="field">
+        <span class="field-label">Merge into</span>
+        <select name="into"></select>
+      </label>
+      <p id="merge-note" class="hint"></p>
+      <p class="form-error negative" hidden></p>
+      <div class="dialog-actions spread">
+        <button id="merge-alternative" type="button" class="button button-danger" hidden></button>
+        <span class="dialog-actions-group">
+          <button type="button" class="button" data-close>Cancel</button>
+          <button type="submit" class="button button-danger">Merge</button>
+        </span>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="networth-dialog" class="dialog dialog-wide">
+    <h2 class="dialog-title">Net worth history</h2>
+    <p class="muted">Enter what your net worth was in a month to fill in the past or correct a month. The app doesn't change values you enter; delete one to go back to the value the app keeps or estimates.</p>
+
+    <form id="networth-form" class="form" novalidate>
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">Month</span>
+          <select name="month"></select>
+        </label>
+        <label class="field">
+          <span class="field-label">Year</span>
+          <input name="year" type="number" min="1970" step="1" inputmode="numeric" autocomplete="off">
+        </label>
+        <label class="field">
+          <span class="field-label">Net worth</span>
+          <input name="amount" inputmode="decimal" maxlength="24" placeholder="-1234.56" autocomplete="off">
+        </label>
+        <button type="submit" class="button field-button">Save value</button>
+      </div>
+      <p class="hint">In the base currency, <span id="networth-base"></span>. Saving a month that already has a value replaces it. Click a month below to fill it in.</p>
+      <p class="form-error negative" hidden></p>
+    </form>
+
+    <table class="table logs clickable">
+      <thead>
+        <tr>
+          <th>Month</th>
+          <th class="num">Net worth</th>
+          <th>Value</th>
+          <th><span class="visually-hidden">Actions</span></th>
+        </tr>
+      </thead>
+      <tbody id="networth-rows"></tbody>
+    </table>
+
+    <div class="dialog-actions">
+      <button type="button" class="button" data-close>Close</button>
+    </div>
+  </dialog>
+
+  <dialog id="budget-dialog" class="dialog">
+    <form id="budget-form" class="form" novalidate>
+      <h2 id="budget-dialog-title" class="dialog-title"></h2>
+      <label class="field">
+        <span class="field-label">For</span>
+        <select name="category"></select>
+      </label>
+      <label class="field">
+        <span class="field-label">Monthly limit, <span id="budget-base"></span></span>
+        <input name="limit" inputmode="decimal" maxlength="24" placeholder="300" autocomplete="off">
+      </label>
+      <p class="hint">
+        <span id="budget-usual"></span>
+        <button id="budget-use-usual" class="link-button" type="button">Use it</button>
+      </p>
+      <p class="form-error negative" hidden></p>
+      <div class="dialog-actions spread">
+        <button id="budget-delete" type="button" class="button button-danger">Delete budget</button>
+        <span class="dialog-actions-group">
+          <button type="button" class="button" data-close>Cancel</button>
+          <button type="submit" class="button button-primary">Save budget</button>
+        </span>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="confirm-dialog" class="dialog">
+    <h2 id="confirm-title" class="dialog-title"></h2>
+    <p id="confirm-message"></p>
+    <p class="form-error negative" hidden></p>
+    <div class="dialog-actions">
+      <button type="button" class="button" data-close autofocus>Cancel</button>
+      <button id="confirm-ok" type="button" class="button button-danger">Delete</button>
+    </div>
+  </dialog>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>

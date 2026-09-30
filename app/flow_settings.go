@@ -2,7 +2,6 @@ package app
 
 import (
 	"fmt"
-	"strconv"
 	"strings"
 	"time"
 
@@ -334,14 +333,13 @@ func (m TheApplication) updateSettings(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 			return m, nil
 		case "enter":
-			value := strings.TrimSpace(m.settingsEditInput.Value())
-			if value == "" {
-				m.status = "base currency cannot be empty"
+			record, err := settings.BaseCurrencyRecord(m.settingsEditInput.Value())
+			if err != nil {
+				m.status = err.Error()
 
 				return m, nil
 			}
 
-			record := settings.SettingRecord{SettingID: "base_currency", SettingValue: value}
 			if err := m.storage.SaveSettingRecord(&record); err != nil {
 				m.status = "settings save failed: " + err.Error()
 
@@ -399,36 +397,16 @@ func (m TheApplication) updateSettings(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 
-			name := strings.TrimSpace(m.settingsCurrencyNameInput.Value())
-			rateRaw := strings.TrimSpace(m.settingsCurrencyRateInput.Value())
-			if name == "" {
-				m.status = "currency name is required"
-
-				return m, nil
-			}
-
-			rate, err := strconv.ParseFloat(rateRaw, 64)
+			// Start from the stored currency, so editing keeps its link to a
+			// known currency (set in the desktop app) unless it's renamed.
+			record, err := storedCurrency(m.settings, m.settingsCurrencyEditingID).Apply(m.settingsCurrencyNameInput.Value(), m.settingsCurrencyRateInput.Value(), time.Now())
 			if err != nil {
-				m.status = "rate must be a number"
-
-				return m, nil
-			}
-			if rate <= 0 {
-				m.status = "rate must be greater than zero"
+				m.status = err.Error()
 
 				return m, nil
 			}
 
-			now := time.Now()
-			record := settings.SettingCurrency{
-				ID:            m.settingsCurrencyEditingID,
-				CurrencyName:  name,
-				RateToBase:    rate,
-				LastUpdatedAt: now,
-			}
-			if record.ID == 0 {
-				record.CreatedAt = now
-			}
+			name := record.CurrencyName
 
 			if err := m.storage.SaveSettingCurrency(&record); err != nil {
 				m.status = "currency save failed: " + err.Error()
@@ -518,31 +496,18 @@ func (m TheApplication) updateSettings(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 
-			name := strings.TrimSpace(m.settingsPaymentMethodNameInput.Value())
-			if name == "" {
-				m.status = "payment method name is required"
+			methodType := selectedPaymentMethodType(m.settingsPaymentMethodTypeOptions, m.settingsPaymentMethodTypeIndex)
+			isFirst := len(m.settings.PaymentMethods) == 0
+			// Start from the stored method, so editing keeps its currency
+			// (set in the desktop app).
+			record, err := storedPaymentMethod(m.settings, m.settingsPaymentMethodEditingID).Apply(m.settingsPaymentMethodNameInput.Value(), methodType, m.settingsPaymentMethodIsDefault, isFirst, time.Now())
+			if err != nil {
+				m.status = err.Error()
 
 				return m, nil
 			}
 
-			methodType := selectedPaymentMethodType(m.settingsPaymentMethodTypeOptions, m.settingsPaymentMethodTypeIndex)
-			isDefault := m.settingsPaymentMethodIsDefault
-			if len(m.settings.PaymentMethods) == 0 && m.settingsPaymentMethodEditingID == 0 {
-				isDefault = true
-			}
-
-			now := time.Now()
-
-			record := settings.SettingPaymentMethod{
-				ID:                m.settingsPaymentMethodEditingID,
-				PaymentMethodName: name,
-				PaymentMethodType: methodType,
-				IsDefault:         isDefault,
-				LastUpdatedAt:     now,
-			}
-			if record.ID == 0 {
-				record.CreatedAt = now
-			}
+			name := record.PaymentMethodName
 
 			if err := m.storage.SaveSettingPaymentMethod(&record); err != nil {
 				m.status = "payment method save failed: " + err.Error()
@@ -614,35 +579,14 @@ func (m TheApplication) updateSettings(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 
-			country := strings.TrimSpace(m.settingsTaxTypeCountryInput.Value())
-			name := strings.TrimSpace(m.settingsTaxTypeNameInput.Value())
-			description := strings.TrimSpace(m.settingsTaxTypeDescriptionInput.Value())
-			url := strings.TrimSpace(m.settingsTaxTypeURLInput.Value())
-			if country == "" {
-				m.status = "country is required"
+			record, err := settings.SettingTaxType{ID: m.settingsTaxTypeEditingID}.Apply(m.settingsTaxTypeCountryInput.Value(), m.settingsTaxTypeNameInput.Value(), m.settingsTaxTypeDescriptionInput.Value(), m.settingsTaxTypeURLInput.Value(), time.Now())
+			if err != nil {
+				m.status = err.Error()
 
 				return m, nil
 			}
 
-			if name == "" {
-				m.status = "tax type name is required"
-
-				return m, nil
-			}
-
-			now := time.Now()
-
-			record := settings.SettingTaxType{
-				ID:            m.settingsTaxTypeEditingID,
-				Country:       country,
-				TaxTypeName:   name,
-				Description:   description,
-				URL:           url,
-				LastUpdatedAt: now,
-			}
-			if record.ID == 0 {
-				record.CreatedAt = now
-			}
+			country, name := record.Country, record.TaxTypeName
 
 			if err := m.storage.SaveSettingTaxType(&record); err != nil {
 				m.status = "tax type save failed: " + err.Error()
@@ -694,16 +638,14 @@ func (m TheApplication) updateSettings(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.status = "income category edit cancelled"
 			return m, nil
 		case "enter":
-			name := strings.TrimSpace(m.settingsIncomeCategoryNameInput.Value())
-			if name == "" {
-				m.status = "income category name is required"
+			// Start from the stored category, so editing keeps its archived
+			// flag (set in the desktop app) and when it was created.
+			record, err := storedIncomeCategory(m.settings, m.settingsIncomeCategoryEditingID).Apply(m.settingsIncomeCategoryNameInput.Value(), time.Now())
+			if err != nil {
+				m.status = err.Error()
 				return m, nil
 			}
-			now := time.Now()
-			record := settings.SettingIncomeCategory{ID: m.settingsIncomeCategoryEditingID, CategoryName: name, LastUpdatedAt: now}
-			if record.ID == 0 {
-				record.CreatedAt = now
-			}
+			name := record.CategoryName
 			if err := m.storage.SaveSettingIncomeCategory(&record); err != nil {
 				m.status = "income category save failed: " + err.Error()
 				return m, nil
@@ -736,16 +678,12 @@ func (m TheApplication) updateSettings(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.status = "expense category edit cancelled"
 			return m, nil
 		case "enter":
-			name := strings.TrimSpace(m.settingsExpenseCategoryNameInput.Value())
-			if name == "" {
-				m.status = "expense category name is required"
+			record, err := storedExpenseCategory(m.settings, m.settingsExpenseCategoryEditingID).Apply(m.settingsExpenseCategoryNameInput.Value(), time.Now())
+			if err != nil {
+				m.status = err.Error()
 				return m, nil
 			}
-			now := time.Now()
-			record := settings.SettingExpenseCategory{ID: m.settingsExpenseCategoryEditingID, CategoryName: name, LastUpdatedAt: now}
-			if record.ID == 0 {
-				record.CreatedAt = now
-			}
+			name := record.CategoryName
 			if err := m.storage.SaveSettingExpenseCategory(&record); err != nil {
 				m.status = "expense category save failed: " + err.Error()
 				return m, nil
@@ -1079,4 +1017,51 @@ func (m TheApplication) focusPaymentMethodFormField() TheApplication {
 	}
 
 	return m
+}
+
+// storedIncomeCategory is the income category with id as stored, or a new
+// one for id 0.
+func storedIncomeCategory(stts settings.AppSettings, id uint) settings.SettingIncomeCategory {
+	for _, category := range stts.IncomeCategories {
+		if id != 0 && category.ID == id {
+			return category
+		}
+	}
+
+	return settings.SettingIncomeCategory{ID: id}
+}
+
+// storedExpenseCategory is the expense category with id as stored, or a new
+// one for id 0.
+func storedExpenseCategory(stts settings.AppSettings, id uint) settings.SettingExpenseCategory {
+	for _, category := range stts.ExpenseCategories {
+		if id != 0 && category.ID == id {
+			return category
+		}
+	}
+
+	return settings.SettingExpenseCategory{ID: id}
+}
+
+// storedCurrency is the currency with id as stored, or a new one for id 0.
+func storedCurrency(stts settings.AppSettings, id uint) settings.SettingCurrency {
+	for _, c := range stts.Currencies {
+		if id != 0 && c.ID == id {
+			return c
+		}
+	}
+
+	return settings.SettingCurrency{ID: id}
+}
+
+// storedPaymentMethod is the payment method with id as stored, or a new one
+// for id 0.
+func storedPaymentMethod(stts settings.AppSettings, id uint) settings.SettingPaymentMethod {
+	for _, p := range stts.PaymentMethods {
+		if id != 0 && p.ID == id {
+			return p
+		}
+	}
+
+	return settings.SettingPaymentMethod{ID: id}
 }

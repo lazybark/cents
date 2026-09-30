@@ -2,43 +2,14 @@
 
 ## Plans
 
-- [ ] Flow to rename currency and not lose the data for accounts & other entities related to the currency (like transactions, budgets, etc.)
-- [ ] Same flow for payment methods.
-- [ ] Store DB schema by versions once we have 0.0.1 release, to be able to track changes and update the DB schema on app updates without losing data.
-Backup and restore DB.
+- Different DB drivers. Should be a way to sync data in iCloud, for example
 
-When user opens app, it tries to fetch DB. If no DB or it's empty (lacks settings table) - suggest user to create new DB or open existing. Then this setting is saved in some config file. So basically we have to be able to fetch any DB file.
+- Language localization
 
-CSV exports for everything (accounts, transactions, budgets, goals, debts, invoices, etc.)
+-  Bank statement import (CSV) (nealy impossible to make a universal parser)
 
-Analytics features: montly stats, yearly stats, category stats, etc.
+- Automatic backups, daily/weekly/etc.
 
-Account history log: maybe in case account amount change we can log this and show history of changes for the account, with possibility to filter by date, etc.
+- Reminders of some kind that will notify you about upcoming payments or important financial events
 
-Edit account: ability to enter name of payment method or set an ID of existing.
-
-Make sure app can init DB on first launch. And also can restore all tables in case one of them is missing.
-
-Store settings in JSON file? Then we can easily setup app. And we do not depend on any DB to actually store settings. We can keep there path to DB.
-
-Data importer (CSV, JSON)
-
-Credits: loaner (bank, other org), from date, due date, amount, currency, logs
-
-How to make historical data NOT updated with currency changes? Need to store the resulting value at the moment of closing the debt
-
-Page with historical account data, where all accounts are aggregated historically
-
-Net Worth page and menu record.
-
-Property menu section: properties, cars, etc.
-
-Add setting to hide some menu items
-
-Fix: account log update enter does not work on checkbox, only when user is back to Amount input
-
-Make Update log on save by default as true
-
-Make account history entries deletable
-
-Fix: account list has a ? placeholders on unicode symbols in account names, though the actual name is OK
+- Attachments. Receipts or invoice PDFs stored with the record (research the best way to store them without bloating the database)

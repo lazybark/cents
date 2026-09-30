@@ -7,18 +7,48 @@ import (
 )
 
 type Subscription struct {
-	ID                uint `gorm:"primaryKey"`
-	CreatedAt         time.Time
-	LastUpdatedAt     time.Time `gorm:"not null;default:1970-01-01 00:00:00"`
-	Name              string
-	Currency          string
-	AmountCents       int64
-	Period            string
-	PaymentMethod     string
+	ID            uint `gorm:"primaryKey"`
+	CreatedAt     time.Time
+	LastUpdatedAt time.Time `gorm:"not null;default:1970-01-01 00:00:00"`
+	Name          string
+	// CurrencyUID links the currency; its name (Currency) is filled in on
+	// load and turned back into the link on save.
+	CurrencyUID string `gorm:"not null;default:''"`
+	Currency    string `gorm:"-"`
+	AmountCents int64
+	Period      string
+	// PaymentMethodUID links the payment method; its name (PaymentMethod)
+	// is filled in on load.
+	PaymentMethodUID  string `gorm:"not null;default:''"`
+	PaymentMethod     string `gorm:"-"`
 	Type              string
 	IsActive          bool
 	PaymentDateYearly string
 	PaymentDayMonthly *int
+	// NextPaymentDate is a payment date the schedule repeats from, every
+	// period. Without one, PaymentDateYearly or PaymentDayMonthly (what the
+	// TUI sets) stand in for it; see Anchor.
+	NextPaymentDate *time.Time
+	// LastPaidDate is the latest payment marked paid (the latest
+	// SubscriptionPayment), so the next one comes after it.
+	LastPaidDate *time.Time
+	// PaidManually is for payments made by hand (rent, bills): a passed
+	// payment stays due, overdue, until it's marked paid. Otherwise (a card
+	// charged automatically) a passed payment counts as paid.
+	PaidManually bool `gorm:"not null;default:false"`
+	// IsObligation marks a serious regular payment (rent, insurance, bills)
+	// as opposed to a minor subscription (streaming, apps); they're listed
+	// and totalled apart.
+	IsObligation bool `gorm:"not null;default:false"`
+}
+
+// SubscriptionPayment records a payment marked paid: PaidFor is the
+// payment's day. Deleting records rolls the schedule back.
+type SubscriptionPayment struct {
+	ID             uint `gorm:"primaryKey"`
+	CreatedAt      time.Time
+	SubscriptionID uint      `gorm:"index;not null"`
+	PaidFor        time.Time `gorm:"not null"`
 }
 
 const (

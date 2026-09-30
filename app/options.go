@@ -8,53 +8,27 @@ import (
 	"github.com/lazybark/cents/flows/settings"
 )
 
-type accountSortField int
+type accountSortField = account.SortField
 
 const (
-	accountSortBaseAmount accountSortField = iota
-	accountSortName
-	accountSortCurrency
-	accountSortUpdated
+	accountSortBaseAmount = account.SortBaseAmount
+	accountSortName       = account.SortName
+	accountSortCurrency   = account.SortCurrency
+	accountSortUpdated    = account.SortUpdated
 )
 
 func incomeCategorySelectionOptions(settings settings.AppSettings) []string {
-	items := make([]string, 0, len(settings.IncomeCategories))
-
-	for _, category := range settings.IncomeCategories {
-		name := strings.TrimSpace(category.CategoryName)
-		if name != "" {
-			items = append(items, name)
-		}
-	}
-
-	return items
+	return settings.IncomeCategoryOptions()
 }
 
 func expenseCategorySelectionOptions(settings settings.AppSettings) []string {
-	items := make([]string, 0, len(settings.ExpenseCategories))
-
-	for _, category := range settings.ExpenseCategories {
-		name := strings.TrimSpace(category.CategoryName)
-		if name != "" {
-			items = append(items, name)
-		}
-	}
-
-	return items
+	return settings.ExpenseCategoryOptions()
 }
 
+// accountSelectionOptions are "" (no account) and the accounts new records
+// can pick; archived ones are left out.
 func accountSelectionOptions(accounts []account.Account) []string {
-	items := make([]string, 0, len(accounts)+1)
-	items = append(items, "")
-
-	for _, acct := range accounts {
-		name := strings.TrimSpace(acct.Name)
-		if name != "" {
-			items = append(items, name)
-		}
-	}
-
-	return items
+	return append([]string{""}, account.PickerNames(accounts)...)
 }
 
 func cashflowAccountDisplayOptions(accountOptions []string) []string {
@@ -91,4 +65,8 @@ func appMenuGroups() []menuGroup {
 		{title: "Taxes", items: []string{"new", "unpaid", "history"}},
 		{title: "Settings", items: []string{"edit", "Export"}},
 	}
+}
+
+func paymentMethodTypeOptions() []string {
+	return settings.PaymentMethodTypeOptions()
 }

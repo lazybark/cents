@@ -2,7 +2,6 @@ package app
 
 import (
 	"fmt"
-	"sort"
 	"strings"
 	"time"
 
@@ -91,7 +90,7 @@ func (m TheApplication) renderCashflowHistoryRow(width int, index int, item cash
 		accountLabel = "-"
 	}
 
-	row := fmt.Sprintf("%s %-*s %-*s %-*s %-*s %-*s %-*s %-*s", prefix, dateWidth, item.EntryDate.Local().Format("2006-01-02"), typeWidth, typeLabel, currencyWidth, truncateText(item.Currency, currencyWidth), amountWidth, renderMoneyWithCurrency(item.Currency, item.AmountCents), categoryWidth, truncateText(item.Category, categoryWidth), accountWidth, truncateText(accountLabel, accountWidth), commentWidth, truncateText(item.Comment, commentWidth))
+	row := fmt.Sprintf("%s %-*s %-*s %-*s %-*s %-*s %-*s %-*s", prefix, dateWidth, item.EntryDate.Format("2006-01-02"), typeWidth, typeLabel, currencyWidth, truncateText(item.Currency, currencyWidth), amountWidth, renderMoneyWithCurrency(item.Currency, item.AmountCents), categoryWidth, truncateText(item.Category, categoryWidth), accountWidth, truncateText(accountLabel, accountWidth), commentWidth, truncateText(item.Comment, commentWidth))
 
 	return style.Render(row)
 }
@@ -176,24 +175,7 @@ func (m TheApplication) renderCashflowHistory(width int) string {
 		return panelStyle.Width(width).Render(strings.Join(lines, "\n"))
 	}
 
-	var incomeTotal int64
-	var expenseTotal int64
-
-	missingRates := 0
-	for _, item := range items {
-		amountBase, ok := m.convertToBaseCents(item.Currency, item.AmountCents)
-		if !ok {
-			missingRates++
-
-			continue
-		}
-
-		if item.IsIncome {
-			incomeTotal += amountBase
-		} else {
-			expenseTotal += amountBase
-		}
-	}
+	incomeTotal, expenseTotal, missingRates := cashflow.Totals(items)
 
 	net := incomeTotal - expenseTotal
 	base := m.baseCurrencyLabel()
@@ -371,22 +353,17 @@ func (m TheApplication) saveCashflowFromForm() (tea.Model, tea.Cmd) {
 	}
 
 	category := selectedStringOption(m.addCashflowForm.CategoryOptions, m.addCashflowForm.CategoryIndex)
-	if category == "" {
-		m.status = "category is required"
+	currency := selectedCurrencyOption(m.addCashflowForm.CurrencyOptions, m.addCashflowForm.CurrencyIndex)
+	account := selectedStringOption(m.addCashflowForm.AccountOptions, m.addCashflowForm.AccountIndex)
+
+	// The TUI keeps the currency's rate in settings now with the entry.
+	rate, _ := m.settings.EntryRate(currency, "")
+
+	entry, err := cashflow.New(m.addCashflowForm.IsIncome, currency, amount, rate, entryDate, category, m.addCashflowForm.CategoryOptions, account, comment, time.Now())
+	if err != nil {
+		m.status = err.Error()
 
 		return m, nil
-	}
-
-	now := time.Now()
-	entry := cashflow.CashflowEntry{
-		IsIncome:      m.addCashflowForm.IsIncome,
-		Currency:      selectedCurrencyOption(m.addCashflowForm.CurrencyOptions, m.addCashflowForm.CurrencyIndex),
-		AmountCents:   amount,
-		EntryDate:     entryDate,
-		Category:      category,
-		AccountName:   selectedStringOption(m.addCashflowForm.AccountOptions, m.addCashflowForm.AccountIndex),
-		Comment:       comment,
-		LastUpdatedAt: now,
 	}
 
 	if err := m.storage.CreateCashflow(&entry); err != nil {
@@ -454,7 +431,7 @@ func (m TheApplication) updateCashflowHistory(msg tea.KeyMsg) (tea.Model, tea.Cm
 		}
 
 		selected := items[m.cashflowCursor]
-		targetName := selected.EntryDate.Local().Format("2006-01-02") + " " + selected.Category
+		targetName := selected.EntryDate.Format("2006-01-02") + " " + selected.Category
 		m = m.beginDeleteConfirmation("cashflow", selected.ID, targetName)
 
 		return m, nil
@@ -519,102 +496,11 @@ func (m TheApplication) cashflowOverviewPageSize() int {
 }
 
 func (m TheApplication) filteredCashflowsForMonth() []cashflow.CashflowEntry {
-	month := beginningOfMonth(m.cashflowHistoryMonth)
-	filtered := make([]cashflow.CashflowEntry, 0)
-
-	for _, entry := range m.cashflows {
-		itemMonth := beginningOfMonth(entry.EntryDate)
-		if itemMonth.Year() == month.Year() && itemMonth.Month() == month.Month() {
-			filtered = append(filtered, entry)
-		}
-	}
-
-	sort.SliceStable(filtered, func(i, j int) bool {
-		if filtered[i].EntryDate.Equal(filtered[j].EntryDate) {
-			return filtered[i].CreatedAt.After(filtered[j].CreatedAt)
-		}
-
-		return filtered[i].EntryDate.After(filtered[j].EntryDate)
-	})
-
-	return filtered
+	return cashflow.ForMonth(m.cashflows, m.cashflowHistoryMonth)
 }
 
 func (m TheApplication) monthlyCashflowOverviewRows() ([]cashflow.CashflowMonthlyOverviewRow, int) {
-	if len(m.cashflows) == 0 {
-		return nil, 0
-	}
-
-	totalsByMonth := make(map[time.Time]cashflow.CashflowMonthlyOverviewRow)
-	missingRates := 0
-
-	for _, entry := range m.cashflows {
-		amountBase, ok := m.convertToBaseCents(entry.Currency, entry.AmountCents)
-		if !ok {
-			missingRates++
-			continue
-		}
-
-		month := beginningOfMonth(entry.EntryDate)
-		row := totalsByMonth[month]
-		row.Month = month
-
-		if entry.IsIncome {
-			row.IncomeBase += amountBase
-		} else {
-			row.ExpenseBase += amountBase
-		}
-
-		totalsByMonth[month] = row
-	}
-
-	if len(totalsByMonth) == 0 {
-		return nil, missingRates
-	}
-
-	minMonthSet := false
-
-	var minMonth time.Time
-	var maxMonth time.Time
-
-	for month := range totalsByMonth {
-		if !minMonthSet {
-			minMonth = month
-			maxMonth = month
-			minMonthSet = true
-
-			continue
-		}
-
-		if month.Before(minMonth) {
-			minMonth = month
-		}
-
-		if month.After(maxMonth) {
-			maxMonth = month
-		}
-	}
-
-	rows := make([]cashflow.CashflowMonthlyOverviewRow, 0)
-
-	var prevNet int64
-
-	hasPrev := false
-
-	for month := minMonth; !month.After(maxMonth); month = monthShift(month, 1) {
-		row := totalsByMonth[month]
-		row.Month = month
-		row.NetBase = row.IncomeBase - row.ExpenseBase
-		if hasPrev {
-			row.HasPrev = true
-			row.DeltaFromPrev = row.NetBase - prevNet
-		}
-		rows = append(rows, row)
-		prevNet = row.NetBase
-		hasPrev = true
-	}
-
-	return rows, missingRates
+	return cashflow.MonthlyOverview(m.cashflows)
 }
 
 func (m TheApplication) confirmDeleteCashflow() (tea.Model, tea.Cmd) {
