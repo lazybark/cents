@@ -1,6 +1,7 @@
 // Accounts: totals, the account table and every account operation the TUI
 // offers (add, update amount, value history, delete).
 import { api } from "../api.js";
+import { chart, monthLabel, monthRange } from "../charts.js";
 import {
   badge,
   busy,
@@ -44,6 +45,9 @@ const el = {
   logForm: $("log-form"),
   logs: $("logs"),
   logsEmpty: $("logs-empty"),
+  chart: $("account-chart"),
+  chartStats: $("account-chart-stats"),
+  chartEmpty: $("account-chart-empty"),
   deleteAccount: $("delete-account"),
 };
 
@@ -236,6 +240,9 @@ function openAccount(acct) {
 
   el.logs.replaceChildren();
   el.logsEmpty.hidden = true;
+  el.chart.replaceChildren();
+  el.chartStats.replaceChildren();
+  el.chartEmpty.hidden = true;
   el.accountDialog.showModal();
   loadLogs();
 }
@@ -260,6 +267,77 @@ async function loadLogs() {
   } catch (err) {
     formError(el.logForm, `Failed to load value history: ${err}`);
   }
+
+  await loadChart();
+}
+
+// loadChart draws the account's value month by month from its history: each
+// month's last logged value. Months with nothing logged stay empty.
+async function loadChart() {
+  const acct = state.current;
+  let points = [];
+
+  try {
+    points = await api.AccountMonthlyValues(acct.id);
+  } catch (err) {
+    formError(el.logForm, `Failed to load the chart: ${err}`);
+  }
+
+  const enough = points.length >= 2;
+  el.chartEmpty.hidden = enough;
+  el.chartStats.hidden = !enough;
+  if (!enough) {
+    el.chart.replaceChildren();
+    return;
+  }
+
+  const money = (cents) => formatMoney(acct.currency, cents);
+  const signed = (cents) => (cents > 0 ? "+" : "") + money(cents);
+  const byMonth = new Map(points.map((p) => [p.month, p]));
+  const months = monthRange(points[0].month, points[points.length - 1].month);
+
+  chart(el.chart, {
+    months,
+    series: [{ type: "line", values: months.map((m) => byMonth.get(m)?.valueCents ?? null), className: "line-value" }],
+    zero: false,
+    tooltip: (i) => {
+      const point = byMonth.get(months[i]);
+      if (!point) return [monthLabel(months[i], true), "nothing logged"];
+
+      const index = points.indexOf(point);
+      const lines = [monthLabel(point.month, true), `${money(point.valueCents)} on ${point.date}`];
+      if (index > 0) lines.push(`${signed(point.valueCents - points[index - 1].valueCents)} since ${monthLabel(points[index - 1].month)}`);
+      return lines;
+    },
+    label: `${acct.name} month by month`,
+  });
+
+  const first = points[0];
+  const last = points[points.length - 1];
+  const change = last.valueCents - first.valueCents;
+  const percent = first.valueCents !== 0 ? ` (${change > 0 ? "+" : ""}${((change / Math.abs(first.valueCents)) * 100).toFixed(1)}%)` : "";
+  const high = points.reduce((a, b) => (b.valueCents > a.valueCents ? b : a));
+  const low = points.reduce((a, b) => (b.valueCents < a.valueCents ? b : a));
+  const [year, month] = last.month.split("-");
+  const yearAgo = byMonth.get(`${Number(year) - 1}-${month}`);
+  const stats = [
+    [`Change since ${monthLabel(first.month)}`, `${signed(change)}${percent}`, signClass(change)],
+    ["Highest", `${money(high.valueCents)} · ${monthLabel(high.month)}`],
+    ["Lowest", `${money(low.valueCents)} · ${monthLabel(low.month)}`],
+    ["Average change a month", signed(Math.round(change / (months.length - 1)))],
+  ];
+  if (yearAgo) stats.splice(1, 0, ["Change over 12 months", signed(last.valueCents - yearAgo.valueCents), signClass(last.valueCents - yearAgo.valueCents)]);
+
+  el.chartStats.replaceChildren(
+    ...stats.flatMap(([term, value, className]) => {
+      const dt = document.createElement("dt");
+      dt.textContent = term;
+      const dd = document.createElement("dd");
+      dd.textContent = value;
+      if (className) dd.className = className;
+      return [dt, dd];
+    }),
+  );
 }
 
 // History entries are snapshots, so deleting one leaves the balance alone.

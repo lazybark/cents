@@ -209,3 +209,27 @@ func TestOverviewAndSettings(t *testing.T) {
 		t.Fatalf("unexpected settings %+v", view)
 	}
 }
+
+func TestAccountMonthlyValues(t *testing.T) {
+	api := newTestAPI(t)
+	acct := mustCreate(t, api, NewAccountInput{Name: "Total", Description: "all", Currency: "EUR", Amount: "0"})
+
+	for _, entry := range []ValueLogInput{
+		{AccountID: acct.ID, Date: "2026-02-28", Value: "200"},
+		{AccountID: acct.ID, Date: "2026-01-10", Value: "90"},
+		{AccountID: acct.ID, Date: "2026-01-31", Value: "100"},
+	} {
+		if err := api.SaveAccountValueLog(entry); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	points, err := api.AccountMonthlyValues(acct.ID)
+	if err != nil || len(points) != 2 || points[0] != (MonthPoint{Month: "2026-01", Date: "2026-01-31", ValueCents: 10000}) || points[1].Month != "2026-02" {
+		t.Fatalf("unexpected points %+v %v", points, err)
+	}
+
+	if _, err := api.AccountMonthlyValues(acct.ID + 99); err != errAccountNotFound {
+		t.Fatalf("expected not found, got %v", err)
+	}
+}

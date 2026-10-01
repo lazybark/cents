@@ -654,3 +654,116 @@ input[type="checkbox"] {
   font-size: 12px;
   overflow-wrap: anywhere;
 }
+
+/* Charts (see js/charts.js) */
+
+.chart {
+  position: relative;
+  margin-top: 8px;
+}
+
+.chart svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.chart-grid line {
+  stroke: var(--row-border);
+  stroke-width: 1;
+}
+
+.chart-grid line.chart-zero {
+  stroke: var(--panel-border);
+}
+
+.chart text {
+  fill: var(--muted);
+  font: 11px ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+
+.bar-positive {
+  fill: var(--positive);
+}
+
+.bar-negative {
+  fill: var(--negative);
+}
+
+.chart-line {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linejoin: round;
+}
+
+.chart-dots circle {
+  fill: currentColor;
+}
+
+.line-income {
+  color: var(--positive);
+  opacity: 0.55;
+}
+
+.line-expense {
+  color: var(--negative);
+  opacity: 0.55;
+}
+
+.line-value {
+  color: var(--headline);
+}
+
+.chart-hover rect {
+  fill: transparent;
+}
+
+.chart-hover rect.active {
+  fill: rgba(244, 233, 216, 0.06);
+}
+
+.chart-tip {
+  position: absolute;
+  top: 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--panel-border);
+  border-radius: 6px;
+  background: var(--surface);
+  font-size: 12px;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.chart-tip-title {
+  color: var(--headline);
+}
+
+.chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin-top: 6px;
+  color: var(--hint);
+  font-size: 12px;
+}
+
+.chart-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.chart-swatch {
+  display: inline-block;
+  width: 12px;
+  height: 4px;
+  border-radius: 2px;
+  background: currentColor;
+}
+
+.chart-swatch.bar-positive {
+  height: 10px;
+  background: linear-gradient(90deg, var(--positive) 50%, var(--negative) 50%);
+}

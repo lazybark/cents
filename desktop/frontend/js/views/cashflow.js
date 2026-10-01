@@ -3,6 +3,7 @@
 // Each keeps the rate to the base currency it was made at; the rate of an
 // entry (or of a whole month's entries in its currency) can be corrected.
 import { api } from "../api.js";
+import { chart, legend, monthLabel } from "../charts.js";
 import {
   busy,
   cell,
@@ -50,6 +51,21 @@ const el = {
   monthsMissing: $("months-missing"),
   monthsHint: $("months-hint"),
 
+  statsPane: $("cashflow-stats"),
+  statsRange: $("stats-range"),
+  statsChart: $("stats-chart"),
+  statsLegend: $("stats-legend"),
+  statsEmpty: $("stats-empty"),
+  statsMissing: $("stats-missing"),
+  statsFigures: $("stats-figures-panel"),
+  statsAverage: $("stats-average"),
+  statsTotal: $("stats-total"),
+  statsBest: $("stats-best"),
+  statsBestMonth: $("stats-best-month"),
+  statsWorst: $("stats-worst"),
+  statsWorstMonth: $("stats-worst-month"),
+  statsMore: $("stats-more"),
+
   dialog: $("cashflow-dialog"),
   form: $("cashflow-form"),
   formTitle: $("cashflow-title"),
@@ -90,18 +106,22 @@ export function init() {
   el.form.addEventListener("submit", save);
   el.form.elements.currency.addEventListener("change", () => syncRate(el.form, state.options.rates));
   el.rateForm.addEventListener("submit", saveRate);
+  el.statsRange.addEventListener("change", () => show());
 }
 
 export async function show(message) {
   for (const tab of el.tabs) tab.setAttribute("aria-selected", String(tab.dataset.tab === state.tab));
   el.monthPane.hidden = state.tab !== "month";
   el.monthsPane.hidden = state.tab !== "months";
+  el.statsPane.hidden = state.tab !== "stats";
 
   try {
     if (state.tab === "month") await loadMonth();
-    else await loadMonths();
+    else if (state.tab === "months") await loadMonths();
+    else await loadStats();
 
-    setStatus(message ?? (state.tab === "month" ? `showing ${monthName(state.month)}` : "all months"));
+    const shown = { month: `showing ${monthName(state.month)}`, months: "all months", stats: "statistics" };
+    setStatus(message ?? shown[state.tab]);
   } catch (err) {
     setStatus(`Failed to load incomes and expenses: ${err}`);
   }
@@ -253,6 +273,90 @@ async function loadMonths() {
       clickableRow(row, () => goToMonth(item.month));
 
       return row;
+    }),
+  );
+}
+
+// --- statistics ------------------------------------------------------------
+
+// loadStats charts the net result of the chosen months, with income and
+// expense as lines behind it, and sums them up below.
+async function loadStats() {
+  const data = await api.CashflowOverview();
+  const base = data.baseCurrency;
+  const money = (cents) => formatMoney(base, cents);
+  const signed = (cents) => (cents > 0 ? "+" : "") + money(cents);
+
+  // The overview lists months newest first, with empty months in between.
+  const all = [...data.rows].reverse();
+  const range = Number(el.statsRange.value);
+  const rows = range > 0 ? all.slice(-range) : all;
+
+  el.statsEmpty.hidden = rows.length > 0;
+  el.statsFigures.hidden = rows.length === 0;
+  el.statsMissing.hidden = data.missingRates === 0;
+  el.statsMissing.textContent = `${data.missingRates} record(s) have no rate and aren't counted. Open their month to add one.`;
+
+  chart(el.statsChart, {
+    months: rows.map((r) => r.month),
+    series: [
+      { type: "line", values: rows.map((r) => r.incomeCents), className: "line-income" },
+      { type: "line", values: rows.map((r) => r.expenseCents), className: "line-expense" },
+      { type: "bar", values: rows.map((r) => r.netCents) },
+    ],
+    tooltip: (i) => [
+      monthLabel(rows[i].month, true),
+      `Income  ${money(rows[i].incomeCents)}`,
+      `Expense ${money(rows[i].expenseCents)}`,
+      `Net     ${signed(rows[i].netCents)}`,
+    ],
+    label: `Net result by month in ${base}`,
+  });
+  legend(el.statsLegend, rows.length === 0 ? [] : [
+    ["bar-positive", `Net (${base})`],
+    ["line-income", "Income"],
+    ["line-expense", "Expense"],
+  ]);
+
+  if (rows.length === 0) return;
+
+  const total = rows.reduce((sum, r) => sum + r.netCents, 0);
+  const best = rows.reduce((a, b) => (b.netCents > a.netCents ? b : a));
+  const worst = rows.reduce((a, b) => (b.netCents < a.netCents ? b : a));
+  const average = Math.round(total / rows.length);
+  const tone = (node, cents) => {
+    node.classList.toggle("positive", cents > 0);
+    node.classList.toggle("negative", cents < 0);
+  };
+
+  el.statsAverage.textContent = signed(average);
+  tone(el.statsAverage, average);
+  el.statsTotal.textContent = signed(total);
+  tone(el.statsTotal, total);
+  el.statsBest.textContent = signed(best.netCents);
+  tone(el.statsBest, best.netCents);
+  el.statsBestMonth.textContent = monthName(best.month);
+  el.statsWorst.textContent = signed(worst.netCents);
+  tone(el.statsWorst, worst.netCents);
+  el.statsWorstMonth.textContent = monthName(worst.month);
+
+  const income = rows.reduce((sum, r) => sum + r.incomeCents, 0);
+  const expense = rows.reduce((sum, r) => sum + r.expenseCents, 0);
+  const positive = rows.filter((r) => r.netCents > 0).length;
+  const more = [
+    ["Months shown", `${rows.length}, from ${monthName(rows[0].month)}`],
+    ["Months with a positive net", `${positive} of ${rows.length}`],
+    ["Average income a month", money(Math.round(income / rows.length))],
+    ["Average expense a month", money(Math.round(expense / rows.length))],
+    ["Share of income kept", income > 0 ? `${((total / income) * 100).toFixed(1)}%` : "—"],
+  ];
+  el.statsMore.replaceChildren(
+    ...more.flatMap(([term, value]) => {
+      const dt = document.createElement("dt");
+      dt.textContent = term;
+      const dd = document.createElement("dd");
+      dd.textContent = value;
+      return [dt, dd];
     }),
   );
 }

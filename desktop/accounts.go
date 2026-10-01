@@ -293,6 +293,41 @@ func (a *API) DeleteAccountValueLog(accountID uint, logID uint) error {
 	return storage.DeleteAccountValueLog(accountID, logID)
 }
 
+// MonthPoint is a value for one month ("YYYY-MM"); Date is the day it was
+// logged on.
+type MonthPoint struct {
+	Month      string `json:"month"`
+	Date       string `json:"date"`
+	ValueCents int64  `json:"valueCents"`
+}
+
+// AccountMonthlyValues returns an account's value month by month, oldest
+// first: each month's last logged value. Months with nothing logged are
+// left out.
+func (a *API) AccountMonthlyValues(accountID uint) ([]MonthPoint, error) {
+	storage, err := a.currentStorage()
+	if err != nil {
+		return nil, err
+	}
+
+	if err := requireAccount(storage, accountID); err != nil {
+		return nil, err
+	}
+
+	logs, err := storage.LoadAccountValueLogs(accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	values := account.MonthlyValues(logs)
+	points := make([]MonthPoint, 0, len(values))
+	for _, v := range values {
+		points = append(points, MonthPoint{Month: v.Month.Format(monthLayout), Date: v.Day.Local().Format(logDateLayout), ValueCents: v.ValueCents})
+	}
+
+	return points, nil
+}
+
 func requireAccount(storage StorageWorker, id uint) error {
 	accounts, err := storage.LoadAccounts()
 	if err != nil {

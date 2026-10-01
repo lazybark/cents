@@ -192,6 +192,7 @@
         <div class="tabs" role="tablist">
           <button class="tab" type="button" role="tab" data-tab="month">Month</button>
           <button class="tab" type="button" role="tab" data-tab="months">All months</button>
+          <button class="tab" type="button" role="tab" data-tab="stats">Statistics</button>
         </div>
 
         <div id="cashflow-month" class="pane">
@@ -255,6 +256,50 @@
             <p id="months-empty" class="muted" hidden>No records yet.</p>
             <p id="months-missing" class="hint" hidden></p>
             <p id="months-hint" class="hint">Click a month to see its entries.</p>
+          </section>
+        </div>
+
+        <div id="cashflow-stats" class="pane" hidden>
+          <section class="panel">
+            <div class="panel-head">
+              <h3 class="section-title">Net result by month</h3>
+              <label class="inline-field">
+                <span class="field-label">Show</span>
+                <select id="stats-range">
+                  <option value="12">Last 12 months</option>
+                  <option value="24">Last 24 months</option>
+                  <option value="36">Last 36 months</option>
+                  <option value="0">All months</option>
+                </select>
+              </label>
+            </div>
+            <div id="stats-chart"></div>
+            <div id="stats-legend" class="chart-legend"></div>
+            <p id="stats-empty" class="muted" hidden>No records yet.</p>
+            <p id="stats-missing" class="hint" hidden></p>
+          </section>
+          <section id="stats-figures-panel" class="panel">
+            <div class="figures">
+              <div>
+                <div class="label">Average net a month</div>
+                <div id="stats-average" class="figure"></div>
+              </div>
+              <div>
+                <div class="label">Total net</div>
+                <div id="stats-total" class="figure"></div>
+              </div>
+              <div>
+                <div class="label">Best month</div>
+                <div id="stats-best" class="figure"></div>
+                <div id="stats-best-month" class="hint"></div>
+              </div>
+              <div>
+                <div class="label">Worst month</div>
+                <div id="stats-worst" class="figure"></div>
+                <div id="stats-worst-month" class="hint"></div>
+              </div>
+            </div>
+            <dl id="stats-more" class="stats"></dl>
           </section>
         </div>
       </section>
@@ -565,6 +610,13 @@
         <button type="submit" class="button button-primary">Save amount</button>
       </div>
     </form>
+
+    <div id="account-chart-block">
+      <h3 class="subhead">Month by month</h3>
+      <div id="account-chart"></div>
+      <dl id="account-chart-stats" class="stats"></dl>
+      <p id="account-chart-empty" class="muted" hidden>Log values in at least two months to see how the account changed.</p>
+    </div>
 
     <form id="log-form" class="form" novalidate>
       <h3 class="subhead">Value history</h3>
