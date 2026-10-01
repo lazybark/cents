@@ -625,6 +625,14 @@ input[type="checkbox"] {
 .dialog-actions-group {
   display: flex;
   gap: 8px;
+  /* Stays on the right even when the delete button is hidden. */
+  margin-left: auto;
+}
+
+.settings-lists {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
 }
 
 .status {

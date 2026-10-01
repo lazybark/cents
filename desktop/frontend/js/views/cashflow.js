@@ -226,10 +226,10 @@ async function openAdd(isIncome) {
   fillSelect(form.elements.account, ["", ...options.accounts], ["— none —", ...options.accounts]);
   form.elements.date.value = localDate(new Date());
 
-  // Categories can only be added in the TUI for now, so say so up front.
+  // An entry needs a category, so say where to add one up front.
   const missing = categories.length === 0;
   el.noCategories.hidden = !missing;
-  el.noCategories.textContent = `No ${kind} categories yet. Add one in the terminal UI settings (--mode=t) first.`;
+  el.noCategories.textContent = `No ${kind} categories yet. Add one in Settings first.`;
   form.querySelector('[type="submit"]').disabled = missing;
 
   formError(form, "");

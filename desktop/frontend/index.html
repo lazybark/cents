@@ -214,29 +214,24 @@
       </section>
 
       <section id="view-settings" class="view" hidden>
-        <section class="panel">
-          <h3 class="section-title">Database</h3>
-          <p id="settings-db" class="path"></p>
-          <p class="hint">Chosen on first launch and remembered in config.yml.</p>
-        </section>
-        <section class="panel">
-          <h3 class="section-title">Currencies</h3>
-          <dl class="stats">
-            <dt>Base currency</dt>
-            <dd id="settings-base"></dd>
-          </dl>
-          <table class="table">
-            <thead>
-              <tr>
-                <th>Currency</th>
-                <th class="num">Rate to base</th>
-              </tr>
-            </thead>
-            <tbody id="settings-currencies"></tbody>
-          </table>
-          <p id="settings-currencies-empty" class="muted" hidden>No other currencies yet.</p>
-          <p class="hint">Settings are read-only here for now; edit them in the terminal UI (--mode=t).</p>
-        </section>
+        <div class="columns">
+          <section class="panel">
+            <div class="panel-head">
+              <h3 class="section-title">Base currency</h3>
+              <button id="edit-base" class="button" type="button">Change</button>
+            </div>
+            <div id="settings-base" class="figure"></div>
+            <p class="hint">Every total is converted into this currency.</p>
+          </section>
+          <section class="panel">
+            <h3 class="section-title">Database</h3>
+            <p id="settings-db" class="path"></p>
+            <p class="hint">Chosen on first launch and remembered in config.yml.</p>
+          </section>
+        </div>
+
+        <!-- One panel per settings list, rendered by views/settings.js. -->
+        <div id="settings-lists" class="settings-lists"></div>
       </section>
 
       <footer id="status" class="status"></footer>
@@ -455,6 +450,23 @@
   </dialog>
 
   <datalist id="payment-methods"></datalist>
+
+  <!-- Add/edit form for any settings list; views/settings.js fills the fields. -->
+  <dialog id="setting-dialog" class="dialog">
+    <form id="setting-form" class="form" novalidate>
+      <h2 id="setting-title" class="dialog-title"></h2>
+      <div id="setting-fields" class="form"></div>
+      <p id="setting-note" class="hint" hidden></p>
+      <p class="form-error negative" hidden></p>
+      <div class="dialog-actions spread">
+        <button id="setting-delete" type="button" class="button button-danger">Delete</button>
+        <span class="dialog-actions-group">
+          <button type="button" class="button" data-close>Cancel</button>
+          <button type="submit" class="button button-primary">Save</button>
+        </span>
+      </div>
+    </form>
+  </dialog>
 
   <dialog id="confirm-dialog" class="dialog">
     <h2 id="confirm-title" class="dialog-title"></h2>

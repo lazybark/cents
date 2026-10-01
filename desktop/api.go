@@ -39,6 +39,13 @@ type StorageWorker interface {
 	DeleteAccount(id uint) error
 	LoadAccountValueLogs(accountID uint) ([]account.AccountValueLog, error)
 	UpsertAccountValueLog(accountID uint, day time.Time, valueCents int64) error
+	SaveSettingRecord(entry *settings.SettingRecord) error
+	SaveSettingCurrency(entry *settings.SettingCurrency) error
+	SaveSettingPaymentMethod(entry *settings.SettingPaymentMethod) error
+	SaveSettingTaxType(entry *settings.SettingTaxType) error
+	SaveSettingIncomeCategory(entry *settings.SettingIncomeCategory) error
+	SaveSettingExpenseCategory(entry *settings.SettingExpenseCategory) error
+	DeleteSetting(targetType string, id uint) error
 }
 
 // Options configure the desktop app. Storage is nil when no database has

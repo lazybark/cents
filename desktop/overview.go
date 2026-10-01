@@ -30,17 +30,6 @@ type Overview struct {
 	LoadedAt time.Time `json:"loadedAt"`
 }
 
-type CurrencyRate struct {
-	Name       string  `json:"name"`
-	RateToBase float64 `json:"rateToBase"`
-}
-
-type SettingsView struct {
-	DBPath       string         `json:"dbPath"`
-	BaseCurrency string         `json:"baseCurrency"`
-	Currencies   []CurrencyRate `json:"currencies"`
-}
-
 // Overview computes the home screen for the current month.
 func (a *API) Overview() (Overview, error) {
 	storage, err := a.currentStorage()
@@ -74,36 +63,6 @@ func (a *API) Overview() (Overview, error) {
 		GoalsTarget:          sum.GoalsTargetCents,
 		LoadedAt:             now,
 	}, nil
-}
-
-// Settings is read-only for now: the database in use and the currencies that
-// account totals are converted with.
-func (a *API) Settings() (SettingsView, error) {
-	storage, err := a.currentStorage()
-	if err != nil {
-		return SettingsView{}, err
-	}
-
-	stts, err := storage.LoadAppSettings()
-	if err != nil {
-		return SettingsView{}, fmt.Errorf("failed to load settings: %w", err)
-	}
-
-	a.mu.Lock()
-	dbPath := a.dbPath
-	a.mu.Unlock()
-
-	view := SettingsView{
-		DBPath:       dbPath,
-		BaseCurrency: stts.BaseCurrencyLabel(),
-		Currencies:   make([]CurrencyRate, 0, len(stts.Currencies)),
-	}
-
-	for _, currency := range stts.Currencies {
-		view.Currencies = append(view.Currencies, CurrencyRate{Name: currency.CurrencyName, RateToBase: currency.RateToBase})
-	}
-
-	return view, nil
 }
 
 func loadSummaryData(storage StorageWorker) (summary.Data, error) {

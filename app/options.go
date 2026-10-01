@@ -74,3 +74,7 @@ func appMenuGroups() []menuGroup {
 		{title: "Settings", items: []string{"edit", "Export"}},
 	}
 }
+
+func paymentMethodTypeOptions() []string {
+	return settings.PaymentMethodTypeOptions()
+}

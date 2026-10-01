@@ -270,7 +270,7 @@ func NewApp(storage StorageWorker, dbPath string, created bool, accounts []accou
 		settingsPaymentMethodNameInput:   settingsPaymentMethodNameInput,
 		settingsPaymentMethodField:       0,
 		settingsPaymentMethodEditingID:   0,
-		settingsPaymentMethodTypeOptions: []string{"Card", "Crypto", "E-Wallet", "Other"},
+		settingsPaymentMethodTypeOptions: paymentMethodTypeOptions(),
 		settingsPaymentMethodTypeIndex:   0,
 		settingsPaymentMethodIsDefault:   false,
 		settingsTaxTypeCountryInput:      settingsTaxTypeCountryInput,

@@ -205,7 +205,7 @@ func TestOverviewAndSettings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if view.DBPath != "/tmp/cents.db" || view.BaseCurrency != "$" || len(view.Currencies) != 1 || view.Currencies[0] != (CurrencyRate{Name: "EUR", RateToBase: 1.08}) {
+	if view.DBPath != "/tmp/cents.db" || view.BaseCurrency != "$" || len(view.Currencies) != 1 || view.Currencies[0].Name != "EUR" || view.Currencies[0].RateToBase != 1.08 || view.Currencies[0].UsedBy != 1 {
 		t.Fatalf("unexpected settings %+v", view)
 	}
 }
