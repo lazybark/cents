@@ -1,0 +1,257 @@
+package desktop
+
+import (
+	"errors"
+	"fmt"
+	"strings"
+	"time"
+
+	"github.com/lazybark/cents/dates"
+	"github.com/lazybark/cents/flows/debt"
+)
+
+var errDebtNotFound = errors.New("debt not found")
+
+type DebtRow struct {
+	ID           uint   `json:"id"`
+	IsOwedToUser bool   `json:"isOwedToUser"`
+	Peer         string `json:"peer"`
+	Currency     string `json:"currency"`
+	AmountCents  int64  `json:"amountCents"`
+	PaidCents    int64  `json:"paidCents"`
+	LeftCents    int64  `json:"leftCents"`
+	CreatedAt    string `json:"createdAt"`
+	DueDate      string `json:"dueDate"`
+	Overdue      bool   `json:"overdue"`
+	Comment      string `json:"comment"`
+}
+
+type DebtsView struct {
+	BaseCurrency string         `json:"baseCurrency"`
+	Mode         string         `json:"mode"`
+	Debts        []DebtRow      `json:"debts"`
+	Progress     Progress       `json:"progress"`
+	Counts       map[string]int `json:"counts"`
+	Currencies   []string       `json:"currencies"`
+}
+
+type NewDebtInput struct {
+	IsOwedToUser bool   `json:"isOwedToUser"`
+	Peer         string `json:"peer"`
+	Currency     string `json:"currency"`
+	Amount       string `json:"amount"`
+	AmountPaid   string `json:"amountPaid"`
+	CreatedAt    string `json:"createdAt"`
+	DueDate      string `json:"dueDate"`
+	Comment      string `json:"comment"`
+}
+
+type DebtUpdateInput struct {
+	ID         uint   `json:"id"`
+	Amount     string `json:"amount"`
+	AmountPaid string `json:"amountPaid"`
+	CreatedAt  string `json:"createdAt"`
+	DueDate    string `json:"dueDate"`
+	Comment    string `json:"comment"`
+}
+
+// Debts lists one of the TUI's debt lists: "outgoing" (unpaid, I owe),
+// "incoming" (unpaid, owed to me) or "paid" (both directions). Progress is in
+// the base currency; Counts has every list's size for the tabs.
+func (a *API) Debts(mode string) (DebtsView, error) {
+	storage, stts, err := a.storageAndSettings()
+	if err != nil {
+		return DebtsView{}, err
+	}
+
+	items, err := storage.LoadDebts()
+	if err != nil {
+		return DebtsView{}, fmt.Errorf("failed to load debts: %w", err)
+	}
+
+	listMode := debt.ListMode(mode)
+	if listMode != debt.ListIncoming && listMode != debt.ListPaid {
+		listMode = debt.ListOutgoing
+	}
+
+	listed := debt.Filter(items, listMode)
+	paid, total := debt.ProgressInBaseCents(listed, stts)
+	now := time.Now()
+
+	view := DebtsView{
+		BaseCurrency: stts.BaseCurrencyLabel(),
+		Mode:         string(listMode),
+		Debts:        make([]DebtRow, 0, len(listed)),
+		Progress:     Progress{PaidCents: paid, TotalCents: total},
+		Counts:       map[string]int{},
+		Currencies:   stts.CurrencyOptions(),
+	}
+
+	for _, m := range []debt.ListMode{debt.ListOutgoing, debt.ListIncoming, debt.ListPaid} {
+		view.Counts[string(m)] = len(debt.Filter(items, m))
+	}
+
+	for _, item := range listed {
+		view.Debts = append(view.Debts, debtRow(item, now))
+	}
+
+	return view, nil
+}
+
+func (a *API) CreateDebt(input NewDebtInput) (CreatedIn, error) {
+	storage, stts, err := a.storageAndSettings()
+	if err != nil {
+		return CreatedIn{}, err
+	}
+
+	entry, err := debt.New(input.IsOwedToUser, input.Peer, input.Currency, input.Amount, input.AmountPaid, input.CreatedAt, input.DueDate, input.Comment, dates.ISO, time.Now())
+	if err != nil {
+		return CreatedIn{}, err
+	}
+
+	currency, ok := matchOption(stts.CurrencyOptions(), strings.TrimSpace(input.Currency))
+	if !ok {
+		return CreatedIn{}, fmt.Errorf("unknown currency %q: add it in settings first", input.Currency)
+	}
+
+	entry.Currency = currency
+
+	if err := storage.CreateDebt(&entry); err != nil {
+		return CreatedIn{}, fmt.Errorf("save failed: %w", err)
+	}
+
+	// Like the TUI, show the list the new debt belongs to.
+	mode := debt.ListOutgoing
+	if entry.IsOwedToUser {
+		mode = debt.ListIncoming
+	}
+
+	if entry.IsPaid() {
+		mode = debt.ListPaid
+	}
+
+	return CreatedIn{Mode: string(mode)}, nil
+}
+
+// UpdateDebt changes amount, amount paid, dates and comment; peer, currency
+// and direction can't change, as in the TUI.
+func (a *API) UpdateDebt(input DebtUpdateInput) error {
+	storage, err := a.currentStorage()
+	if err != nil {
+		return err
+	}
+
+	current, err := findDebt(storage, input.ID)
+	if err != nil {
+		return err
+	}
+
+	updated, err := current.Edit(input.Amount, input.AmountPaid, input.CreatedAt, input.DueDate, input.Comment, dates.ISO, time.Now())
+	if err != nil {
+		return err
+	}
+
+	if err := storage.SaveDebt(&updated); err != nil {
+		return fmt.Errorf("save failed: %w", err)
+	}
+
+	return nil
+}
+
+// DebtLogs returns a debt's latest payments, newest first.
+func (a *API) DebtLogs(id uint) ([]PaymentLog, error) {
+	storage, err := a.currentStorage()
+	if err != nil {
+		return nil, err
+	}
+
+	logs, err := storage.LoadDebtLogs(id)
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]PaymentLog, 0, len(logs))
+	for _, entry := range logs {
+		result = append(result, PaymentLog{When: entry.CreatedAt.Local().Format("2006-01-02 15:04"), DeltaCents: entry.DeltaPaidCents, Note: entry.Note})
+	}
+
+	return result, nil
+}
+
+// AddDebtPayment logs a payment and moves the amount paid by it, returning
+// the debt as it is now.
+func (a *API) AddDebtPayment(input PaymentInput) (DebtRow, error) {
+	storage, err := a.currentStorage()
+	if err != nil {
+		return DebtRow{}, err
+	}
+
+	current, err := findDebt(storage, input.ID)
+	if err != nil {
+		return DebtRow{}, err
+	}
+
+	now := time.Now()
+	updated, entry, err := current.ApplyPayment(input.Delta, input.Date, input.Note, dates.ISO, now)
+	if err != nil {
+		return DebtRow{}, err
+	}
+
+	if err := storage.SaveDebt(&updated); err != nil {
+		return DebtRow{}, fmt.Errorf("debt update failed: %w", err)
+	}
+
+	if err := storage.CreateDebtLog(&entry); err != nil {
+		return DebtRow{}, fmt.Errorf("log save failed: %w", err)
+	}
+
+	return debtRow(updated, now), nil
+}
+
+func (a *API) DeleteDebt(id uint) error {
+	storage, err := a.currentStorage()
+	if err != nil {
+		return err
+	}
+
+	if _, err := findDebt(storage, id); err != nil {
+		return err
+	}
+
+	if err := storage.DeleteDebt(id); err != nil {
+		return fmt.Errorf("delete failed: %w", err)
+	}
+
+	return nil
+}
+
+func findDebt(storage StorageWorker, id uint) (debt.Debt, error) {
+	items, err := storage.LoadDebts()
+	if err != nil {
+		return debt.Debt{}, fmt.Errorf("failed to load debts: %w", err)
+	}
+
+	for _, item := range items {
+		if item.ID == id {
+			return item, nil
+		}
+	}
+
+	return debt.Debt{}, errDebtNotFound
+}
+
+func debtRow(item debt.Debt, now time.Time) DebtRow {
+	return DebtRow{
+		ID:           item.ID,
+		IsOwedToUser: item.IsOwedToUser,
+		Peer:         item.Peer,
+		Currency:     item.Currency,
+		AmountCents:  item.AmountCents,
+		PaidCents:    item.AmountPaidCents,
+		LeftCents:    item.LeftCents(),
+		CreatedAt:    formatDay(item.DebtCreatedAt),
+		DueDate:      formatOptionalDay(item.DueDate),
+		Overdue:      overdue(item.DueDate, item.IsPaid(), now),
+		Comment:      item.Comment,
+	}
+}

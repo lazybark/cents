@@ -8,7 +8,7 @@ import (
 	storage "github.com/lazybark/cents/storage/sqlite"
 )
 
-func newSettingsTestApp(t *testing.T) TheApplication {
+func newTestApp(t *testing.T) TheApplication {
 	t.Helper()
 
 	db, _, err := storage.OpenDatabase(filepath.Join(t.TempDir(), "cents.db"))
@@ -48,7 +48,7 @@ func press(t *testing.T, m TheApplication, keys ...string) TheApplication {
 }
 
 func TestSettingsCurrencyFormUsesSharedRules(t *testing.T) {
-	m := newSettingsTestApp(t)
+	m := newTestApp(t)
 	m.settingsCursor = len(m.settings.Currencies) + 1
 
 	m = press(t, m, "enter", "GBP", "enter", "0", "enter")
@@ -64,7 +64,7 @@ func TestSettingsCurrencyFormUsesSharedRules(t *testing.T) {
 }
 
 func TestSettingsListFormsUseSharedRules(t *testing.T) {
-	m := newSettingsTestApp(t)
+	m := newTestApp(t)
 
 	m.settingsCursor = settingsExpenseCategoryAddCursor(m.settings)
 	m = press(t, m, "enter", "enter")

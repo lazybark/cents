@@ -46,6 +46,16 @@ type StorageWorker interface {
 	SaveSettingIncomeCategory(entry *settings.SettingIncomeCategory) error
 	SaveSettingExpenseCategory(entry *settings.SettingExpenseCategory) error
 	DeleteSetting(targetType string, id uint) error
+	CreateDebt(entry *debt.Debt) error
+	SaveDebt(entry *debt.Debt) error
+	CreateDebtLog(entry *debt.DebtLog) error
+	LoadDebtLogs(debtID uint) ([]debt.DebtLog, error)
+	DeleteDebt(id uint) error
+	CreateTax(entry *tax.Tax) error
+	SaveTax(entry *tax.Tax) error
+	CreateTaxLog(entry *tax.TaxLog) error
+	LoadTaxLogs(taxID uint) ([]tax.TaxLog, error)
+	DeleteTax(id uint) error
 }
 
 // Options configure the desktop app. Storage is nil when no database has

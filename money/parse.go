@@ -22,3 +22,29 @@ func ParseAmountCents(raw string) (int64, error) {
 
 	return int64(math.Round(amount * 100)), nil
 }
+
+// ParseSignedAmountCents parses an amount that may start with + or -, like
+// "-25.50", for adjustments.
+func ParseSignedAmountCents(raw string) (int64, error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return 0, errors.New("delta is required")
+	}
+
+	sign := int64(1)
+	if strings.HasPrefix(trimmed, "+") {
+		trimmed = strings.TrimSpace(strings.TrimPrefix(trimmed, "+"))
+	}
+
+	if strings.HasPrefix(trimmed, "-") {
+		sign = -1
+		trimmed = strings.TrimSpace(strings.TrimPrefix(trimmed, "-"))
+	}
+
+	amount, err := ParseAmountCents(trimmed)
+	if err != nil {
+		return 0, err
+	}
+
+	return sign * amount, nil
+}

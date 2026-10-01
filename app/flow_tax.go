@@ -7,6 +7,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/lazybark/cents/dates"
 	"github.com/lazybark/cents/flows/tax"
 )
 
@@ -135,7 +136,7 @@ func (m TheApplication) renderTaxList(width int) string {
 		return panelStyle.Width(width).Render(strings.Join(lines, "\n"))
 	}
 
-	paid, total := taxProgressTotals(filtered)
+	paid, total := tax.ProgressTotals(filtered)
 	lines = append(lines, fieldLabelStyle.Render("Overall paid progress ("+m.baseCurrencyLabel()+")"))
 	lines = append(lines, "  "+m.renderProgressBar(paid, total, 28))
 	lines = append(lines, "")
@@ -447,50 +448,12 @@ func (m TheApplication) saveTaxFromForm() (tea.Model, tea.Cmd) {
 		taxTypeIndex = 0
 	}
 	selectedType := m.addTaxForm.TaxTypeOptions[taxTypeIndex]
-	amountDueRaw := strings.TrimSpace(m.addTaxForm.Inputs[0].Value())
-	amountPaidRaw := strings.TrimSpace(m.addTaxForm.Inputs[1].Value())
-	period := strings.TrimSpace(m.addTaxForm.Inputs[2].Value())
-	dueDateRaw := strings.TrimSpace(m.addTaxForm.Inputs[3].Value())
-	comment := strings.TrimSpace(m.addTaxForm.Inputs[4].Value())
+	inputs := m.addTaxForm.Inputs
 
-	if period == "" {
-		m.status = "period is required"
-		return m, nil
-	}
-
-	amountDue, err := parseAmountCents(amountDueRaw)
-	if err != nil {
-		m.status = "amount due error: " + err.Error()
-		return m, nil
-	}
-	if amountDue <= 0 {
-		m.status = "amount due must be greater than zero"
-		return m, nil
-	}
-
-	amountPaid, err := parseAmountCents(amountPaidRaw)
-	if err != nil {
-		m.status = "amount paid error: " + err.Error()
-		return m, nil
-	}
-
-	dueDate, err := parseOptionalDatePointer(dueDateRaw)
+	newTax, err := tax.New(selectedType, inputs[0].Value(), inputs[1].Value(), inputs[2].Value(), inputs[3].Value(), inputs[4].Value(), dates.TUI, time.Now())
 	if err != nil {
 		m.status = err.Error()
 		return m, nil
-	}
-
-	now := time.Now()
-	newTax := tax.Tax{
-		TaxTypeID:       selectedType.ID,
-		TaxCountry:      strings.TrimSpace(selectedType.Country),
-		TaxTypeName:     strings.TrimSpace(selectedType.TaxTypeName),
-		AmountDueCents:  amountDue,
-		AmountPaidCents: amountPaid,
-		Period:          period,
-		DueDate:         dueDate,
-		Comment:         comment,
-		LastUpdatedAt:   now,
 	}
 
 	if err := m.storage.CreateTax(&newTax); err != nil {
@@ -518,41 +481,12 @@ func (m TheApplication) saveTaxEdit() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	amountDue, err := parseAmountCents(strings.TrimSpace(m.editTaxForm.AmountDueInput.Value()))
-	if err != nil {
-		m.status = "amount due error: " + err.Error()
-		return m, nil
-	}
-	if amountDue <= 0 {
-		m.status = "amount due must be greater than zero"
-		return m, nil
-	}
-
-	amountPaid, err := parseAmountCents(strings.TrimSpace(m.editTaxForm.AmountPaidInput.Value()))
-	if err != nil {
-		m.status = "amount paid error: " + err.Error()
-		return m, nil
-	}
-
-	period := strings.TrimSpace(m.editTaxForm.PeriodInput.Value())
-	if period == "" {
-		m.status = "period is required"
-		return m, nil
-	}
-
-	dueDate, err := parseOptionalDatePointer(strings.TrimSpace(m.editTaxForm.DueDateInput.Value()))
+	form := m.editTaxForm
+	selected, err := m.taxes[index].Edit(form.AmountDueInput.Value(), form.AmountPaidInput.Value(), form.PeriodInput.Value(), form.DueDateInput.Value(), form.CommentInput.Value(), dates.TUI, time.Now())
 	if err != nil {
 		m.status = err.Error()
 		return m, nil
 	}
-
-	selected := m.taxes[index]
-	selected.AmountDueCents = amountDue
-	selected.AmountPaidCents = amountPaid
-	selected.Period = period
-	selected.DueDate = dueDate
-	selected.Comment = strings.TrimSpace(m.editTaxForm.CommentInput.Value())
-	selected.LastUpdatedAt = time.Now()
 
 	if err := m.storage.SaveTax(&selected); err != nil {
 		m.status = "save failed: " + err.Error()
@@ -572,49 +506,16 @@ func (m TheApplication) applyTaxLogDelta() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	delta, err := parseSignedAmountCents(strings.TrimSpace(m.editTaxForm.LogDeltaInput.Value()))
-	if err != nil {
-		m.status = "log delta error: " + err.Error()
-		return m, nil
-	}
-	if delta == 0 {
-		m.status = "delta cannot be zero"
-		return m, nil
-	}
-
-	selected := m.taxes[index]
-	nextPaid := selected.AmountPaidCents + delta
-	if nextPaid < 0 {
-		m.status = "delta makes amount paid negative"
-		return m, nil
-	}
-
-	entryTime, err := parseLogDateOrToday(strings.TrimSpace(m.editTaxForm.LogDateInput.Value()))
+	form := m.editTaxForm
+	selected, entry, err := m.taxes[index].ApplyPayment(form.LogDeltaInput.Value(), form.LogDateInput.Value(), form.LogCommentInput.Value(), dates.TUI, time.Now())
 	if err != nil {
 		m.status = err.Error()
 		return m, nil
 	}
 
-	now := time.Now()
-	selected.AmountPaidCents = nextPaid
-	selected.LastUpdatedAt = now
-
 	if err := m.storage.SaveTax(&selected); err != nil {
 		m.status = "tax update failed: " + err.Error()
-
 		return m, nil
-	}
-
-	note := strings.TrimSpace(m.editTaxForm.LogCommentInput.Value())
-	if note == "" {
-		note = "manual tax paid adjustment"
-	}
-
-	entry := tax.TaxLog{
-		TaxID:          selected.ID,
-		DeltaPaidCents: delta,
-		Note:           note,
-		CreatedAt:      entryTime,
 	}
 
 	if err := m.storage.CreateTaxLog(&entry); err != nil {
@@ -645,21 +546,9 @@ func (m TheApplication) findTaxIndex(id uint) int {
 }
 
 func (m TheApplication) filteredTaxes() []tax.Tax {
-	filtered := make([]tax.Tax, 0, len(m.taxes))
-
-	for _, item := range m.taxes {
-		paid := item.AmountPaidCents >= item.AmountDueCents
-		switch m.taxMode {
-		case taxListUnpaid:
-			if !paid {
-				filtered = append(filtered, item)
-			}
-		case taxListHistory:
-			if paid {
-				filtered = append(filtered, item)
-			}
-		}
+	if m.taxMode == taxListHistory {
+		return tax.Filter(m.taxes, tax.ListPaid)
 	}
 
-	return filtered
+	return tax.Filter(m.taxes, tax.ListUnpaid)
 }

@@ -128,3 +128,50 @@ export function badge(text) {
 export function fillSelect(select, values, labels = values) {
   select.replaceChildren(...values.map((value, index) => new Option(labels[index], value)));
 }
+
+// signedMoney reads like "+$ 10.00" or "-$ 10.00".
+export function signedMoney(currency, cents) {
+  return (cents > 0 ? "+" : "") + formatMoney(currency, cents);
+}
+
+export function percent(part, total) {
+  return total > 0 ? Math.min(100, Math.max(0, (part / total) * 100)) : 0;
+}
+
+// setProgress fills a .progress-fill bar to paid/total.
+export function setProgress(fill, paid, total) {
+  fill.style.width = `${percent(paid, total)}%`;
+}
+
+// progressText reads like "$ 300.00 of $ 1000.00 (30.0%)".
+export function progressText(currency, paid, total) {
+  const text = `${formatMoney(currency, paid)} of ${formatMoney(currency, total)}`;
+  return total > 0 ? `${text} (${percent(paid, total).toFixed(1)}%)` : text;
+}
+
+// renderPaymentLogs fills a When / Note / Change table of logged payments.
+export function renderPaymentLogs(tbody, empty, logs, currency) {
+  empty.hidden = logs.length > 0;
+  tbody.replaceChildren(
+    ...logs.map((entry) => {
+      const row = document.createElement("tr");
+      row.append(
+        cell(entry.when, "nowrap"),
+        cell(entry.note, "muted wrap"),
+        cell(signedMoney(currency, entry.deltaCents), `num ${signClass(entry.deltaCents)}`),
+      );
+      return row;
+    }),
+  );
+}
+
+// dueCell shows a due date, flagged when it has passed on an unpaid item.
+export function dueCell(dueDate, isOverdue) {
+  if (!dueDate) return cell("—", "muted");
+
+  const content = document.createElement("span");
+  content.append(dueDate);
+  if (isOverdue) content.append(badge("overdue"));
+
+  return cell(content, isOverdue ? "nowrap negative" : "nowrap");
+}

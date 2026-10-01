@@ -241,6 +241,15 @@ body {
   overflow: hidden;
 }
 
+.progress-large {
+  height: 8px;
+  margin: 6px 0 2px;
+}
+
+.dialog > .progress {
+  margin: -4px 0 4px;
+}
+
 .progress-fill {
   height: 100%;
   background: var(--positive);

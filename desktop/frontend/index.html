@@ -28,6 +28,8 @@
       <button class="nav-item" type="button" data-view="accounts">Accounts</button>
       <button class="nav-item" type="button" data-view="cashflow">Incomes &amp; expenses</button>
       <button class="nav-item" type="button" data-view="subscriptions">Subscriptions</button>
+      <button class="nav-item" type="button" data-view="debts">Debts</button>
+      <button class="nav-item" type="button" data-view="taxes">Taxes</button>
       <div class="nav-spacer"></div>
       <button class="nav-item" type="button" data-view="settings">Settings</button>
     </nav>
@@ -40,6 +42,8 @@
           <button id="add-expense" class="button" type="button" data-for="cashflow" hidden>Add expense</button>
           <button id="add-subscription" class="button button-primary" type="button" data-for="subscriptions" hidden>Add subscription</button>
           <button id="add-account" class="button button-primary" type="button" data-for="accounts" hidden>Add account</button>
+          <button id="add-debt" class="button button-primary" type="button" data-for="debts" hidden>Add debt</button>
+          <button id="add-tax" class="button button-primary" type="button" data-for="taxes" hidden>Add tax</button>
           <button id="refresh" class="button" type="button">Refresh</button>
         </div>
       </header>
@@ -210,6 +214,72 @@
           </table>
           <p id="subs-empty" class="muted" hidden>No subscriptions found.</p>
           <p id="subs-hint" class="hint">Click a subscription to edit or delete it.</p>
+        </section>
+      </section>
+
+      <section id="view-debts" class="view" hidden>
+        <div class="tabs" role="tablist">
+          <button class="tab" type="button" role="tab" data-mode="outgoing">I owe</button>
+          <button class="tab" type="button" role="tab" data-mode="incoming">Owed to me</button>
+          <button class="tab" type="button" role="tab" data-mode="paid">Paid</button>
+        </div>
+
+        <section class="panel">
+          <div class="label">Paid so far</div>
+          <div id="debts-progress-text" class="figure"></div>
+          <div class="progress progress-large"><div id="debts-progress-fill" class="progress-fill"></div></div>
+          <p class="hint">In the base currency. Debts without a conversion rate count with their own amounts.</p>
+        </section>
+
+        <section class="panel">
+          <table class="table clickable">
+            <thead>
+              <tr>
+                <th>Peer</th>
+                <th>Created</th>
+                <th>Due</th>
+                <th class="num">Amount</th>
+                <th class="num">Paid</th>
+                <th class="num">Left</th>
+              </tr>
+            </thead>
+            <tbody id="debts-rows"></tbody>
+          </table>
+          <p id="debts-empty" class="muted" hidden>No debts here.</p>
+          <p id="debts-hint" class="hint">Click a debt to edit it, log a payment or delete it.</p>
+        </section>
+      </section>
+
+      <section id="view-taxes" class="view" hidden>
+        <div class="tabs" role="tablist">
+          <button class="tab" type="button" role="tab" data-mode="unpaid">Unpaid</button>
+          <button class="tab" type="button" role="tab" data-mode="paid">Paid</button>
+        </div>
+
+        <section class="panel">
+          <div class="label">Paid so far</div>
+          <div id="taxes-progress-text" class="figure"></div>
+          <div class="progress progress-large"><div id="taxes-progress-fill" class="progress-fill"></div></div>
+          <p class="hint">Taxes are always in the base currency.</p>
+        </section>
+
+        <section class="panel">
+          <table class="table clickable">
+            <thead>
+              <tr>
+                <th>Tax</th>
+                <th>Period</th>
+                <th>Due date</th>
+                <th class="num">Due</th>
+                <th class="num">Paid</th>
+                <th class="num">Left</th>
+                <th class="num">Done</th>
+              </tr>
+            </thead>
+            <tbody id="taxes-rows"></tbody>
+          </table>
+          <p id="taxes-empty" class="muted" hidden>No taxes here.</p>
+          <p id="taxes-hint" class="hint">Click a tax to edit it, log a payment or delete it.</p>
         </section>
       </section>
 
@@ -447,6 +517,253 @@
         </span>
       </div>
     </form>
+  </dialog>
+
+  <dialog id="debt-add-dialog" class="dialog">
+    <form id="debt-add-form" class="form" novalidate>
+      <h2 class="dialog-title">Add debt</h2>
+      <label class="field">
+        <span class="field-label">Direction</span>
+        <select name="direction">
+          <option value="outgoing">I owe someone</option>
+          <option value="incoming">Someone owes me</option>
+        </select>
+      </label>
+      <label class="field">
+        <span class="field-label">Peer</span>
+        <input name="peer" maxlength="80" placeholder="Bank, Alex…" autocomplete="off" autofocus>
+      </label>
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">Amount</span>
+          <input name="amount" inputmode="decimal" maxlength="24" placeholder="1000.00" autocomplete="off">
+        </label>
+        <label class="field">
+          <span class="field-label">Currency</span>
+          <select name="currency"></select>
+        </label>
+        <label class="field">
+          <span class="field-label">Already paid</span>
+          <input name="amountPaid" inputmode="decimal" maxlength="24" value="0" autocomplete="off">
+        </label>
+      </div>
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">Created</span>
+          <input type="date" name="createdAt">
+        </label>
+        <label class="field">
+          <span class="field-label">Due date (optional)</span>
+          <input type="date" name="dueDate">
+        </label>
+      </div>
+      <label class="field">
+        <span class="field-label">Comment</span>
+        <input name="comment" maxlength="140" placeholder="optional comment" autocomplete="off">
+      </label>
+      <p class="form-error negative" hidden></p>
+      <div class="dialog-actions">
+        <button type="button" class="button" data-close>Cancel</button>
+        <button type="submit" class="button button-primary">Save debt</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="debt-edit-dialog" class="dialog dialog-wide">
+    <h2 id="debt-title" class="dialog-title"></h2>
+    <p id="debt-subtitle" class="muted"></p>
+    <div class="progress"><div id="debt-progress-fill" class="progress-fill"></div></div>
+
+    <form id="debt-edit-form" class="form" novalidate>
+      <h3 class="subhead">Details</h3>
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">Amount</span>
+          <input name="amount" inputmode="decimal" maxlength="24" autocomplete="off" autofocus>
+        </label>
+        <label class="field">
+          <span class="field-label">Amount paid</span>
+          <input name="amountPaid" inputmode="decimal" maxlength="24" autocomplete="off">
+        </label>
+      </div>
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">Created</span>
+          <input type="date" name="createdAt">
+        </label>
+        <label class="field">
+          <span class="field-label">Due date (optional)</span>
+          <input type="date" name="dueDate">
+        </label>
+      </div>
+      <label class="field">
+        <span class="field-label">Comment</span>
+        <input name="comment" maxlength="140" autocomplete="off">
+      </label>
+      <p class="form-error negative" hidden></p>
+      <div class="form-actions">
+        <button type="submit" class="button button-primary">Save details</button>
+      </div>
+    </form>
+
+    <form id="debt-payment-form" class="form" novalidate>
+      <h3 class="subhead">Log a payment</h3>
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">Amount (+/−)</span>
+          <input name="delta" inputmode="decimal" maxlength="24" placeholder="+100 or -25" autocomplete="off">
+        </label>
+        <label class="field">
+          <span class="field-label">Date</span>
+          <input type="date" name="date">
+        </label>
+      </div>
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">Note (optional)</span>
+          <input name="note" maxlength="140" placeholder="manual paid adjustment" autocomplete="off">
+        </label>
+        <button type="submit" class="button field-button">Log payment</button>
+      </div>
+      <p class="hint">Logged payments move “Amount paid”; a minus sign takes one back.</p>
+      <p class="form-error negative" hidden></p>
+    </form>
+
+    <table class="table logs">
+      <thead>
+        <tr>
+          <th>When</th>
+          <th>Note</th>
+          <th class="num">Change</th>
+        </tr>
+      </thead>
+      <tbody id="debt-logs"></tbody>
+    </table>
+    <p id="debt-logs-empty" class="muted" hidden>No payments logged yet.</p>
+
+    <div class="dialog-actions spread">
+      <button id="debt-delete" type="button" class="button button-danger">Delete debt</button>
+      <button type="button" class="button" data-close>Close</button>
+    </div>
+  </dialog>
+
+  <dialog id="tax-add-dialog" class="dialog">
+    <form id="tax-add-form" class="form" novalidate>
+      <h2 class="dialog-title">Add tax</h2>
+      <p id="tax-no-types" class="negative" hidden>No tax types yet. Add one in Settings first.</p>
+      <label class="field">
+        <span class="field-label">Tax type</span>
+        <select name="taxTypeId"></select>
+      </label>
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">Amount due</span>
+          <input name="amountDue" inputmode="decimal" maxlength="24" placeholder="1000.00" autocomplete="off" autofocus>
+        </label>
+        <label class="field">
+          <span class="field-label">Already paid</span>
+          <input name="amountPaid" inputmode="decimal" maxlength="24" value="0" autocomplete="off">
+        </label>
+      </div>
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">Period</span>
+          <input name="period" maxlength="120" placeholder="Q1 2026" autocomplete="off">
+        </label>
+        <label class="field">
+          <span class="field-label">Due date (optional)</span>
+          <input type="date" name="dueDate">
+        </label>
+      </div>
+      <label class="field">
+        <span class="field-label">Comment</span>
+        <input name="comment" maxlength="120" placeholder="optional comment" autocomplete="off">
+      </label>
+      <p id="tax-add-base" class="hint"></p>
+      <p class="form-error negative" hidden></p>
+      <div class="dialog-actions">
+        <button type="button" class="button" data-close>Cancel</button>
+        <button type="submit" class="button button-primary">Save tax</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="tax-edit-dialog" class="dialog dialog-wide">
+    <h2 id="tax-title" class="dialog-title"></h2>
+    <p id="tax-subtitle" class="muted"></p>
+    <div class="progress"><div id="tax-progress-fill" class="progress-fill"></div></div>
+
+    <form id="tax-edit-form" class="form" novalidate>
+      <h3 class="subhead">Details</h3>
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">Amount due</span>
+          <input name="amountDue" inputmode="decimal" maxlength="24" autocomplete="off" autofocus>
+        </label>
+        <label class="field">
+          <span class="field-label">Amount paid</span>
+          <input name="amountPaid" inputmode="decimal" maxlength="24" autocomplete="off">
+        </label>
+      </div>
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">Period</span>
+          <input name="period" maxlength="120" autocomplete="off">
+        </label>
+        <label class="field">
+          <span class="field-label">Due date (optional)</span>
+          <input type="date" name="dueDate">
+        </label>
+      </div>
+      <label class="field">
+        <span class="field-label">Comment</span>
+        <input name="comment" maxlength="120" autocomplete="off">
+      </label>
+      <p class="form-error negative" hidden></p>
+      <div class="form-actions">
+        <button type="submit" class="button button-primary">Save details</button>
+      </div>
+    </form>
+
+    <form id="tax-payment-form" class="form" novalidate>
+      <h3 class="subhead">Log a payment</h3>
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">Amount (+/−)</span>
+          <input name="delta" inputmode="decimal" maxlength="24" placeholder="+100 or -25" autocomplete="off">
+        </label>
+        <label class="field">
+          <span class="field-label">Date</span>
+          <input type="date" name="date">
+        </label>
+      </div>
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">Note (optional)</span>
+          <input name="note" maxlength="140" placeholder="manual tax paid adjustment" autocomplete="off">
+        </label>
+        <button type="submit" class="button field-button">Log payment</button>
+      </div>
+      <p class="hint">Logged payments move “Amount paid”; a minus sign takes one back.</p>
+      <p class="form-error negative" hidden></p>
+    </form>
+
+    <table class="table logs">
+      <thead>
+        <tr>
+          <th>When</th>
+          <th>Note</th>
+          <th class="num">Change</th>
+        </tr>
+      </thead>
+      <tbody id="tax-logs"></tbody>
+    </table>
+    <p id="tax-logs-empty" class="muted" hidden>No payments logged yet.</p>
+
+    <div class="dialog-actions spread">
+      <button id="tax-delete" type="button" class="button button-danger">Delete tax</button>
+      <button type="button" class="button" data-close>Close</button>
+    </div>
   </dialog>
 
   <datalist id="payment-methods"></datalist>
