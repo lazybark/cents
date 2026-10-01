@@ -9,6 +9,7 @@ import (
 	"github.com/lazybark/cents/flows/account"
 	"github.com/lazybark/cents/flows/asset"
 	"github.com/lazybark/cents/flows/cashflow"
+	"github.com/lazybark/cents/flows/credit"
 	"github.com/lazybark/cents/flows/debt"
 	"github.com/lazybark/cents/flows/goal"
 	"github.com/lazybark/cents/flows/invoice"
@@ -28,6 +29,8 @@ type Data struct {
 	Cashflows     []cashflow.CashflowEntry
 	// Assets are property and investments; only the desktop app has them.
 	Assets []asset.Asset
+	// Credits are loans the user owes; only the desktop app has them.
+	Credits []credit.Credit
 }
 
 type Summary struct {
@@ -43,6 +46,7 @@ type Summary struct {
 	DebtsToMeCents        int64
 	DebtsByMeCents        int64
 	UnpaidTaxesCents      int64
+	CreditsCents          int64
 	InvoicesToMeCents     int64
 	InvoicesByMeCents     int64
 	GoalsAccumulatedCents int64
@@ -51,9 +55,9 @@ type Summary struct {
 
 // NetWorthCents is what the user has plus what they are owed, minus what
 // they owe: accounts, property and investments + debts and invoices owed to
-// them - debts, taxes and invoices they owe.
+// them - debts, taxes, invoices and credits they owe.
 func (s Summary) NetWorthCents() int64 {
-	return s.AccountsCents + s.PropertyCents + s.InvestmentsCents + s.DebtsToMeCents + s.InvoicesToMeCents - s.DebtsByMeCents - s.UnpaidTaxesCents - s.InvoicesByMeCents
+	return s.AccountsCents + s.PropertyCents + s.InvestmentsCents + s.DebtsToMeCents + s.InvoicesToMeCents - s.DebtsByMeCents - s.UnpaidTaxesCents - s.InvoicesByMeCents - s.CreditsCents
 }
 
 // Compute builds the summary. month selects which month's cashflows make up
@@ -104,6 +108,7 @@ func Compute(data Data, month time.Time) Summary {
 	}
 
 	result.InvoicesToMeCents, result.InvoicesByMeCents = invoice.UnpaidInBaseCents(data.Invoices)
+	result.CreditsCents = credit.UnpaidInBaseCents(data.Credits)
 
 	result.GoalsAccumulatedCents, result.GoalsTargetCents = goal.ProgressInBaseCents(data.Goals, stts)
 

@@ -32,6 +32,7 @@
       <button class="nav-item" type="button" data-view="subscriptions">Subscriptions</button>
       <button class="nav-item" type="button" data-view="invoices">Invoices</button>
       <button class="nav-item" type="button" data-view="debts">Debts</button>
+      <button class="nav-item" type="button" data-view="credits">Credits</button>
       <button class="nav-item" type="button" data-view="goals">Goals</button>
       <button class="nav-item" type="button" data-view="taxes">Taxes</button>
       <div class="nav-spacer"></div>
@@ -50,6 +51,7 @@
           <button id="add-investment" class="button button-primary" type="button" data-for="investments" hidden>Add investment</button>
           <button id="add-invoice" class="button button-primary" type="button" data-for="invoices" hidden>Add invoice</button>
           <button id="add-debt" class="button button-primary" type="button" data-for="debts" hidden>Add debt</button>
+          <button id="add-credit" class="button button-primary" type="button" data-for="credits" hidden>Add credit</button>
           <button id="add-goal" class="button button-primary" type="button" data-for="goals" hidden>Add goal</button>
           <button id="add-tax" class="button button-primary" type="button" data-for="taxes" hidden>Add tax</button>
           <button id="refresh" class="button" type="button">Refresh</button>
@@ -61,7 +63,7 @@
         <section class="panel">
           <div class="label">Net worth</div>
           <div id="net-worth" class="amount">—</div>
-          <p class="hint">Accounts, property and investments plus debts and invoices owed to you, minus debts, taxes and invoices you owe.</p>
+          <p class="hint">Accounts, property and investments plus debts and invoices owed to you, minus debts, taxes, invoices and credits you owe.</p>
         </section>
         <div class="columns">
           <section class="panel">
@@ -372,6 +374,46 @@
           </table>
           <p id="debts-empty" class="muted" hidden>No debts here.</p>
           <p id="debts-hint" class="hint">Click a debt to edit it, log a payment or delete it.</p>
+        </section>
+      </section>
+
+      <section id="view-credits" class="view" hidden>
+        <div class="tabs" role="tablist">
+          <button class="tab" type="button" role="tab" data-mode="active">Active</button>
+          <button class="tab" type="button" role="tab" data-mode="paid">Paid off</button>
+        </div>
+
+        <section class="panel">
+          <div class="figures">
+            <div>
+              <div class="label">Left to pay, all credits</div>
+              <div id="credits-left" class="figure"></div>
+            </div>
+            <div>
+              <div class="label">Paid back, this list</div>
+              <div id="credits-progress-text" class="figure"></div>
+            </div>
+          </div>
+          <div class="progress progress-large"><div id="credits-progress-fill" class="progress-fill"></div></div>
+          <p class="hint">In the base currency, at the rate recorded with each credit. What's left counts against net worth.</p>
+        </section>
+
+        <section class="panel">
+          <table class="table clickable">
+            <thead>
+              <tr>
+                <th>Credit</th>
+                <th>From</th>
+                <th>Due</th>
+                <th class="num">Total</th>
+                <th class="num">Paid</th>
+                <th class="num">Left</th>
+              </tr>
+            </thead>
+            <tbody id="credits-rows"></tbody>
+          </table>
+          <p id="credits-empty" class="muted" hidden>No credits here.</p>
+          <p id="credits-hint" class="hint">Click a credit to edit it, log a payment or an addition, or delete it.</p>
         </section>
       </section>
 
@@ -1124,6 +1166,177 @@
     </div>
   </dialog>
 
+  <dialog id="credit-add-dialog" class="dialog dialog-wide">
+    <form id="credit-add-form" class="form" novalidate>
+      <h2 class="dialog-title">Add credit</h2>
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">Name</span>
+          <input name="name" maxlength="120" placeholder="Home mortgage" autocomplete="off" autofocus>
+        </label>
+        <label class="field">
+          <span class="field-label">Purpose</span>
+          <input name="purpose" list="credit-purposes" maxlength="80" placeholder="pick or type your own" autocomplete="off">
+        </label>
+        <label class="field">
+          <span class="field-label">Issuer</span>
+          <input name="issuer" maxlength="120" placeholder="bank or lender" autocomplete="off">
+        </label>
+      </div>
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">Amount</span>
+          <input name="total" inputmode="decimal" maxlength="24" placeholder="100000.00" autocomplete="off">
+        </label>
+        <label class="field">
+          <span class="field-label">Currency</span>
+          <select name="currency"></select>
+        </label>
+        <label class="field">
+          <span class="field-label">Already paid</span>
+          <input name="paid" inputmode="decimal" maxlength="24" value="0" autocomplete="off">
+        </label>
+        <label class="field rate-field">
+          <span class="field-label rate-label">Rate</span>
+          <input name="rate" inputmode="decimal" maxlength="24" autocomplete="off">
+        </label>
+      </div>
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">Interest, % a year</span>
+          <input name="interestPercent" inputmode="decimal" maxlength="12" placeholder="optional 4.5" autocomplete="off">
+        </label>
+        <label class="field">
+          <span class="field-label">From</span>
+          <input type="date" name="startDate">
+        </label>
+        <label class="field">
+          <span class="field-label">Due (optional)</span>
+          <input type="date" name="dueDate">
+        </label>
+      </div>
+      <label class="field">
+        <span class="field-label">Comment</span>
+        <input name="comment" maxlength="140" placeholder="optional comment" autocomplete="off">
+      </label>
+      <p class="hint">The rate is saved with the credit, so changing it in settings later won't change this credit.</p>
+      <p class="form-error negative" hidden></p>
+      <div class="dialog-actions">
+        <button type="button" class="button" data-close>Cancel</button>
+        <button type="submit" class="button button-primary">Save credit</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="credit-edit-dialog" class="dialog dialog-wide">
+    <h2 id="credit-title" class="dialog-title"></h2>
+    <p id="credit-subtitle" class="muted"></p>
+    <div class="progress"><div id="credit-progress-fill" class="progress-fill"></div></div>
+
+    <form id="credit-edit-form" class="form" novalidate>
+      <h3 class="subhead">Details</h3>
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">Name</span>
+          <input name="name" maxlength="120" placeholder="Home mortgage" autocomplete="off" autofocus>
+        </label>
+        <label class="field">
+          <span class="field-label">Purpose</span>
+          <input name="purpose" list="credit-purposes" maxlength="80" placeholder="pick or type your own" autocomplete="off">
+        </label>
+        <label class="field">
+          <span class="field-label">Issuer</span>
+          <input name="issuer" maxlength="120" placeholder="bank or lender" autocomplete="off">
+        </label>
+      </div>
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">Amount</span>
+          <input name="total" inputmode="decimal" maxlength="24" placeholder="100000.00" autocomplete="off">
+        </label>
+        <label class="field">
+          <span class="field-label">Amount paid</span>
+          <input name="paid" inputmode="decimal" maxlength="24" autocomplete="off">
+        </label>
+        <label class="field rate-field">
+          <span class="field-label rate-label">Rate</span>
+          <input name="rate" inputmode="decimal" maxlength="24" autocomplete="off">
+        </label>
+      </div>
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">Interest, % a year</span>
+          <input name="interestPercent" inputmode="decimal" maxlength="12" placeholder="optional 4.5" autocomplete="off">
+        </label>
+        <label class="field">
+          <span class="field-label">From</span>
+          <input type="date" name="startDate">
+        </label>
+        <label class="field">
+          <span class="field-label">Due (optional)</span>
+          <input type="date" name="dueDate">
+        </label>
+      </div>
+      <label class="field">
+        <span class="field-label">Comment</span>
+        <input name="comment" maxlength="140" placeholder="optional comment" autocomplete="off">
+      </label>
+      <p class="form-error negative" hidden></p>
+      <div class="form-actions">
+        <button type="submit" class="button button-primary">Save details</button>
+      </div>
+    </form>
+
+    <form id="credit-log-form" class="form" novalidate>
+      <h3 class="subhead">Log a payment or an addition</h3>
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">What</span>
+          <select name="kind">
+            <option value="payment">Payment (paid back)</option>
+            <option value="addition">Added to the credit</option>
+          </select>
+        </label>
+        <label class="field">
+          <span class="field-label">Amount</span>
+          <input name="amount" inputmode="decimal" maxlength="24" placeholder="500.00" autocomplete="off">
+        </label>
+        <label class="field">
+          <span class="field-label">Date</span>
+          <input type="date" name="date">
+        </label>
+      </div>
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">Note (optional)</span>
+          <input name="note" maxlength="140" placeholder="monthly payment, interest, fee…" autocomplete="off">
+        </label>
+        <button type="submit" class="button field-button">Log it</button>
+      </div>
+      <p class="hint">Payments move “Amount paid”; additions (more drawn, interest, fees) grow the amount. Deleting an entry undoes it.</p>
+      <p class="form-error negative" hidden></p>
+    </form>
+
+    <table class="table logs">
+      <thead>
+        <tr>
+          <th>When</th>
+          <th>What</th>
+          <th>Note</th>
+          <th class="num">Amount</th>
+          <th><span class="visually-hidden">Actions</span></th>
+        </tr>
+      </thead>
+      <tbody id="credit-logs"></tbody>
+    </table>
+    <p id="credit-logs-empty" class="muted" hidden>Nothing logged yet.</p>
+
+    <div class="dialog-actions spread">
+      <button id="credit-delete" type="button" class="button button-danger">Delete credit</button>
+      <button type="button" class="button" data-close>Close</button>
+    </div>
+  </dialog>
+
   <dialog id="tax-add-dialog" class="dialog">
     <form id="tax-add-form" class="form" novalidate>
       <h2 class="dialog-title">Add tax</h2>
@@ -1260,6 +1473,7 @@
   <datalist id="payment-methods"></datalist>
   <datalist id="invoice-accounts"></datalist>
   <datalist id="asset-types"></datalist>
+  <datalist id="credit-purposes"></datalist>
 
   <!-- Add/edit form for any settings list; views/settings.js fills the fields. -->
   <dialog id="setting-dialog" class="dialog">

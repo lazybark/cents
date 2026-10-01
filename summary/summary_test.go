@@ -7,6 +7,7 @@ import (
 	"github.com/lazybark/cents/flows/account"
 	"github.com/lazybark/cents/flows/asset"
 	"github.com/lazybark/cents/flows/cashflow"
+	"github.com/lazybark/cents/flows/credit"
 	"github.com/lazybark/cents/flows/debt"
 	"github.com/lazybark/cents/flows/goal"
 	"github.com/lazybark/cents/flows/invoice"
@@ -67,6 +68,11 @@ func TestCompute(t *testing.T) {
 			{Kind: "investment", Currency: "USD", ValueCents: 8000},
 			{Kind: "investment", Currency: "BTC", ValueCents: 5},
 		},
+		// Credits count by what's left, at their recorded rates.
+		Credits: []credit.Credit{
+			{Currency: "USD", TotalCents: 10000, PaidCents: 2000, RateToBase: 0.25, TotalBaseCents: 2500, PaidBaseCents: 500},
+			{Currency: "BTC", TotalCents: 7},
+		},
 		Cashflows: []cashflow.CashflowEntry{
 			{Currency: "€", AmountCents: 50000, IsIncome: true, EntryDate: inMonth, RateToBase: 1, AmountBaseCents: 50000},
 			{Currency: "USD", AmountCents: 10000, IsIncome: false, EntryDate: inMonth, RateToBase: 0.25, AmountBaseCents: 2500},
@@ -85,6 +91,7 @@ func TestCompute(t *testing.T) {
 		DebtsToMeCents:            2000,
 		DebtsByMeCents:            1000,
 		UnpaidTaxesCents:          5000 + 750,
+		CreditsCents:              2000,
 		InvoicesToMeCents:         800,
 		InvoicesByMeCents:         150,
 		GoalsAccumulatedCents:     2500 + 1000,
@@ -95,7 +102,7 @@ func TestCompute(t *testing.T) {
 		t.Fatalf("summary mismatch\n got: %+v\nwant: %+v", got, want)
 	}
 
-	if net := got.NetWorthCents(); net != 110000+300000+4000+2000+800-1000-5750-150 {
+	if net := got.NetWorthCents(); net != 110000+300000+4000+2000+800-1000-5750-150-2000 {
 		t.Fatalf("unexpected net worth %d", net)
 	}
 }

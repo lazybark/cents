@@ -42,6 +42,7 @@ function render(o) {
     ["Debts owed to me", money(o.debtsToMeCents)],
     ["Debts I owe", money(o.debtsByMeCents), owed(o.debtsByMeCents)],
     ["Unpaid taxes", money(o.unpaidTaxesCents), owed(o.unpaidTaxesCents)],
+    ["Credits left to pay", money(o.creditsCents), owed(o.creditsCents)],
     ["Invoices owed to me", money(o.invoicesToMeCents)],
     ["Invoices I owe", money(o.invoicesByMeCents), owed(o.invoicesByMeCents)],
     ["Goals progress", goalsProgress(o, money), "wide", progressBar(o)],

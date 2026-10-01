@@ -24,6 +24,7 @@ type Overview struct {
 	DebtsToMe        int64 `json:"debtsToMeCents"`
 	DebtsByMe        int64 `json:"debtsByMeCents"`
 	UnpaidTaxes      int64 `json:"unpaidTaxesCents"`
+	Credits          int64 `json:"creditsCents"`
 	InvoicesToMe     int64 `json:"invoicesToMeCents"`
 	InvoicesByMe     int64 `json:"invoicesByMeCents"`
 	GoalsAccumulated int64 `json:"goalsAccumulatedCents"`
@@ -61,6 +62,7 @@ func (a *API) Overview() (Overview, error) {
 		DebtsToMe:            sum.DebtsToMeCents,
 		DebtsByMe:            sum.DebtsByMeCents,
 		UnpaidTaxes:          sum.UnpaidTaxesCents,
+		Credits:              sum.CreditsCents,
 		InvoicesToMe:         sum.InvoicesToMeCents,
 		InvoicesByMe:         sum.InvoicesByMeCents,
 		GoalsAccumulated:     sum.GoalsAccumulatedCents,
@@ -108,6 +110,10 @@ func loadSummaryData(storage StorageWorker) (summary.Data, error) {
 	}
 
 	if data.Assets, err = storage.LoadAssets(); err != nil {
+		return data, err
+	}
+
+	if data.Credits, err = storage.LoadCredits(); err != nil {
 		return data, err
 	}
 

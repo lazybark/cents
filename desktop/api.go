@@ -12,6 +12,7 @@ import (
 	"github.com/lazybark/cents/flows/account"
 	"github.com/lazybark/cents/flows/asset"
 	"github.com/lazybark/cents/flows/cashflow"
+	"github.com/lazybark/cents/flows/credit"
 	"github.com/lazybark/cents/flows/debt"
 	"github.com/lazybark/cents/flows/goal"
 	"github.com/lazybark/cents/flows/invoice"
@@ -76,6 +77,13 @@ type StorageWorker interface {
 	LoadAssetValueLogs(assetID uint) ([]asset.AssetValueLog, error)
 	UpsertAssetValueLog(assetID uint, day time.Time, valueCents int64) error
 	DeleteAssetValueLog(assetID uint, logID uint) error
+	LoadCredits() ([]credit.Credit, error)
+	CreateCredit(entry *credit.Credit) error
+	SaveCredit(entry *credit.Credit) error
+	DeleteCredit(id uint) error
+	LoadCreditLogs(creditID uint) ([]credit.CreditLog, error)
+	AddCreditLog(entry *credit.Credit, log *credit.CreditLog) error
+	DeleteCreditLog(entry *credit.Credit, logID uint) error
 }
 
 // Options configure the desktop app. Storage is nil when no database has

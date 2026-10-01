@@ -4,6 +4,7 @@ import { api } from "./api.js";
 import { busy, setDBPath } from "./ui.js";
 import * as accounts from "./views/accounts.js";
 import * as cashflow from "./views/cashflow.js";
+import * as credits from "./views/credits.js";
 import * as debts from "./views/debts.js";
 import * as goals from "./views/goals.js";
 import * as investments from "./views/investments.js";
@@ -14,7 +15,7 @@ import * as settings from "./views/settings.js";
 import * as subscriptions from "./views/subscriptions.js";
 import * as taxes from "./views/taxes.js";
 
-const views = { overview, accounts, property, investments, cashflow, subscriptions, invoices, debts, goals, taxes, settings };
+const views = { overview, accounts, property, investments, cashflow, subscriptions, invoices, debts, credits, goals, taxes, settings };
 const DEFAULT_VIEW = "overview";
 
 const $ = (id) => document.getElementById(id);

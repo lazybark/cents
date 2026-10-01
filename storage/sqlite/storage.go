@@ -8,6 +8,7 @@ import (
 	"github.com/lazybark/cents/flows/account"
 	"github.com/lazybark/cents/flows/asset"
 	"github.com/lazybark/cents/flows/cashflow"
+	"github.com/lazybark/cents/flows/credit"
 	"github.com/lazybark/cents/flows/debt"
 	"github.com/lazybark/cents/flows/goal"
 	"github.com/lazybark/cents/flows/invoice"
@@ -40,7 +41,7 @@ func OpenDatabase(dbPath string) (*gorm.DB, bool, error) {
 		return nil, false, fmt.Errorf("failed to open SQLite database: %w", err)
 	}
 
-	if err := db.AutoMigrate(&account.Account{}, &account.AccountValueLog{}, &subscription.Subscription{}, &debt.Debt{}, &debt.DebtLog{}, &goal.Goal{}, &goal.GoalLog{}, &tax.Tax{}, &tax.TaxLog{}, &invoice.Invoice{}, &cashflow.CashflowEntry{}, &settings.SettingRecord{}, &settings.SettingCurrency{}, &settings.SettingPaymentMethod{}, &settings.SettingTaxType{}, &settings.SettingIncomeCategory{}, &settings.SettingExpenseCategory{}, &asset.Asset{}, &asset.AssetValueLog{}); err != nil {
+	if err := db.AutoMigrate(&account.Account{}, &account.AccountValueLog{}, &subscription.Subscription{}, &debt.Debt{}, &debt.DebtLog{}, &goal.Goal{}, &goal.GoalLog{}, &tax.Tax{}, &tax.TaxLog{}, &invoice.Invoice{}, &cashflow.CashflowEntry{}, &settings.SettingRecord{}, &settings.SettingCurrency{}, &settings.SettingPaymentMethod{}, &settings.SettingTaxType{}, &settings.SettingIncomeCategory{}, &settings.SettingExpenseCategory{}, &asset.Asset{}, &asset.AssetValueLog{}, &credit.Credit{}, &credit.CreditLog{}); err != nil {
 		return nil, false, fmt.Errorf("failed to auto-migrate SQLite database: %w", err)
 	}
 
