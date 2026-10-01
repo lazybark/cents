@@ -18,6 +18,8 @@ type Overview struct {
 	MonthlySubscriptions int64 `json:"monthlySubscriptionsCents"`
 	YearlySubscriptions  int64 `json:"yearlySubscriptionsCents"`
 	Accounts             int64 `json:"accountsCents"`
+	Property             int64 `json:"propertyCents"`
+	Investments          int64 `json:"investmentsCents"`
 
 	DebtsToMe        int64 `json:"debtsToMeCents"`
 	DebtsByMe        int64 `json:"debtsByMeCents"`
@@ -54,6 +56,8 @@ func (a *API) Overview() (Overview, error) {
 		MonthlySubscriptions: sum.MonthlySubscriptionsCents,
 		YearlySubscriptions:  sum.YearlySubscriptionsCents,
 		Accounts:             sum.AccountsCents,
+		Property:             sum.PropertyCents,
+		Investments:          sum.InvestmentsCents,
 		DebtsToMe:            sum.DebtsToMeCents,
 		DebtsByMe:            sum.DebtsByMeCents,
 		UnpaidTaxes:          sum.UnpaidTaxesCents,
@@ -101,6 +105,10 @@ func loadSummaryData(storage StorageWorker) (summary.Data, error) {
 
 	if data.Cashflows, err = storage.LoadCashflows(); err != nil {
 		return data, fmt.Errorf("failed to load cashflows: %w", err)
+	}
+
+	if data.Assets, err = storage.LoadAssets(); err != nil {
+		return data, err
 	}
 
 	return data, nil

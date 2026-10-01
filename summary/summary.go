@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/lazybark/cents/flows/account"
+	"github.com/lazybark/cents/flows/asset"
 	"github.com/lazybark/cents/flows/cashflow"
 	"github.com/lazybark/cents/flows/debt"
 	"github.com/lazybark/cents/flows/goal"
@@ -25,6 +26,8 @@ type Data struct {
 	Taxes         []tax.Tax
 	Invoices      []invoice.Invoice
 	Cashflows     []cashflow.CashflowEntry
+	// Assets are property and investments; only the desktop app has them.
+	Assets []asset.Asset
 }
 
 type Summary struct {
@@ -33,6 +36,8 @@ type Summary struct {
 	MonthlySubscriptionsCents int64
 	YearlySubscriptionsCents  int64
 	AccountsCents             int64
+	PropertyCents             int64
+	InvestmentsCents          int64
 
 	// Obligations. "ToMe" is owed to the user, "ByMe" is owed by the user.
 	DebtsToMeCents        int64
@@ -45,10 +50,10 @@ type Summary struct {
 }
 
 // NetWorthCents is what the user has plus what they are owed, minus what
-// they owe: accounts + debts and invoices owed to them - debts, taxes and
-// invoices they owe.
+// they owe: accounts, property and investments + debts and invoices owed to
+// them - debts, taxes and invoices they owe.
 func (s Summary) NetWorthCents() int64 {
-	return s.AccountsCents + s.DebtsToMeCents + s.InvoicesToMeCents - s.DebtsByMeCents - s.UnpaidTaxesCents - s.InvoicesByMeCents
+	return s.AccountsCents + s.PropertyCents + s.InvestmentsCents + s.DebtsToMeCents + s.InvoicesToMeCents - s.DebtsByMeCents - s.UnpaidTaxesCents - s.InvoicesByMeCents
 }
 
 // Compute builds the summary. month selects which month's cashflows make up
@@ -69,6 +74,8 @@ func Compute(data Data, month time.Time) Summary {
 
 	result.MonthlySubscriptionsCents, result.YearlySubscriptionsCents = subscription.TotalsInBaseCents(active, stts)
 	result.AccountsCents = account.SumInBaseCents(data.Accounts, stts)
+	result.PropertyCents = asset.Total(asset.Filter(data.Assets, asset.KindProperty), stts).ValueCents
+	result.InvestmentsCents = asset.Total(asset.Filter(data.Assets, asset.KindInvestment), stts).ValueCents
 
 	// Debts, invoices and incomes/expenses count at the rate recorded with
 	// each; ones without a rate are left out.

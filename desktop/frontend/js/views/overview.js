@@ -32,6 +32,8 @@ function render(o) {
     ["Monthly subscriptions", money(o.monthlySubscriptionsCents)],
     ["Yearly subscriptions", money(o.yearlySubscriptionsCents)],
     ["Total accounts", money(o.accountsCents)],
+    ["Property", money(o.propertyCents)],
+    ["Investments", money(o.investmentsCents)],
   ]);
 
   // Like the TUI, amounts the user owes turn red once they are above zero.

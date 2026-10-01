@@ -6,13 +6,15 @@ import * as accounts from "./views/accounts.js";
 import * as cashflow from "./views/cashflow.js";
 import * as debts from "./views/debts.js";
 import * as goals from "./views/goals.js";
+import * as investments from "./views/investments.js";
 import * as invoices from "./views/invoices.js";
 import * as overview from "./views/overview.js";
+import * as property from "./views/property.js";
 import * as settings from "./views/settings.js";
 import * as subscriptions from "./views/subscriptions.js";
 import * as taxes from "./views/taxes.js";
 
-const views = { overview, accounts, cashflow, subscriptions, invoices, debts, goals, taxes, settings };
+const views = { overview, accounts, property, investments, cashflow, subscriptions, invoices, debts, goals, taxes, settings };
 const DEFAULT_VIEW = "overview";
 
 const $ = (id) => document.getElementById(id);

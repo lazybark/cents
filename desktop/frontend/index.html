@@ -26,6 +26,8 @@
       <h1 class="brand">cents</h1>
       <button class="nav-item" type="button" data-view="overview">Overview</button>
       <button class="nav-item" type="button" data-view="accounts">Accounts</button>
+      <button class="nav-item" type="button" data-view="property">Property</button>
+      <button class="nav-item" type="button" data-view="investments">Investments</button>
       <button class="nav-item" type="button" data-view="cashflow">Incomes &amp; expenses</button>
       <button class="nav-item" type="button" data-view="subscriptions">Subscriptions</button>
       <button class="nav-item" type="button" data-view="invoices">Invoices</button>
@@ -44,6 +46,8 @@
           <button id="add-expense" class="button" type="button" data-for="cashflow" hidden>Add expense</button>
           <button id="add-subscription" class="button button-primary" type="button" data-for="subscriptions" hidden>Add subscription</button>
           <button id="add-account" class="button button-primary" type="button" data-for="accounts" hidden>Add account</button>
+          <button id="add-property" class="button button-primary" type="button" data-for="property" hidden>Add property</button>
+          <button id="add-investment" class="button button-primary" type="button" data-for="investments" hidden>Add investment</button>
           <button id="add-invoice" class="button button-primary" type="button" data-for="invoices" hidden>Add invoice</button>
           <button id="add-debt" class="button button-primary" type="button" data-for="debts" hidden>Add debt</button>
           <button id="add-goal" class="button button-primary" type="button" data-for="goals" hidden>Add goal</button>
@@ -57,7 +61,7 @@
         <section class="panel">
           <div class="label">Net worth</div>
           <div id="net-worth" class="amount">—</div>
-          <p class="hint">Accounts plus debts and invoices owed to you, minus debts, taxes and invoices you owe.</p>
+          <p class="hint">Accounts, property and investments plus debts and invoices owed to you, minus debts, taxes and invoices you owe.</p>
         </section>
         <div class="columns">
           <section class="panel">
@@ -101,6 +105,84 @@
           </table>
           <p id="empty" class="muted" hidden>No accounts yet. Use “Add account” to create one.</p>
           <p id="accounts-hint" class="hint">Click an account to update its amount, edit its value history or delete it.</p>
+        </section>
+      </section>
+
+      <section id="view-property" class="view" hidden>
+        <section class="panel">
+          <div class="figures">
+            <div>
+              <div class="label">Total value</div>
+              <div class="figure asset-total"></div>
+            </div>
+            <div>
+              <div class="label">Gain / loss</div>
+              <div class="figure asset-gain"></div>
+            </div>
+          </div>
+          <p class="hint asset-hint"></p>
+        </section>
+
+        <section class="panel asset-types-panel" hidden>
+          <h3 class="section-title">By type</h3>
+          <dl class="stats asset-types"></dl>
+        </section>
+
+        <section class="panel">
+          <table class="table clickable">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Type</th>
+                <th class="asset-acquired-heading">Acquired</th>
+                <th class="num asset-cost-heading">Cost</th>
+                <th class="num">Value</th>
+                <th class="num">Gain</th>
+              </tr>
+            </thead>
+            <tbody class="asset-rows"></tbody>
+          </table>
+          <p class="muted asset-empty" hidden></p>
+          <p class="hint asset-click-hint">Click one to edit it, log its value or delete it.</p>
+        </section>
+      </section>
+
+      <section id="view-investments" class="view" hidden>
+        <section class="panel">
+          <div class="figures">
+            <div>
+              <div class="label">Total value</div>
+              <div class="figure asset-total"></div>
+            </div>
+            <div>
+              <div class="label">Gain / loss</div>
+              <div class="figure asset-gain"></div>
+            </div>
+          </div>
+          <p class="hint asset-hint"></p>
+        </section>
+
+        <section class="panel asset-types-panel" hidden>
+          <h3 class="section-title">By type</h3>
+          <dl class="stats asset-types"></dl>
+        </section>
+
+        <section class="panel">
+          <table class="table clickable">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Type</th>
+                <th class="asset-acquired-heading">Acquired</th>
+                <th class="num asset-cost-heading">Cost</th>
+                <th class="num">Value</th>
+                <th class="num">Gain</th>
+              </tr>
+            </thead>
+            <tbody class="asset-rows"></tbody>
+          </table>
+          <p class="muted asset-empty" hidden></p>
+          <p class="hint asset-click-hint">Click one to edit it, log its value or delete it.</p>
         </section>
       </section>
 
@@ -473,6 +555,93 @@
 
     <div class="dialog-actions spread">
       <button id="delete-account" type="button" class="button button-danger">Delete account</button>
+      <button type="button" class="button" data-close>Close</button>
+    </div>
+  </dialog>
+
+  <dialog id="asset-dialog" class="dialog dialog-wide">
+    <h2 id="asset-dialog-title" class="dialog-title"></h2>
+    <p id="asset-subtitle" class="muted" hidden></p>
+
+    <form id="asset-form" class="form" novalidate>
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">Name</span>
+          <input name="name" maxlength="120" autocomplete="off" autofocus>
+        </label>
+        <label class="field">
+          <span class="field-label">Type</span>
+          <input name="type" list="asset-types" maxlength="80" placeholder="pick or type your own" autocomplete="off">
+        </label>
+      </div>
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">Value now</span>
+          <input name="value" inputmode="decimal" maxlength="24" placeholder="10000.00" autocomplete="off">
+        </label>
+        <label class="field">
+          <span class="field-label">Currency</span>
+          <select name="currency"></select>
+        </label>
+        <label class="field">
+          <span id="asset-cost-label" class="field-label"></span>
+          <input name="cost" inputmode="decimal" maxlength="24" placeholder="optional" autocomplete="off">
+        </label>
+      </div>
+      <div class="field-row">
+        <label class="field">
+          <span id="asset-acquired-label" class="field-label"></span>
+          <input type="date" name="acquiredAt">
+        </label>
+        <label class="field">
+          <span class="field-label">Description</span>
+          <input name="description" maxlength="140" placeholder="optional" autocomplete="off">
+        </label>
+      </div>
+      <label class="check">
+        <input type="checkbox" name="countInNetWorth">
+        <span>Count in net worth</span>
+      </label>
+      <p id="asset-currency-hint" class="hint"></p>
+      <p class="form-error negative" hidden></p>
+      <div class="form-actions">
+        <button type="submit" class="button button-primary">Save</button>
+      </div>
+    </form>
+
+    <div id="asset-history">
+      <form id="asset-log-form" class="form" novalidate>
+        <h3 class="subhead">Value history</h3>
+        <div class="field-row">
+          <label class="field">
+            <span class="field-label">Date</span>
+            <input type="date" name="date">
+          </label>
+          <label class="field">
+            <span class="field-label">Value</span>
+            <input name="value" inputmode="decimal" maxlength="24" autocomplete="off">
+          </label>
+          <button type="submit" class="button field-button">Log value</button>
+        </div>
+        <p class="hint">Changing “Value now” records today's value here. Values logged for other days are snapshots and don't change the current value.</p>
+        <p class="form-error negative" hidden></p>
+      </form>
+
+      <table class="table logs">
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th class="num">Value</th>
+            <th><span class="visually-hidden">Actions</span></th>
+          </tr>
+        </thead>
+        <tbody id="asset-logs"></tbody>
+      </table>
+      <p id="asset-logs-empty" class="muted" hidden>No values logged yet.</p>
+    </div>
+
+    <div class="dialog-actions spread">
+      <button id="asset-delete" type="button" class="button button-danger">Delete</button>
       <button type="button" class="button" data-close>Close</button>
     </div>
   </dialog>
@@ -1090,6 +1259,7 @@
 
   <datalist id="payment-methods"></datalist>
   <datalist id="invoice-accounts"></datalist>
+  <datalist id="asset-types"></datalist>
 
   <!-- Add/edit form for any settings list; views/settings.js fills the fields. -->
   <dialog id="setting-dialog" class="dialog">
