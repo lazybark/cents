@@ -1,6 +1,6 @@
 // Taxes: unpaid or paid, with paid progress. Each tax can be edited, take
-// logged payments and be deleted, like in the TUI. Amounts are always in the
-// base currency.
+// logged payments and be deleted, like in the TUI. A tax is paid in its own
+// currency and counts in the base currency at the rate recorded with it.
 import { api } from "../api.js";
 import {
   busy,
@@ -66,6 +66,7 @@ export function init() {
 
   el.add.addEventListener("click", openAdd);
   el.addForm.addEventListener("submit", saveNew);
+  el.addForm.elements.currency.addEventListener("change", syncAddCurrency);
   el.editForm.addEventListener("submit", saveEdit);
   el.paymentForm.addEventListener("submit", logPayment);
   el.delete.addEventListener("click", askDelete);
@@ -87,9 +88,27 @@ function label(tax) {
   return `${tax.country} / ${tax.typeName}`;
 }
 
-function render(view) {
-  const money = (cents) => formatMoney(view.baseCurrency, cents);
+// amountCell shows a tax's amount in its currency and, for another
+// currency, the base amount at its recorded rate below it.
+function amountCell(tax, cents, baseCents, className) {
+  const content = document.createElement("div");
+  content.append(formatMoney(tax.currency, cents));
 
+  if (!tax.isBase) {
+    const base = document.createElement("div");
+    base.className = "account-description";
+    base.textContent = formatMoney(state.view.baseCurrency, baseCents);
+    content.append(base);
+  }
+
+  return cell(content, className);
+}
+
+function rateText(rate) {
+  return String(Number(rate.toFixed(6)));
+}
+
+function render(view) {
   for (const tab of el.tabs) {
     tab.setAttribute("aria-selected", String(tab.dataset.mode === view.mode));
     tab.textContent = `${TAB_LABELS[tab.dataset.mode]} (${view.counts[tab.dataset.mode] ?? 0})`;
@@ -119,9 +138,9 @@ function render(view) {
         cell(nameCell),
         cell(tax.period),
         dueCell(tax.dueDate, tax.overdue),
-        cell(money(tax.dueCents), "num"),
-        cell(money(tax.paidCents), "num"),
-        cell(money(tax.leftCents), tax.leftCents > 0 ? "num" : "num muted"),
+        amountCell(tax, tax.dueCents, tax.baseDueCents, "num"),
+        amountCell(tax, tax.paidCents, tax.basePaidCents, "num"),
+        amountCell(tax, tax.leftCents, tax.baseLeftCents, tax.leftCents > 0 ? "num" : "num muted"),
         cell(`${tax.paidPercent.toFixed(1)}%`, "num"),
       );
       clickableRow(row, () => openEdit(tax));
@@ -144,9 +163,13 @@ function openAdd() {
     types.map((t) => String(t.id)),
     types.map((t) => t.label),
   );
+  fillSelect(
+    form.elements.currency,
+    (view?.currencies ?? []).map((c) => c.name),
+  );
   // The TUI's form starts with today as the due date too.
   form.elements.dueDate.value = localDate(new Date());
-  el.addBase.textContent = `Amounts are in ${view?.baseCurrency ?? "the base currency"}.`;
+  syncAddCurrency();
 
   const missing = types.length === 0;
   el.noTypes.hidden = !missing;
@@ -156,11 +179,36 @@ function openAdd() {
   el.addDialog.showModal();
 }
 
+// showRate shows a form's rate field, labelled with what it converts,
+// unless the tax is in the base currency.
+function showRate(form, currency, isBase) {
+  const field = form.querySelector(".tax-rate-field");
+  field.hidden = isBase;
+  form.querySelector(".tax-rate-label").textContent = `Rate: 1 ${currency} in ${state.view.baseCurrency}`;
+}
+
+// The rate of a new tax starts with the one in settings, and is kept with
+// the tax from then on.
+function syncAddCurrency() {
+  const view = state.view;
+  const form = el.addForm.elements;
+  const chosen = (view?.currencies ?? []).find((c) => c.name === form.currency.value);
+  const isBase = !chosen || chosen.name === view.currencies[0].name;
+
+  showRate(el.addForm, chosen?.name ?? "", isBase);
+  form.rate.value = isBase || !chosen.rate ? "" : rateText(chosen.rate);
+  el.addBase.textContent = isBase
+    ? `Amounts are in ${view?.baseCurrency ?? "the base currency"}.`
+    : `Amounts are in ${chosen.name}. The rate is saved with the tax, so changing it in settings later won't change this tax.`;
+}
+
 async function saveNew(event) {
   event.preventDefault();
   const form = el.addForm.elements;
   const input = {
     taxTypeId: Number(form.taxTypeId.value),
+    currency: form.currency.value,
+    rate: el.addForm.querySelector(".tax-rate-field").hidden ? "" : form.rate.value,
     amountDue: form.amountDue.value,
     amountPaid: form.amountPaid.value,
     period: form.period.value,
@@ -189,6 +237,8 @@ function openEdit(tax) {
   form.period.value = tax.period;
   form.dueDate.value = tax.dueDate;
   form.comment.value = tax.comment;
+  showRate(el.editForm, tax.currency, tax.isBase);
+  form.rate.value = tax.isBase ? "" : rateText(tax.rateToBase);
   formError(el.editForm, "");
 
   el.paymentForm.reset();
@@ -204,8 +254,9 @@ function openEdit(tax) {
 
 function showTaxHeader(tax) {
   const base = state.view.baseCurrency;
+  const left = tax.isBase ? "" : ` · ${formatMoney(base, tax.baseLeftCents)} left at ${rateText(tax.rateToBase)}`;
   el.editTitle.textContent = label(tax);
-  el.editSubtitle.textContent = `${tax.period} · ${progressText(base, tax.paidCents, tax.dueCents)}`;
+  el.editSubtitle.textContent = `${tax.period} · ${progressText(tax.currency, tax.paidCents, tax.dueCents)}${left}`;
   setProgress(el.editProgress, tax.paidCents, tax.dueCents);
 }
 
@@ -213,7 +264,7 @@ async function loadLogs() {
   const tax = state.current;
 
   try {
-    renderPaymentLogs(el.logs, el.logsEmpty, await api.TaxLogs(tax.id), state.view.baseCurrency);
+    renderPaymentLogs(el.logs, el.logsEmpty, await api.TaxLogs(tax.id), tax.currency);
   } catch (err) {
     formError(el.paymentForm, `Failed to load payments: ${err}`);
   }
@@ -225,6 +276,7 @@ async function saveEdit(event) {
   const form = el.editForm.elements;
   const input = {
     id: tax.id,
+    rate: tax.isBase ? "" : form.rate.value,
     amountDue: form.amountDue.value,
     amountPaid: form.amountPaid.value,
     period: form.period.value,

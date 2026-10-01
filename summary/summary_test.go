@@ -40,9 +40,12 @@ func TestCompute(t *testing.T) {
 			{Currency: "€", AmountCents: 500, AmountPaidCents: 500, IsOwedToUser: false},
 			{Currency: "BTC", AmountCents: 1, IsOwedToUser: false},
 		},
+		// Taxes count with the base amounts recorded with them, whatever
+		// the currency's rate in settings is now (EUR is 1.08 here).
 		Taxes: []tax.Tax{
-			{AmountDueCents: 7000, AmountPaidCents: 2000},
-			{AmountDueCents: 100, AmountPaidCents: 100},
+			{Currency: "$", AmountDueCents: 7000, AmountPaidCents: 2000, AmountDueBaseCents: 7000, AmountPaidBaseCents: 2000},
+			{Currency: "$", AmountDueCents: 100, AmountPaidCents: 100, AmountDueBaseCents: 100, AmountPaidBaseCents: 100},
+			{Currency: "EUR", AmountDueCents: 1000, AmountPaidCents: 500, AmountDueBaseCents: 1500, AmountPaidBaseCents: 750},
 		},
 		// Incoming invoices are the ones the user has to pay.
 		Invoices: []invoice.Invoice{
@@ -69,7 +72,7 @@ func TestCompute(t *testing.T) {
 		AccountsCents:             100000 + 10000,
 		DebtsToMeCents:            2000,
 		DebtsByMeCents:            2000,
-		UnpaidTaxesCents:          5000,
+		UnpaidTaxesCents:          5000 + 750,
 		InvoicesToMeCents:         800,
 		InvoicesByMeCents:         300,
 		GoalsAccumulatedCents:     2500 + 1000,
@@ -80,7 +83,7 @@ func TestCompute(t *testing.T) {
 		t.Fatalf("summary mismatch\n got: %+v\nwant: %+v", got, want)
 	}
 
-	if net := got.NetWorthCents(); net != 110000+2000+800-2000-5000-300 {
+	if net := got.NetWorthCents(); net != 110000+2000+800-2000-5750-300 {
 		t.Fatalf("unexpected net worth %d", net)
 	}
 }

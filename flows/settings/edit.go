@@ -2,9 +2,10 @@ package settings
 
 import (
 	"errors"
-	"strconv"
 	"strings"
 	"time"
+
+	"github.com/lazybark/cents/money"
 )
 
 // BaseCurrencySettingID is the SettingRecord key of the base currency.
@@ -33,13 +34,9 @@ func (c SettingCurrency) Apply(name, rate string, now time.Time) (SettingCurrenc
 		return SettingCurrency{}, errors.New("currency name is required")
 	}
 
-	value, err := strconv.ParseFloat(strings.TrimSpace(rate), 64)
+	value, err := money.ParseRate(rate)
 	if err != nil {
-		return SettingCurrency{}, errors.New("rate must be a number")
-	}
-
-	if value <= 0 {
-		return SettingCurrency{}, errors.New("rate must be greater than zero")
+		return SettingCurrency{}, err
 	}
 
 	c.CurrencyName = name

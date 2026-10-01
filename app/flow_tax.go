@@ -193,31 +193,16 @@ func (m TheApplication) renderTaxTableRow(width int, index int, item tax.Tax) st
 		style = selectedRowStyle
 	}
 
-	left := item.AmountDueCents - item.AmountPaidCents
-	if left < 0 {
-		left = 0
-	}
-
-	progressValue := 0.0
-
-	if item.AmountDueCents > 0 {
-		progressValue = (float64(item.AmountPaidCents) / float64(item.AmountDueCents)) * 100
-		if progressValue < 0 {
-			progressValue = 0
-		}
-		if progressValue > 100 {
-			progressValue = 100
-		}
-	}
-
-	base := m.baseCurrencyLabel()
+	left := item.LeftCents()
+	progressValue := item.PaidPercent()
+	currency := item.Currency
 	dueDateLabel := "-"
 
 	if item.DueDate != nil {
 		dueDateLabel = item.DueDate.Local().Format("2006-01-02")
 	}
 
-	row := fmt.Sprintf("%s %-*s %-*s %-*s %-*s %-*s %-*s %-*s %-*s %-*s", prefix, countryWidth, truncateText(item.TaxCountry, countryWidth), typeWidth, truncateText(item.TaxTypeName, typeWidth), dueWidth, renderMoneyWithCurrency(base, item.AmountDueCents), paidWidth, renderMoneyWithCurrency(base, item.AmountPaidCents), leftWidth, renderMoneyWithCurrency(base, left), periodWidth, truncateText(item.Period, periodWidth), dueDateWidth, dueDateLabel, progressWidth, fmt.Sprintf("%5.1f%%", progressValue), commentWidth, truncateText(item.Comment, commentWidth))
+	row := fmt.Sprintf("%s %-*s %-*s %-*s %-*s %-*s %-*s %-*s %-*s %-*s", prefix, countryWidth, truncateText(item.TaxCountry, countryWidth), typeWidth, truncateText(item.TaxTypeName, typeWidth), dueWidth, renderMoneyWithCurrency(currency, item.AmountDueCents), paidWidth, renderMoneyWithCurrency(currency, item.AmountPaidCents), leftWidth, renderMoneyWithCurrency(currency, left), periodWidth, truncateText(item.Period, periodWidth), dueDateWidth, dueDateLabel, progressWidth, fmt.Sprintf("%5.1f%%", progressValue), commentWidth, truncateText(item.Comment, commentWidth))
 
 	return style.Render(row)
 }
@@ -232,6 +217,7 @@ func (m TheApplication) renderTaxEdit(width int) string {
 
 	if idx := m.findTaxIndex(m.editingTaxID); idx >= 0 {
 		item := m.taxes[idx]
+		lines = append(lines, mutedStyle.Render(fmt.Sprintf("Currency: %s | Recorded rate to %s: %g | Left in %s: %s", item.Currency, m.baseCurrencyLabel(), item.RateToBase, m.baseCurrencyLabel(), renderMoneyWithCurrency(m.baseCurrencyLabel(), item.LeftBaseCents()))))
 		lines = append(lines, fieldLabelStyle.Render("Paid progress"))
 		lines = append(lines, "  "+m.renderProgressBar(item.AmountPaidCents, item.AmountDueCents, 28))
 	}
@@ -450,7 +436,9 @@ func (m TheApplication) saveTaxFromForm() (tea.Model, tea.Cmd) {
 	selectedType := m.addTaxForm.TaxTypeOptions[taxTypeIndex]
 	inputs := m.addTaxForm.Inputs
 
-	newTax, err := tax.New(selectedType, inputs[0].Value(), inputs[1].Value(), inputs[2].Value(), inputs[3].Value(), inputs[4].Value(), dates.TUI, time.Now())
+	// The TUI records taxes in the base currency; the desktop app can pick
+	// another one.
+	newTax, err := tax.New(selectedType, m.baseCurrencyLabel(), 1, inputs[0].Value(), inputs[1].Value(), inputs[2].Value(), inputs[3].Value(), inputs[4].Value(), dates.TUI, time.Now())
 	if err != nil {
 		m.status = err.Error()
 		return m, nil
@@ -464,7 +452,7 @@ func (m TheApplication) saveTaxFromForm() (tea.Model, tea.Cmd) {
 	m.taxes = append([]tax.Tax{newTax}, m.taxes...)
 	m.addTaxForm = tax.NewAddTaxForm(m.settings.TaxTypes)
 	m.screen = screenTaxList
-	if newTax.AmountPaidCents >= newTax.AmountDueCents {
+	if newTax.IsPaid() {
 		m.taxMode = taxListHistory
 	} else {
 		m.taxMode = taxListUnpaid

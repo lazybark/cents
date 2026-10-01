@@ -70,7 +70,7 @@ func TestTaxFormsUseSharedRules(t *testing.T) {
 	m.addTaxForm.Inputs[1].SetValue("0")
 	updated, _ = m.saveTaxFromForm()
 	m = updated.(TheApplication)
-	if m.status != "saved tax NL / VAT" || len(m.taxes) != 1 || m.taxes[0].Period != "Q1" {
+	if m.status != "saved tax NL / VAT" || len(m.taxes) != 1 || m.taxes[0].Period != "Q1" || m.taxes[0].Currency != "$" || m.taxes[0].RateToBase != 1 || m.taxes[0].AmountDueBaseCents != 10000 {
 		t.Fatalf("tax not saved: %q %+v", m.status, m.taxes)
 	}
 

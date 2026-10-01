@@ -47,6 +47,10 @@ func OpenDatabase(dbPath string) (*gorm.DB, bool, error) {
 		return nil, false, fmt.Errorf("failed to ensure settings defaults: %w", err)
 	}
 
+	if err := backfillTaxCurrencies(db); err != nil {
+		return nil, false, fmt.Errorf("failed to set currencies of older taxes: %w", err)
+	}
+
 	return db, created, nil
 }
 
@@ -83,6 +87,25 @@ func CheckDatabase(dbPath string) error {
 	}
 
 	return nil
+}
+
+// backfillTaxCurrencies gives taxes recorded before taxes had a currency
+// (they have no rate) the base currency they were entered in: rate 1 and
+// base amounts equal to their amounts.
+func backfillTaxCurrencies(db *gorm.DB) error {
+	var base settings.SettingRecord
+	if err := db.Where("setting_id = ?", settings.BaseCurrencySettingID).First(&base).Error; err != nil {
+		return err
+	}
+
+	return db.Model(&tax.Tax{}).
+		Where("rate_to_base IS NULL OR rate_to_base <= 0").
+		Updates(map[string]any{
+			"currency":               strings.TrimSpace(base.SettingValue),
+			"rate_to_base":           1,
+			"amount_due_base_cents":  gorm.Expr("amount_due_cents"),
+			"amount_paid_base_cents": gorm.Expr("amount_paid_cents"),
+		}).Error
 }
 
 func EnsureSettingsDefaults(db *gorm.DB) error {

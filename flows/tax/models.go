@@ -16,9 +16,16 @@ type Tax struct {
 	TaxTypeName     string
 	AmountDueCents  int64
 	AmountPaidCents int64
-	Period          string
-	DueDate         *time.Time
-	Comment         string
+	// Currency is what the tax is paid in. RateToBase is its rate to the
+	// base currency when the tax was recorded; the base amounts are kept at
+	// that rate, so later rate changes in settings don't move them.
+	Currency            string
+	RateToBase          float64
+	AmountDueBaseCents  int64
+	AmountPaidBaseCents int64
+	Period              string
+	DueDate             *time.Time
+	Comment             string
 }
 
 type TaxLog struct {

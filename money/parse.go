@@ -48,3 +48,22 @@ func ParseSignedAmountCents(raw string) (int64, error) {
 
 	return sign * amount, nil
 }
+
+// ParseRate parses a conversion rate to the base currency, like "1.08".
+func ParseRate(raw string) (float64, error) {
+	value, err := strconv.ParseFloat(strings.TrimSpace(raw), 64)
+	if err != nil || math.IsNaN(value) || math.IsInf(value, 0) {
+		return 0, errors.New("rate must be a number")
+	}
+
+	if value <= 0 {
+		return 0, errors.New("rate must be greater than zero")
+	}
+
+	return value, nil
+}
+
+// ToBaseCents converts cents at rate, rounding to the nearest cent.
+func ToBaseCents(cents int64, rate float64) int64 {
+	return int64(math.Round(float64(cents) * rate))
+}

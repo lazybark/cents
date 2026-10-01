@@ -336,7 +336,7 @@
           <div class="label">Paid so far</div>
           <div id="taxes-progress-text" class="figure"></div>
           <div class="progress progress-large"><div id="taxes-progress-fill" class="progress-fill"></div></div>
-          <p class="hint">Taxes are always in the base currency.</p>
+          <p class="hint">In the base currency, at the rate recorded with each tax.</p>
         </section>
 
         <section class="panel">
@@ -928,6 +928,16 @@
       </label>
       <div class="field-row">
         <label class="field">
+          <span class="field-label">Currency</span>
+          <select name="currency"></select>
+        </label>
+        <label class="field tax-rate-field">
+          <span class="field-label tax-rate-label">Rate</span>
+          <input name="rate" inputmode="decimal" maxlength="24" autocomplete="off">
+        </label>
+      </div>
+      <div class="field-row">
+        <label class="field">
           <span class="field-label">Amount due</span>
           <input name="amountDue" inputmode="decimal" maxlength="24" placeholder="1000.00" autocomplete="off" autofocus>
         </label>
@@ -974,6 +984,10 @@
         <label class="field">
           <span class="field-label">Amount paid</span>
           <input name="amountPaid" inputmode="decimal" maxlength="24" autocomplete="off">
+        </label>
+        <label class="field tax-rate-field">
+          <span class="field-label tax-rate-label">Rate</span>
+          <input name="rate" inputmode="decimal" maxlength="24" autocomplete="off">
         </label>
       </div>
       <div class="field-row">

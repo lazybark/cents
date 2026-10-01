@@ -3,32 +3,49 @@ package desktop
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/lazybark/cents/dates"
 	"github.com/lazybark/cents/flows/settings"
 	"github.com/lazybark/cents/flows/tax"
+	"github.com/lazybark/cents/money"
 )
 
 var errTaxNotFound = errors.New("tax not found")
 
+// TaxRow has amounts in the tax's currency and, as Base*, in the base
+// currency at the rate recorded with the tax.
 type TaxRow struct {
-	ID          uint    `json:"id"`
-	Country     string  `json:"country"`
-	TypeName    string  `json:"typeName"`
-	DueCents    int64   `json:"dueCents"`
-	PaidCents   int64   `json:"paidCents"`
-	LeftCents   int64   `json:"leftCents"`
-	PaidPercent float64 `json:"paidPercent"`
-	Period      string  `json:"period"`
-	DueDate     string  `json:"dueDate"`
-	Overdue     bool    `json:"overdue"`
-	Comment     string  `json:"comment"`
+	ID            uint    `json:"id"`
+	Country       string  `json:"country"`
+	TypeName      string  `json:"typeName"`
+	Currency      string  `json:"currency"`
+	IsBase        bool    `json:"isBase"`
+	RateToBase    float64 `json:"rateToBase"`
+	DueCents      int64   `json:"dueCents"`
+	PaidCents     int64   `json:"paidCents"`
+	LeftCents     int64   `json:"leftCents"`
+	BaseDueCents  int64   `json:"baseDueCents"`
+	BasePaidCents int64   `json:"basePaidCents"`
+	BaseLeftCents int64   `json:"baseLeftCents"`
+	PaidPercent   float64 `json:"paidPercent"`
+	Period        string  `json:"period"`
+	DueDate       string  `json:"dueDate"`
+	Overdue       bool    `json:"overdue"`
+	Comment       string  `json:"comment"`
 }
 
 type TaxTypeOption struct {
 	ID    uint   `json:"id"`
 	Label string `json:"label"`
+}
+
+// TaxCurrency is a currency a new tax can use, with its rate to the base
+// currency in settings now, to start the tax's own rate with.
+type TaxCurrency struct {
+	Name string  `json:"name"`
+	Rate float64 `json:"rate"`
 }
 
 type TaxesView struct {
@@ -38,10 +55,15 @@ type TaxesView struct {
 	Progress     Progress        `json:"progress"`
 	Counts       map[string]int  `json:"counts"`
 	TaxTypes     []TaxTypeOption `json:"taxTypes"`
+	Currencies   []TaxCurrency   `json:"currencies"`
 }
 
+// NewTaxInput is a new tax. Rate is the currency's rate to the base
+// currency, ignored for the base currency itself.
 type NewTaxInput struct {
 	TaxTypeID  uint   `json:"taxTypeId"`
+	Currency   string `json:"currency"`
+	Rate       string `json:"rate"`
 	AmountDue  string `json:"amountDue"`
 	AmountPaid string `json:"amountPaid"`
 	Period     string `json:"period"`
@@ -49,8 +71,11 @@ type NewTaxInput struct {
 	Comment    string `json:"comment"`
 }
 
+// TaxUpdateInput changes a tax. Rate replaces the recorded rate of a tax in
+// another currency; empty keeps it.
 type TaxUpdateInput struct {
 	ID         uint   `json:"id"`
+	Rate       string `json:"rate"`
 	AmountDue  string `json:"amountDue"`
 	AmountPaid string `json:"amountPaid"`
 	Period     string `json:"period"`
@@ -58,8 +83,8 @@ type TaxUpdateInput struct {
 	Comment    string `json:"comment"`
 }
 
-// Taxes lists "unpaid" or "paid" taxes. Tax amounts are always in the base
-// currency; Counts has both lists' sizes for the tabs.
+// Taxes lists "unpaid" or "paid" taxes. Progress is in the base currency at
+// each tax's recorded rate; Counts has both lists' sizes for the tabs.
 func (a *API) Taxes(mode string) (TaxesView, error) {
 	storage, stts, err := a.storageAndSettings()
 	if err != nil {
@@ -89,7 +114,8 @@ func (a *API) Taxes(mode string) (TaxesView, error) {
 			string(tax.ListUnpaid): len(tax.Filter(items, tax.ListUnpaid)),
 			string(tax.ListPaid):   len(tax.Filter(items, tax.ListPaid)),
 		},
-		TaxTypes: make([]TaxTypeOption, 0, len(stts.TaxTypes)),
+		TaxTypes:   make([]TaxTypeOption, 0, len(stts.TaxTypes)),
+		Currencies: taxCurrencies(stts),
 	}
 
 	for _, t := range stts.TaxTypes {
@@ -97,7 +123,7 @@ func (a *API) Taxes(mode string) (TaxesView, error) {
 	}
 
 	for _, item := range listed {
-		view.Taxes = append(view.Taxes, taxRow(item, now))
+		view.Taxes = append(view.Taxes, taxRow(item, stts, now))
 	}
 
 	return view, nil
@@ -124,7 +150,12 @@ func (a *API) CreateTax(input NewTaxInput) (CreatedIn, error) {
 		return CreatedIn{}, errors.New("unknown tax type")
 	}
 
-	entry, err := tax.New(taxType, input.AmountDue, input.AmountPaid, input.Period, input.DueDate, input.Comment, dates.ISO, time.Now())
+	currency, rate, err := taxCurrencyAndRate(stts, input.Currency, input.Rate)
+	if err != nil {
+		return CreatedIn{}, err
+	}
+
+	entry, err := tax.New(taxType, currency, rate, input.AmountDue, input.AmountPaid, input.Period, input.DueDate, input.Comment, dates.ISO, time.Now())
 	if err != nil {
 		return CreatedIn{}, err
 	}
@@ -141,10 +172,10 @@ func (a *API) CreateTax(input NewTaxInput) (CreatedIn, error) {
 	return CreatedIn{Mode: string(mode)}, nil
 }
 
-// UpdateTax changes amounts, period, due date and comment; the tax type
-// can't change, as in the TUI.
+// UpdateTax changes amounts, period, due date and comment, plus the rate of
+// a tax in another currency; the tax type and currency can't change.
 func (a *API) UpdateTax(input TaxUpdateInput) error {
-	storage, err := a.currentStorage()
+	storage, stts, err := a.storageAndSettings()
 	if err != nil {
 		return err
 	}
@@ -154,9 +185,21 @@ func (a *API) UpdateTax(input TaxUpdateInput) error {
 		return err
 	}
 
-	updated, err := current.Edit(input.AmountDue, input.AmountPaid, input.Period, input.DueDate, input.Comment, dates.ISO, time.Now())
+	now := time.Now()
+	updated, err := current.Edit(input.AmountDue, input.AmountPaid, input.Period, input.DueDate, input.Comment, dates.ISO, now)
 	if err != nil {
 		return err
+	}
+
+	if !isBaseCurrency(stts, current.Currency) && strings.TrimSpace(input.Rate) != "" {
+		rate, err := money.ParseRate(input.Rate)
+		if err != nil {
+			return err
+		}
+
+		if updated, err = updated.WithRate(rate, now); err != nil {
+			return err
+		}
 	}
 
 	if err := storage.SaveTax(&updated); err != nil {
@@ -189,7 +232,7 @@ func (a *API) TaxLogs(id uint) ([]PaymentLog, error) {
 // AddTaxPayment logs a payment and moves the amount paid by it, returning
 // the tax as it is now.
 func (a *API) AddTaxPayment(input PaymentInput) (TaxRow, error) {
-	storage, err := a.currentStorage()
+	storage, stts, err := a.storageAndSettings()
 	if err != nil {
 		return TaxRow{}, err
 	}
@@ -213,7 +256,7 @@ func (a *API) AddTaxPayment(input PaymentInput) (TaxRow, error) {
 		return TaxRow{}, fmt.Errorf("log save failed: %w", err)
 	}
 
-	return taxRow(updated, now), nil
+	return taxRow(updated, stts, now), nil
 }
 
 func (a *API) DeleteTax(id uint) error {
@@ -248,18 +291,79 @@ func findTax(storage StorageWorker, id uint) (tax.Tax, error) {
 	return tax.Tax{}, errTaxNotFound
 }
 
-func taxRow(item tax.Tax, now time.Time) TaxRow {
+// taxCurrencies lists the base currency (rate 1) and every configured
+// currency with its current rate.
+func taxCurrencies(stts settings.AppSettings) []TaxCurrency {
+	options := stts.CurrencyOptions()
+	result := make([]TaxCurrency, 0, len(options))
+	for i, name := range options {
+		rate := 1.0
+		if i > 0 {
+			rate, _ = stts.RateToBase(name)
+		}
+
+		result = append(result, TaxCurrency{Name: name, Rate: rate})
+	}
+
+	return result
+}
+
+func isBaseCurrency(stts settings.AppSettings, currency string) bool {
+	return strings.EqualFold(strings.TrimSpace(currency), stts.BaseCurrencyLabel())
+}
+
+// taxCurrencyAndRate checks a new tax's currency is a configured one (empty
+// means the base currency) and picks its rate: 1 for the base currency,
+// otherwise the rate typed (or, left empty, the one in settings now).
+func taxCurrencyAndRate(stts settings.AppSettings, rawCurrency, rawRate string) (string, float64, error) {
+	if strings.TrimSpace(rawCurrency) == "" {
+		return stts.BaseCurrencyLabel(), 1, nil
+	}
+
+	currency, ok := matchOption(stts.CurrencyOptions(), strings.TrimSpace(rawCurrency))
+	if !ok {
+		return "", 0, fmt.Errorf("unknown currency %q: add it in settings first", rawCurrency)
+	}
+
+	if isBaseCurrency(stts, currency) {
+		return currency, 1, nil
+	}
+
+	if strings.TrimSpace(rawRate) == "" {
+		rate, ok := stts.RateToBase(currency)
+		if !ok {
+			return "", 0, fmt.Errorf("%s has no rate to %s: type one", currency, stts.BaseCurrencyLabel())
+		}
+
+		return currency, rate, nil
+	}
+
+	rate, err := money.ParseRate(rawRate)
+	if err != nil {
+		return "", 0, err
+	}
+
+	return currency, rate, nil
+}
+
+func taxRow(item tax.Tax, stts settings.AppSettings, now time.Time) TaxRow {
 	return TaxRow{
-		ID:          item.ID,
-		Country:     item.TaxCountry,
-		TypeName:    item.TaxTypeName,
-		DueCents:    item.AmountDueCents,
-		PaidCents:   item.AmountPaidCents,
-		LeftCents:   item.LeftCents(),
-		PaidPercent: item.PaidPercent(),
-		Period:      item.Period,
-		DueDate:     formatOptionalDay(item.DueDate),
-		Overdue:     overdue(item.DueDate, item.IsPaid(), now),
-		Comment:     item.Comment,
+		ID:            item.ID,
+		Country:       item.TaxCountry,
+		TypeName:      item.TaxTypeName,
+		Currency:      item.Currency,
+		IsBase:        isBaseCurrency(stts, item.Currency),
+		RateToBase:    item.RateToBase,
+		DueCents:      item.AmountDueCents,
+		PaidCents:     item.AmountPaidCents,
+		LeftCents:     item.LeftCents(),
+		BaseDueCents:  item.AmountDueBaseCents,
+		BasePaidCents: item.AmountPaidBaseCents,
+		BaseLeftCents: item.LeftBaseCents(),
+		PaidPercent:   item.PaidPercent(),
+		Period:        item.Period,
+		DueDate:       formatOptionalDay(item.DueDate),
+		Overdue:       overdue(item.DueDate, item.IsPaid(), now),
+		Comment:       item.Comment,
 	}
 }

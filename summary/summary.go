@@ -87,10 +87,10 @@ func Compute(data Data, month time.Time) Summary {
 		}
 	}
 
-	// Tax amounts are always stored in the base currency.
+	// Taxes keep their base amounts at the rate they were recorded with.
 	for _, t := range data.Taxes {
-		if t.AmountPaidCents < t.AmountDueCents {
-			result.UnpaidTaxesCents += t.AmountDueCents - t.AmountPaidCents
+		if !t.IsPaid() {
+			result.UnpaidTaxesCents += t.LeftBaseCents()
 		}
 	}
 

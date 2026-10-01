@@ -79,3 +79,106 @@ func TestTaxLifecycle(t *testing.T) {
 		t.Fatalf("expected not found, got %v", err)
 	}
 }
+
+func TestTaxInAnotherCurrencyKeepsItsRate(t *testing.T) {
+	api := newTestAPI(t)
+	if err := api.SaveTaxType(TaxTypeInput{Country: "Germany", Name: "Income"}); err != nil {
+		t.Fatal(err)
+	}
+
+	view, _ := api.Taxes("unpaid")
+	typeID := view.TaxTypes[0].ID
+
+	if len(view.Currencies) != 2 || view.Currencies[0] != (TaxCurrency{Name: "$", Rate: 1}) || view.Currencies[1] != (TaxCurrency{Name: "EUR", Rate: 1.08}) {
+		t.Fatalf("unexpected currency options %+v", view.Currencies)
+	}
+
+	if _, err := api.CreateTax(NewTaxInput{TaxTypeID: typeID, Currency: "GBP", AmountDue: "1", AmountPaid: "0", Period: "2026"}); err == nil || err.Error() != `unknown currency "GBP": add it in settings first` {
+		t.Fatalf("expected unknown currency, got %v", err)
+	}
+
+	if _, err := api.CreateTax(NewTaxInput{TaxTypeID: typeID, Currency: "eur", Rate: "abc", AmountDue: "1", AmountPaid: "0", Period: "2026"}); err == nil || err.Error() != "rate must be a number" {
+		t.Fatalf("expected rate error, got %v", err)
+	}
+
+	// An empty rate takes the one in settings; a typed one wins.
+	if _, err := api.CreateTax(NewTaxInput{TaxTypeID: typeID, Currency: "eur", AmountDue: "100", AmountPaid: "0", Period: "2025"}); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := api.CreateTax(NewTaxInput{TaxTypeID: typeID, Currency: "EUR", Rate: "1.2", AmountDue: "1000", AmountPaid: "100", Period: "2026"}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Base currency taxes always use rate 1, whatever is typed.
+	if _, err := api.CreateTax(NewTaxInput{TaxTypeID: typeID, Currency: "$", Rate: "5", AmountDue: "10", AmountPaid: "0", Period: "2024"}); err != nil {
+		t.Fatal(err)
+	}
+
+	byPeriod := func() map[string]TaxRow {
+		view, err := api.Taxes("unpaid")
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		rows := map[string]TaxRow{}
+		for _, row := range view.Taxes {
+			rows[row.Period] = row
+		}
+
+		return rows
+	}
+
+	rows := byPeriod()
+	if r := rows["2025"]; r.Currency != "EUR" || r.RateToBase != 1.08 || r.BaseDueCents != 10800 || r.IsBase {
+		t.Fatalf("settings rate not recorded: %+v", r)
+	}
+
+	if r := rows["2026"]; r.RateToBase != 1.2 || r.DueCents != 100000 || r.BaseDueCents != 120000 || r.BaseLeftCents != 108000 {
+		t.Fatalf("typed rate not recorded: %+v", r)
+	}
+
+	if r := rows["2024"]; !r.IsBase || r.RateToBase != 1 || r.BaseDueCents != 1000 {
+		t.Fatalf("base tax should have rate 1: %+v", r)
+	}
+
+	// Changing the rate in settings leaves recorded taxes alone.
+	if err := api.SaveCurrency(CurrencyInput{ID: 1, Name: "EUR", Rate: "2"}); err != nil {
+		t.Fatal(err)
+	}
+
+	tax2026 := byPeriod()["2026"]
+	if tax2026.BaseDueCents != 120000 {
+		t.Fatalf("settings rate change moved a recorded tax: %+v", tax2026)
+	}
+
+	overview, err := api.Overview()
+	if err != nil || overview.UnpaidTaxes != 10800+108000+1000 {
+		t.Fatalf("overview should use recorded base amounts: %+v %v", overview, err)
+	}
+
+	row, err := api.AddTaxPayment(PaymentInput{ID: tax2026.ID, Delta: "100"})
+	if err != nil || row.PaidCents != 20000 || row.BasePaidCents != 24000 {
+		t.Fatalf("payment should convert at the recorded rate: %+v %v", row, err)
+	}
+
+	if err := api.UpdateTax(TaxUpdateInput{ID: tax2026.ID, Rate: "0", AmountDue: "1000", AmountPaid: "200", Period: "2026"}); err == nil || err.Error() != "rate must be greater than zero" {
+		t.Fatalf("expected rate error, got %v", err)
+	}
+
+	if err := api.UpdateTax(TaxUpdateInput{ID: tax2026.ID, Rate: "1.1", AmountDue: "1000", AmountPaid: "200", Period: "2026"}); err != nil {
+		t.Fatal(err)
+	}
+
+	if r := byPeriod()["2026"]; r.RateToBase != 1.1 || r.BaseDueCents != 110000 || r.BasePaidCents != 22000 {
+		t.Fatalf("edited rate not applied: %+v", r)
+	}
+
+	if err := api.UpdateTax(TaxUpdateInput{ID: tax2026.ID, AmountDue: "1000", AmountPaid: "200", Period: "2026"}); err != nil {
+		t.Fatal(err)
+	}
+
+	if r := byPeriod()["2026"]; r.RateToBase != 1.1 {
+		t.Fatalf("an empty rate should keep the recorded one: %+v", r)
+	}
+}
