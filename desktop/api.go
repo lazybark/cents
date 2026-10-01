@@ -39,6 +39,7 @@ type StorageWorker interface {
 	DeleteAccount(id uint) error
 	LoadAccountValueLogs(accountID uint) ([]account.AccountValueLog, error)
 	UpsertAccountValueLog(accountID uint, day time.Time, valueCents int64) error
+	DeleteAccountValueLog(accountID uint, logID uint) error
 	SaveSettingRecord(entry *settings.SettingRecord) error
 	SaveSettingCurrency(entry *settings.SettingCurrency) error
 	SaveSettingPaymentMethod(entry *settings.SettingPaymentMethod) error
@@ -50,6 +51,7 @@ type StorageWorker interface {
 	SaveDebt(entry *debt.Debt) error
 	CreateDebtLog(entry *debt.DebtLog) error
 	LoadDebtLogs(debtID uint) ([]debt.DebtLog, error)
+	DeleteDebtLog(entry *debt.Debt, logID uint) error
 	DeleteDebt(id uint) error
 	CreateTax(entry *tax.Tax) error
 	SaveTax(entry *tax.Tax) error

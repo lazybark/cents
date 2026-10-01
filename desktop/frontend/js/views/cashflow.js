@@ -10,6 +10,7 @@ import {
   formatMoney,
   formError,
   localDate,
+  rowAction,
   setStatus,
   signClass,
 } from "../ui.js";
@@ -140,11 +141,7 @@ function entryRow(entry, baseCurrency) {
   const amountClass = entry.isIncome ? "num positive" : "num";
 
   const row = document.createElement("tr");
-  const remove = document.createElement("button");
-  remove.type = "button";
-  remove.className = "row-action";
-  remove.textContent = "Delete";
-  remove.addEventListener("click", () => askDelete(entry));
+  const remove = rowAction("Delete", () => askDelete(entry));
 
   row.append(
     cell(entry.date, "nowrap"),

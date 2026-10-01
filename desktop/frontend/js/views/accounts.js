@@ -14,6 +14,7 @@ import {
   formError,
   loadedStatus,
   localDate,
+  rowAction,
   setStatus,
   signClass,
 } from "../ui.js";
@@ -247,7 +248,11 @@ async function loadLogs() {
     el.logs.replaceChildren(
       ...logs.map((entry) => {
         const row = document.createElement("tr");
-        row.append(cell(entry.date), cell(formatMoney(acct.currency, entry.valueCents), "num"));
+        row.append(
+          cell(entry.date),
+          cell(formatMoney(acct.currency, entry.valueCents), "num"),
+          cell(rowAction("Delete", () => askDeleteLog(entry)), "num"),
+        );
         return row;
       }),
     );
@@ -255,6 +260,18 @@ async function loadLogs() {
   } catch (err) {
     formError(el.logForm, `Failed to load value history: ${err}`);
   }
+}
+
+// History entries are snapshots, so deleting one leaves the balance alone.
+function askDeleteLog(entry) {
+  const acct = state.current;
+  const value = formatMoney(acct.currency, entry.valueCents);
+
+  confirmDelete("Delete history entry?", `The value ${value} for ${entry.date} will be deleted. The account's current amount doesn't change.`, async () => {
+    await api.DeleteAccountValueLog(acct.id, entry.id);
+    await loadLogs();
+    setStatus(`deleted log value for ${entry.date}`);
+  });
 }
 
 async function saveAmount(event) {

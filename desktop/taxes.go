@@ -180,7 +180,7 @@ func (a *API) TaxLogs(id uint) ([]PaymentLog, error) {
 
 	result := make([]PaymentLog, 0, len(logs))
 	for _, entry := range logs {
-		result = append(result, PaymentLog{When: entry.CreatedAt.Local().Format("2006-01-02 15:04"), DeltaCents: entry.DeltaPaidCents, Note: entry.Note})
+		result = append(result, PaymentLog{ID: entry.ID, When: entry.CreatedAt.Local().Format("2006-01-02 15:04"), DeltaCents: entry.DeltaPaidCents, Note: entry.Note})
 	}
 
 	return result, nil

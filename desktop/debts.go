@@ -10,7 +10,10 @@ import (
 	"github.com/lazybark/cents/flows/debt"
 )
 
-var errDebtNotFound = errors.New("debt not found")
+var (
+	errDebtNotFound = errors.New("debt not found")
+	errLogNotFound  = errors.New("log entry not found")
+)
 
 type DebtRow struct {
 	ID           uint   `json:"id"`
@@ -172,7 +175,7 @@ func (a *API) DebtLogs(id uint) ([]PaymentLog, error) {
 
 	result := make([]PaymentLog, 0, len(logs))
 	for _, entry := range logs {
-		result = append(result, PaymentLog{When: entry.CreatedAt.Local().Format("2006-01-02 15:04"), DeltaCents: entry.DeltaPaidCents, Note: entry.Note})
+		result = append(result, PaymentLog{ID: entry.ID, When: entry.CreatedAt.Local().Format("2006-01-02 15:04"), DeltaCents: entry.DeltaPaidCents, Note: entry.Note})
 	}
 
 	return result, nil
@@ -203,6 +206,49 @@ func (a *API) AddDebtPayment(input PaymentInput) (DebtRow, error) {
 
 	if err := storage.CreateDebtLog(&entry); err != nil {
 		return DebtRow{}, fmt.Errorf("log save failed: %w", err)
+	}
+
+	return debtRow(updated, now), nil
+}
+
+// DeleteDebtPayment removes one logged payment and undoes it, so the amount
+// paid moves back by the payment's amount. Only the payments DebtLogs lists
+// can be removed. Returns the debt as it is now.
+func (a *API) DeleteDebtPayment(debtID uint, logID uint) (DebtRow, error) {
+	storage, err := a.currentStorage()
+	if err != nil {
+		return DebtRow{}, err
+	}
+
+	current, err := findDebt(storage, debtID)
+	if err != nil {
+		return DebtRow{}, err
+	}
+
+	logs, err := storage.LoadDebtLogs(debtID)
+	if err != nil {
+		return DebtRow{}, err
+	}
+
+	var payment *debt.DebtLog
+	for i := range logs {
+		if logs[i].ID == logID {
+			payment = &logs[i]
+		}
+	}
+
+	if payment == nil {
+		return DebtRow{}, errLogNotFound
+	}
+
+	now := time.Now()
+	updated, err := current.RemovePayment(*payment, now)
+	if err != nil {
+		return DebtRow{}, err
+	}
+
+	if err := storage.DeleteDebtLog(&updated, logID); err != nil {
+		return DebtRow{}, err
 	}
 
 	return debtRow(updated, now), nil

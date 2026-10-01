@@ -68,6 +68,7 @@ type AmountUpdateResult struct {
 }
 
 type ValueLog struct {
+	ID         uint   `json:"id"`
 	Date       string `json:"date"`
 	ValueCents int64  `json:"valueCents"`
 }
@@ -236,7 +237,7 @@ func (a *API) AccountValueLogs(accountID uint) ([]ValueLog, error) {
 
 	result := make([]ValueLog, 0, len(logs))
 	for _, entry := range logs {
-		result = append(result, ValueLog{Date: entry.LogDate.Local().Format(logDateLayout), ValueCents: entry.ValueCents})
+		result = append(result, ValueLog{ID: entry.ID, Date: entry.LogDate.Local().Format(logDateLayout), ValueCents: entry.ValueCents})
 	}
 
 	return result, nil
@@ -274,6 +275,22 @@ func (a *API) SaveAccountValueLog(input ValueLogInput) error {
 	}
 
 	return nil
+}
+
+// DeleteAccountValueLog removes one value history entry. The account's
+// current amount doesn't change: history entries are only snapshots.
+func (a *API) DeleteAccountValueLog(accountID uint, logID uint) error {
+	storage, err := a.currentStorage()
+	if err != nil {
+		return err
+	}
+
+	if err := requireAccount(storage, accountID); err != nil {
+		return err
+	}
+
+	// Storage reports a missing entry as "log entry not found".
+	return storage.DeleteAccountValueLog(accountID, logID)
 }
 
 func requireAccount(storage StorageWorker, id uint) error {

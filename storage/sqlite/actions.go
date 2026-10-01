@@ -428,3 +428,42 @@ func (s *SQLiteStorage) DeleteInvoice(id uint) error {
 
 	return nil
 }
+
+// ErrLogNotFound is returned when a log entry to delete doesn't exist or
+// belongs to another record.
+var ErrLogNotFound = errors.New("log entry not found")
+
+// DeleteAccountValueLog removes one value history entry of an account.
+func (s *SQLiteStorage) DeleteAccountValueLog(accountID uint, logID uint) error {
+	result := s.db.Where("id = ? AND account_id = ?", logID, accountID).Delete(&account.AccountValueLog{})
+	if result.Error != nil {
+		return fmt.Errorf("failed to delete account value log: %w", result.Error)
+	}
+
+	if result.RowsAffected == 0 {
+		return ErrLogNotFound
+	}
+
+	return nil
+}
+
+// DeleteDebtLog removes one payment log entry and saves entry (the debt with
+// that payment undone) in the same transaction, so the two can't disagree.
+func (s *SQLiteStorage) DeleteDebtLog(entry *debt.Debt, logID uint) error {
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		result := tx.Where("id = ? AND debt_id = ?", logID, entry.ID).Delete(&debt.DebtLog{})
+		if result.Error != nil {
+			return fmt.Errorf("failed to delete debt log: %w", result.Error)
+		}
+
+		if result.RowsAffected == 0 {
+			return ErrLogNotFound
+		}
+
+		if err := tx.Save(entry).Error; err != nil {
+			return fmt.Errorf("failed to save debt: %w", err)
+		}
+
+		return nil
+	})
+}

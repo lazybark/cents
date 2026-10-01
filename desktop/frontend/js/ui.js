@@ -149,8 +149,19 @@ export function progressText(currency, paid, total) {
   return total > 0 ? `${text} (${percent(paid, total).toFixed(1)}%)` : text;
 }
 
+// rowAction is the small text button at the end of a table row.
+export function rowAction(label, onClick) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "row-action";
+  button.textContent = label;
+  button.addEventListener("click", onClick);
+  return button;
+}
+
 // renderPaymentLogs fills a When / Note / Change table of logged payments.
-export function renderPaymentLogs(tbody, empty, logs, currency) {
+// With onDelete, each row also gets a Delete button calling onDelete(entry).
+export function renderPaymentLogs(tbody, empty, logs, currency, onDelete) {
   empty.hidden = logs.length > 0;
   tbody.replaceChildren(
     ...logs.map((entry) => {
@@ -160,6 +171,7 @@ export function renderPaymentLogs(tbody, empty, logs, currency) {
         cell(entry.note, "muted wrap"),
         cell(signedMoney(currency, entry.deltaCents), `num ${signClass(entry.deltaCents)}`),
       );
+      if (onDelete) row.append(cell(rowAction("Delete", () => onDelete(entry)), "num"));
       return row;
     }),
   );

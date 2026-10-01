@@ -11,6 +11,7 @@ type Progress struct {
 }
 
 type PaymentLog struct {
+	ID         uint   `json:"id"`
 	When       string `json:"when"`
 	DeltaCents int64  `json:"deltaCents"`
 	Note       string `json:"note"`

@@ -90,3 +90,26 @@ func TestFilterAndProgress(t *testing.T) {
 		t.Errorf("unexpected progress %d/%d", paid, total)
 	}
 }
+
+func TestRemovePaymentUndoesIt(t *testing.T) {
+	now := time.Now()
+	d := Debt{ID: 3, AmountCents: 10000, AmountPaidCents: 3000}
+
+	undone, err := d.RemovePayment(DebtLog{DebtID: 3, DeltaPaidCents: 1000}, now)
+	if err != nil || undone.AmountPaidCents != 2000 || !undone.LastUpdatedAt.Equal(now) {
+		t.Fatalf("unexpected %+v %v", undone, err)
+	}
+
+	undone, err = d.RemovePayment(DebtLog{DebtID: 3, DeltaPaidCents: -2000}, now)
+	if err != nil || undone.AmountPaidCents != 5000 {
+		t.Fatalf("removing a negative payment adds it back: %+v %v", undone, err)
+	}
+
+	if _, err := d.RemovePayment(DebtLog{DebtID: 3, DeltaPaidCents: 4000}, now); err == nil || !strings.HasPrefix(err.Error(), "removing this payment makes amount paid out of range") {
+		t.Fatalf("expected range error, got %v", err)
+	}
+
+	if _, err := d.RemovePayment(DebtLog{DebtID: 9, DeltaPaidCents: 1}, now); err == nil {
+		t.Fatal("expected error for another debt's payment")
+	}
+}

@@ -18,6 +18,7 @@ import {
   renderPaymentLogs,
   setProgress,
   setStatus,
+  signedMoney,
 } from "../ui.js";
 
 const $ = (id) => document.getElementById(id);
@@ -200,7 +201,7 @@ async function loadLogs() {
   const debt = state.current;
 
   try {
-    renderPaymentLogs(el.logs, el.logsEmpty, await api.DebtLogs(debt.id), debt.currency);
+    renderPaymentLogs(el.logs, el.logsEmpty, await api.DebtLogs(debt.id), debt.currency, askDeletePayment);
   } catch (err) {
     formError(el.paymentForm, `Failed to load payments: ${err}`);
   }
@@ -248,6 +249,22 @@ async function logPayment(event) {
   } catch (err) {
     formError(el.paymentForm, String(err));
   }
+}
+
+// Deleting a payment undoes it, so say what amount paid goes back to.
+function askDeletePayment(entry) {
+  const debt = state.current;
+  const money = (cents) => formatMoney(debt.currency, cents);
+  const change = `Amount paid goes from ${money(debt.paidCents)} to ${money(debt.paidCents - entry.deltaCents)}.`;
+
+  confirmDelete("Delete payment?", `The ${signedMoney(debt.currency, entry.deltaCents)} payment from ${entry.when} will be deleted. ${change}`, async () => {
+    const updated = await api.DeleteDebtPayment(debt.id, entry.id);
+    state.current = updated;
+    showDebtHeader(updated);
+    el.editForm.elements.amountPaid.value = formatAmount(updated.paidCents);
+    await loadLogs();
+    await show("deleted payment");
+  });
 }
 
 function askDelete() {

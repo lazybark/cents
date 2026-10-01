@@ -165,3 +165,22 @@ func ProgressInBaseCents(items []Debt, stts settings.AppSettings) (paid int64, t
 
 	return paid, total
 }
+
+// RemovePayment undoes a logged payment: the amount paid moves back by its
+// delta. The result has to stay between zero and the amount, which it may
+// not if the amount paid was edited by hand since.
+func (d Debt) RemovePayment(entry DebtLog, now time.Time) (Debt, error) {
+	if entry.DebtID != d.ID {
+		return Debt{}, errors.New("payment belongs to another debt")
+	}
+
+	nextPaid := d.AmountPaidCents - entry.DeltaPaidCents
+	if nextPaid < 0 || nextPaid > d.AmountCents {
+		return Debt{}, errors.New("removing this payment makes amount paid out of range; edit amount paid instead")
+	}
+
+	d.AmountPaidCents = nextPaid
+	d.LastUpdatedAt = now
+
+	return d, nil
+}
