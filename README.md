@@ -2,6 +2,8 @@
 
 ## Plans
 
+Make taxes available not in base currency only
+
 - [ ] Flow to rename currency and not lose the data for accounts & other entities related to the currency (like transactions, budgets, etc.)
 - [ ] Same flow for payment methods.
 - [ ] Store DB schema by versions once we have 0.0.1 release, to be able to track changes and update the DB schema on app updates without losing data.
@@ -33,11 +35,7 @@ How to make historical data NOT updated with currency changes? Need to store the
 
 Page with historical account data, where all accounts are aggregated historically
 
-Net Worth page and menu record.
-
 Property menu section: properties, cars, etc.
-
-Add setting to hide some menu items
 
 Fix: account log update enter does not work on checkbox, only when user is back to Amount input
 

@@ -28,7 +28,9 @@
       <button class="nav-item" type="button" data-view="accounts">Accounts</button>
       <button class="nav-item" type="button" data-view="cashflow">Incomes &amp; expenses</button>
       <button class="nav-item" type="button" data-view="subscriptions">Subscriptions</button>
+      <button class="nav-item" type="button" data-view="invoices">Invoices</button>
       <button class="nav-item" type="button" data-view="debts">Debts</button>
+      <button class="nav-item" type="button" data-view="goals">Goals</button>
       <button class="nav-item" type="button" data-view="taxes">Taxes</button>
       <div class="nav-spacer"></div>
       <button class="nav-item" type="button" data-view="settings">Settings</button>
@@ -42,7 +44,9 @@
           <button id="add-expense" class="button" type="button" data-for="cashflow" hidden>Add expense</button>
           <button id="add-subscription" class="button button-primary" type="button" data-for="subscriptions" hidden>Add subscription</button>
           <button id="add-account" class="button button-primary" type="button" data-for="accounts" hidden>Add account</button>
+          <button id="add-invoice" class="button button-primary" type="button" data-for="invoices" hidden>Add invoice</button>
           <button id="add-debt" class="button button-primary" type="button" data-for="debts" hidden>Add debt</button>
+          <button id="add-goal" class="button button-primary" type="button" data-for="goals" hidden>Add goal</button>
           <button id="add-tax" class="button button-primary" type="button" data-for="taxes" hidden>Add tax</button>
           <button id="refresh" class="button" type="button">Refresh</button>
         </div>
@@ -217,6 +221,45 @@
         </section>
       </section>
 
+      <section id="view-invoices" class="view" hidden>
+        <div class="tabs" role="tablist">
+          <button class="tab" type="button" role="tab" data-mode="outgoing">They pay me</button>
+          <button class="tab" type="button" role="tab" data-mode="incoming">I pay</button>
+          <button class="tab" type="button" role="tab" data-mode="paid">Paid</button>
+        </div>
+
+        <section class="panel">
+          <div class="figures">
+            <div>
+              <div class="label">Unpaid, owed to me</div>
+              <div id="invoices-to-me" class="figure"></div>
+            </div>
+            <div>
+              <div class="label">Unpaid, I owe</div>
+              <div id="invoices-by-me" class="figure"></div>
+            </div>
+          </div>
+          <p class="hint">All unpaid invoices, in the base currency. <span id="invoices-not-counted"></span></p>
+        </section>
+
+        <section class="panel">
+          <table class="table clickable">
+            <thead>
+              <tr>
+                <th>Invoice</th>
+                <th>Issued</th>
+                <th>Due</th>
+                <th>Account</th>
+                <th class="num">Amount</th>
+              </tr>
+            </thead>
+            <tbody id="invoices-rows"></tbody>
+          </table>
+          <p id="invoices-empty" class="muted" hidden>No invoices here.</p>
+          <p id="invoices-hint" class="hint">Click an invoice to edit it, mark it paid or delete it.</p>
+        </section>
+      </section>
+
       <section id="view-debts" class="view" hidden>
         <div class="tabs" role="tablist">
           <button class="tab" type="button" role="tab" data-mode="outgoing">I owe</button>
@@ -247,6 +290,39 @@
           </table>
           <p id="debts-empty" class="muted" hidden>No debts here.</p>
           <p id="debts-hint" class="hint">Click a debt to edit it, log a payment or delete it.</p>
+        </section>
+      </section>
+
+      <section id="view-goals" class="view" hidden>
+        <div class="tabs" role="tablist">
+          <button class="tab" type="button" role="tab" data-mode="active">Active</button>
+          <button class="tab" type="button" role="tab" data-mode="done">Reached</button>
+        </div>
+
+        <section class="panel">
+          <div class="label">Saved so far</div>
+          <div id="goals-progress-text" class="figure"></div>
+          <div class="progress progress-large"><div id="goals-progress-fill" class="progress-fill"></div></div>
+          <p class="hint">In the base currency. Goals without a conversion rate count with their own amounts.</p>
+        </section>
+
+        <section class="panel">
+          <table class="table clickable">
+            <thead>
+              <tr>
+                <th>Goal</th>
+                <th>Started</th>
+                <th>Target date</th>
+                <th class="num">Target</th>
+                <th class="num">Saved</th>
+                <th class="num">Left</th>
+                <th class="num">Done</th>
+              </tr>
+            </thead>
+            <tbody id="goals-rows"></tbody>
+          </table>
+          <p id="goals-empty" class="muted" hidden>No goals here.</p>
+          <p id="goals-hint" class="hint">Click a goal to edit it, log money put aside or delete it.</p>
         </section>
       </section>
 
@@ -649,6 +725,199 @@
     </div>
   </dialog>
 
+  <dialog id="invoice-dialog" class="dialog">
+    <form id="invoice-form" class="form" novalidate>
+      <h2 id="invoice-dialog-title" class="dialog-title"></h2>
+      <label class="field">
+        <span class="field-label">Title</span>
+        <input name="title" maxlength="120" placeholder="Website redesign, Hosting…" autocomplete="off" autofocus>
+      </label>
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">Direction</span>
+          <select name="direction">
+            <option value="outgoing">They pay me (I sent it)</option>
+            <option value="incoming">I pay (I received it)</option>
+          </select>
+        </label>
+        <label class="field">
+          <span class="field-label">Peer</span>
+          <input name="peer" maxlength="120" placeholder="optional" autocomplete="off">
+        </label>
+      </div>
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">Amount</span>
+          <input name="amount" inputmode="decimal" maxlength="24" placeholder="optional 1000.00" autocomplete="off">
+        </label>
+        <label class="field">
+          <span class="field-label">Currency</span>
+          <select name="currency"></select>
+        </label>
+      </div>
+      <label class="check">
+        <input type="checkbox" name="paid">
+        <span>Paid</span>
+      </label>
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">Invoice date (optional)</span>
+          <input type="date" name="invoiceDate">
+        </label>
+        <label class="field">
+          <span class="field-label">Due date (optional)</span>
+          <input type="date" name="dueDate">
+        </label>
+      </div>
+      <label class="field">
+        <span class="field-label">Target account</span>
+        <input name="targetAccount" list="invoice-accounts" maxlength="120" placeholder="optional: pick or type" autocomplete="off">
+      </label>
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">Link</span>
+          <input type="url" name="url" maxlength="180" placeholder="optional https://…" autocomplete="off">
+        </label>
+        <button id="invoice-open-url" type="button" class="button field-button" hidden>Open saved link</button>
+      </div>
+      <label class="field">
+        <span class="field-label">Description</span>
+        <input name="description" maxlength="180" placeholder="optional" autocomplete="off">
+      </label>
+      <p class="hint">Invoices without a currency are kept but not counted in totals.</p>
+      <p class="form-error negative" hidden></p>
+      <div class="dialog-actions spread">
+        <button id="invoice-delete" type="button" class="button button-danger">Delete invoice</button>
+        <span class="dialog-actions-group">
+          <button type="button" class="button" data-close>Cancel</button>
+          <button type="submit" class="button button-primary">Save invoice</button>
+        </span>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="goal-add-dialog" class="dialog">
+    <form id="goal-add-form" class="form" novalidate>
+      <h2 class="dialog-title">Add goal</h2>
+      <label class="field">
+        <span class="field-label">Goal</span>
+        <input name="name" maxlength="120" placeholder="Emergency fund" autocomplete="off" autofocus>
+      </label>
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">Target</span>
+          <input name="target" inputmode="decimal" maxlength="24" placeholder="10000.00" autocomplete="off">
+        </label>
+        <label class="field">
+          <span class="field-label">Currency</span>
+          <select name="currency"></select>
+        </label>
+        <label class="field">
+          <span class="field-label">Already saved</span>
+          <input name="accumulated" inputmode="decimal" maxlength="24" value="0" autocomplete="off">
+        </label>
+      </div>
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">Started</span>
+          <input type="date" name="startedAt">
+        </label>
+        <label class="field">
+          <span class="field-label">Target date (optional)</span>
+          <input type="date" name="targetDate">
+        </label>
+      </div>
+      <label class="field">
+        <span class="field-label">Description</span>
+        <input name="description" maxlength="120" placeholder="optional" autocomplete="off">
+      </label>
+      <p class="form-error negative" hidden></p>
+      <div class="dialog-actions">
+        <button type="button" class="button" data-close>Cancel</button>
+        <button type="submit" class="button button-primary">Save goal</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="goal-edit-dialog" class="dialog dialog-wide">
+    <h2 id="goal-title" class="dialog-title"></h2>
+    <p id="goal-subtitle" class="muted"></p>
+    <div class="progress"><div id="goal-progress-fill" class="progress-fill"></div></div>
+
+    <form id="goal-edit-form" class="form" novalidate>
+      <h3 class="subhead">Details</h3>
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">Target</span>
+          <input name="target" inputmode="decimal" maxlength="24" autocomplete="off" autofocus>
+        </label>
+        <label class="field">
+          <span class="field-label">Saved</span>
+          <input name="accumulated" inputmode="decimal" maxlength="24" autocomplete="off">
+        </label>
+      </div>
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">Started</span>
+          <input type="date" name="startedAt">
+        </label>
+        <label class="field">
+          <span class="field-label">Target date (optional)</span>
+          <input type="date" name="targetDate">
+        </label>
+      </div>
+      <label class="field">
+        <span class="field-label">Description</span>
+        <input name="description" maxlength="120" autocomplete="off">
+      </label>
+      <p class="form-error negative" hidden></p>
+      <div class="form-actions">
+        <button type="submit" class="button button-primary">Save details</button>
+      </div>
+    </form>
+
+    <form id="goal-change-form" class="form" novalidate>
+      <h3 class="subhead">Put money aside</h3>
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">Amount (+/−)</span>
+          <input name="delta" inputmode="decimal" maxlength="24" placeholder="+100 or -25" autocomplete="off">
+        </label>
+        <label class="field">
+          <span class="field-label">Date</span>
+          <input type="date" name="date">
+        </label>
+      </div>
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">Note (optional)</span>
+          <input name="note" maxlength="120" placeholder="manual accumulated adjustment" autocomplete="off">
+        </label>
+        <button type="submit" class="button field-button">Log change</button>
+      </div>
+      <p class="hint">Logged changes move “Saved”; a minus sign takes money back out.</p>
+      <p class="form-error negative" hidden></p>
+    </form>
+
+    <table class="table logs">
+      <thead>
+        <tr>
+          <th>When</th>
+          <th>Note</th>
+          <th class="num">Change</th>
+          <th><span class="visually-hidden">Actions</span></th>
+        </tr>
+      </thead>
+      <tbody id="goal-logs"></tbody>
+    </table>
+    <p id="goal-logs-empty" class="muted" hidden>No changes logged yet.</p>
+
+    <div class="dialog-actions spread">
+      <button id="goal-delete" type="button" class="button button-danger">Delete goal</button>
+      <button type="button" class="button" data-close>Close</button>
+    </div>
+  </dialog>
+
   <dialog id="tax-add-dialog" class="dialog">
     <form id="tax-add-form" class="form" novalidate>
       <h2 class="dialog-title">Add tax</h2>
@@ -769,6 +1038,7 @@
   </dialog>
 
   <datalist id="payment-methods"></datalist>
+  <datalist id="invoice-accounts"></datalist>
 
   <!-- Add/edit form for any settings list; views/settings.js fills the fields. -->
   <dialog id="setting-dialog" class="dialog">

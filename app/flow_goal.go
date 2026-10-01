@@ -7,6 +7,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/lazybark/cents/dates"
 	"github.com/lazybark/cents/flows/goal"
 )
 
@@ -30,25 +31,14 @@ func (m TheApplication) renderGoalTableRow(width int, index int, item goal.Goal)
 		style = selectedRowStyle
 	}
 
-	left := item.TargetAmountCents - item.AmountAccumulatedCents
-	left = max(left, 0)
+	left := item.LeftCents()
 
 	targetDate := "-"
 	if item.TargetDate != nil {
 		targetDate = item.TargetDate.Local().Format("2006-01-02")
 	}
 
-	progressValue := 0.0
-	if item.TargetAmountCents > 0 {
-		progressValue = (float64(item.AmountAccumulatedCents) / float64(item.TargetAmountCents)) * 100
-		if progressValue < 0 {
-			progressValue = 0
-		}
-
-		if progressValue > 100 {
-			progressValue = 100
-		}
-	}
+	progressValue := item.Percent()
 
 	row := fmt.Sprintf("%s %-*s %-*s %-*s %-*s %-*s %-*s %-*s %-*s %-*s", prefix, nameWidth, truncateText(item.Name, nameWidth), currencyWidth, truncateText(item.Currency, currencyWidth), targetWidth, renderMoneyWithCurrency(item.Currency, item.TargetAmountCents), accumWidth, renderMoneyWithCurrency(item.Currency, item.AmountAccumulatedCents), leftWidth, renderMoneyWithCurrency(item.Currency, left), startedWidth, item.DateStartedAt.Local().Format("2006-01-02"), targetDateWidth, targetDate, progressWidth, fmt.Sprintf("%5.1f%%", progressValue), descWidth, truncateText(item.Description, descWidth))
 
@@ -387,71 +377,17 @@ func (m TheApplication) updateGoalEdit(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m TheApplication) saveGoalFromForm() (tea.Model, tea.Cmd) {
-	name := strings.TrimSpace(m.addGoalForm.Inputs[0].Value())
 	currency := selectedCurrencyOption(m.addGoalForm.CurrencyOptions, m.addGoalForm.CurrencyIndex)
-	targetRaw := strings.TrimSpace(m.addGoalForm.Inputs[1].Value())
-	accumulatedRaw := strings.TrimSpace(m.addGoalForm.Inputs[2].Value())
-	description := strings.TrimSpace(m.addGoalForm.Inputs[3].Value())
-	dateStartedRaw := strings.TrimSpace(m.addGoalForm.Inputs[4].Value())
-	targetDateRaw := strings.TrimSpace(m.addGoalForm.Inputs[5].Value())
+	inputs := m.addGoalForm.Inputs
 
-	if name == "" {
-		m.status = "goal name is required"
-
-		return m, nil
-	}
-
-	target, err := parseAmountCents(targetRaw)
-	if err != nil {
-		m.status = "target amount error: " + err.Error()
-
-		return m, nil
-	}
-
-	if target <= 0 {
-		m.status = "target amount must be greater than zero"
-
-		return m, nil
-	}
-
-	accumulated, err := parseAmountCents(accumulatedRaw)
-	if err != nil {
-		m.status = "accumulated amount error: " + err.Error()
-
-		return m, nil
-	}
-
-	if accumulated > target {
-		m.status = "accumulated amount cannot be more than target"
-
-		return m, nil
-	}
-
-	dateStarted, err := parseRequiredDate(dateStartedRaw)
+	newGoal, err := goal.New(inputs[0].Value(), currency, inputs[1].Value(), inputs[2].Value(), inputs[3].Value(), inputs[4].Value(), inputs[5].Value(), dates.TUI, time.Now())
 	if err != nil {
 		m.status = err.Error()
 
 		return m, nil
 	}
 
-	targetDate, err := parseOptionalDatePointer(targetDateRaw)
-	if err != nil {
-		m.status = err.Error()
-
-		return m, nil
-	}
-
-	now := time.Now()
-	newGoal := goal.Goal{
-		Name:                   name,
-		Currency:               currency,
-		TargetAmountCents:      target,
-		AmountAccumulatedCents: accumulated,
-		Description:            description,
-		DateStartedAt:          dateStarted,
-		TargetDate:             targetDate,
-		LastUpdatedAt:          now,
-	}
+	name := newGoal.Name
 
 	if err := m.storage.CreateGoal(&newGoal); err != nil {
 		m.status = "save failed: " + err.Error()
@@ -463,7 +399,7 @@ func (m TheApplication) saveGoalFromForm() (tea.Model, tea.Cmd) {
 	m.addGoalForm = goal.NewAddGoalForm(currencySelectionOptions(m.settings))
 	m.screen = screenGoalList
 
-	if newGoal.AmountAccumulatedCents >= newGoal.TargetAmountCents {
+	if newGoal.IsDone() {
 		m.goalMode = goalListHistory
 	} else {
 		m.goalMode = goalListActive
@@ -483,53 +419,13 @@ func (m TheApplication) saveGoalEdit() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	target, err := parseAmountCents(strings.TrimSpace(m.editGoalForm.TargetAmountInput.Value()))
-	if err != nil {
-		m.status = "target amount error: " + err.Error()
-
-		return m, nil
-	}
-
-	if target <= 0 {
-		m.status = "target amount must be greater than zero"
-
-		return m, nil
-	}
-
-	accumulated, err := parseAmountCents(strings.TrimSpace(m.editGoalForm.AccumulatedAmountInput.Value()))
-	if err != nil {
-		m.status = "accumulated amount error: " + err.Error()
-
-		return m, nil
-	}
-
-	if accumulated > target {
-		m.status = "accumulated amount cannot be more than target"
-
-		return m, nil
-	}
-
-	dateStarted, err := parseRequiredDate(strings.TrimSpace(m.editGoalForm.DateStartedInput.Value()))
+	form := m.editGoalForm
+	selected, err := m.goals[index].Edit(form.TargetAmountInput.Value(), form.AccumulatedAmountInput.Value(), form.DateStartedInput.Value(), form.TargetDateInput.Value(), form.DescriptionInput.Value(), dates.TUI, time.Now())
 	if err != nil {
 		m.status = err.Error()
 
 		return m, nil
 	}
-
-	targetDate, err := parseOptionalDatePointer(strings.TrimSpace(m.editGoalForm.TargetDateInput.Value()))
-	if err != nil {
-		m.status = err.Error()
-
-		return m, nil
-	}
-
-	selected := m.goals[index]
-	selected.TargetAmountCents = target
-	selected.AmountAccumulatedCents = accumulated
-	selected.DateStartedAt = dateStarted
-	selected.TargetDate = targetDate
-	selected.Description = strings.TrimSpace(m.editGoalForm.DescriptionInput.Value())
-	selected.LastUpdatedAt = time.Now()
 
 	if err := m.storage.SaveGoal(&selected); err != nil {
 		m.status = "save failed: " + err.Error()
@@ -551,50 +447,16 @@ func (m TheApplication) applyGoalLogDelta() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	delta, err := parseSignedAmountCents(strings.TrimSpace(m.editGoalForm.LogDeltaInput.Value()))
-	if err != nil {
-		m.status = "log delta error: " + err.Error()
-		return m, nil
-	}
-
-	if delta == 0 {
-		m.status = "delta cannot be zero"
-		return m, nil
-	}
-
-	selected := m.goals[index]
-
-	nextAccumulated := selected.AmountAccumulatedCents + delta
-	if nextAccumulated < 0 || nextAccumulated > selected.TargetAmountCents {
-		m.status = "delta makes accumulated amount out of range"
-		return m, nil
-	}
-
-	entryTime, err := parseLogDateOrToday(strings.TrimSpace(m.editGoalForm.LogDateInput.Value()))
+	form := m.editGoalForm
+	selected, entry, err := m.goals[index].ApplyDelta(form.LogDeltaInput.Value(), form.LogDateInput.Value(), form.LogCommentInput.Value(), dates.TUI, time.Now())
 	if err != nil {
 		m.status = err.Error()
 		return m, nil
 	}
 
-	now := time.Now()
-	selected.AmountAccumulatedCents = nextAccumulated
-	selected.LastUpdatedAt = now
-
 	if err := m.storage.SaveGoal(&selected); err != nil {
 		m.status = "goal update failed: " + err.Error()
 		return m, nil
-	}
-
-	note := strings.TrimSpace(m.editGoalForm.LogCommentInput.Value())
-	if note == "" {
-		note = "manual accumulated adjustment"
-	}
-
-	entry := goal.GoalLog{
-		GoalID:                selected.ID,
-		DeltaAccumulatedCents: delta,
-		Note:                  note,
-		CreatedAt:             entryTime,
 	}
 
 	if err := m.storage.CreateGoalLog(&entry); err != nil {
@@ -625,22 +487,11 @@ func (m TheApplication) findGoalIndex(id uint) int {
 }
 
 func (m TheApplication) filteredGoals() []goal.Goal {
-	filtered := make([]goal.Goal, 0, len(m.goals))
-	for _, item := range m.goals {
-		done := item.AmountAccumulatedCents >= item.TargetAmountCents
-
-		switch m.goalMode {
-		case goalListActive:
-			if !done {
-				filtered = append(filtered, item)
-			}
-		case goalListHistory:
-			if done {
-				filtered = append(filtered, item)
-			}
-		}
+	if m.goalMode == goalListHistory {
+		return goal.Filter(m.goals, goal.ListDone)
 	}
-	return filtered
+
+	return goal.Filter(m.goals, goal.ListActive)
 }
 
 func (m TheApplication) goalProgressTotalsBase(items []goal.Goal) (accumulated int64, target int64) {

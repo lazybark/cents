@@ -58,6 +58,15 @@ type StorageWorker interface {
 	CreateTaxLog(entry *tax.TaxLog) error
 	LoadTaxLogs(taxID uint) ([]tax.TaxLog, error)
 	DeleteTax(id uint) error
+	CreateGoal(entry *goal.Goal) error
+	SaveGoal(entry *goal.Goal) error
+	CreateGoalLog(entry *goal.GoalLog) error
+	LoadGoalLogs(goalID uint) ([]goal.GoalLog, error)
+	DeleteGoalLog(entry *goal.Goal, logID uint) error
+	DeleteGoal(id uint) error
+	CreateInvoice(entry *invoice.Invoice) error
+	SaveInvoice(entry *invoice.Invoice) error
+	DeleteInvoice(id uint) error
 }
 
 // Options configure the desktop app. Storage is nil when no database has

@@ -94,22 +94,7 @@ func Compute(data Data, month time.Time) Summary {
 		}
 	}
 
-	for _, inv := range data.Invoices {
-		if inv.Paid {
-			continue
-		}
-
-		converted, ok := stts.ConvertToBaseCents(inv.Currency, inv.AmountCents)
-		if !ok {
-			continue
-		}
-
-		if inv.IsIncoming {
-			result.InvoicesToMeCents += converted
-		} else {
-			result.InvoicesByMeCents += converted
-		}
-	}
+	result.InvoicesToMeCents, result.InvoicesByMeCents = invoice.UnpaidInBaseCents(data.Invoices, stts)
 
 	result.GoalsAccumulatedCents, result.GoalsTargetCents = goal.ProgressInBaseCents(data.Goals, stts)
 

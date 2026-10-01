@@ -44,9 +44,10 @@ func TestCompute(t *testing.T) {
 			{AmountDueCents: 7000, AmountPaidCents: 2000},
 			{AmountDueCents: 100, AmountPaidCents: 100},
 		},
+		// Incoming invoices are the ones the user has to pay.
 		Invoices: []invoice.Invoice{
-			{Currency: "€", AmountCents: 800, IsIncoming: true},
-			{Currency: "USD", AmountCents: 600, IsIncoming: false},
+			{Currency: "€", AmountCents: 800, IsIncoming: false},
+			{Currency: "USD", AmountCents: 600, IsIncoming: true},
 			{Currency: "€", AmountCents: 999, IsIncoming: true, Paid: true},
 		},
 		Goals: []goal.Goal{

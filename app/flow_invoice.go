@@ -2,12 +2,12 @@ package app
 
 import (
 	"fmt"
-	"sort"
 	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/lazybark/cents/dates"
 	"github.com/lazybark/cents/flows/invoice"
 )
 
@@ -286,63 +286,36 @@ func (m TheApplication) renderInvoiceEdit(width int) string {
 }
 
 func (m TheApplication) saveInvoiceFromForm() (tea.Model, tea.Cmd) {
-	title := strings.TrimSpace(m.addInvoiceForm.Inputs[0].Value())
-	currency := selectedCurrencyOption(m.addInvoiceForm.CurrencyOptions, m.addInvoiceForm.CurrencyIndex)
-	amountRaw := strings.TrimSpace(m.addInvoiceForm.Inputs[1].Value())
-	peer := strings.TrimSpace(m.addInvoiceForm.Inputs[2].Value())
-	invoiceDateRaw := strings.TrimSpace(m.addInvoiceForm.Inputs[3].Value())
-	dueDateRaw := strings.TrimSpace(m.addInvoiceForm.Inputs[4].Value())
-	targetAccount := strings.TrimSpace(m.addInvoiceForm.Inputs[5].Value())
-	url := strings.TrimSpace(m.addInvoiceForm.Inputs[6].Value())
-	description := strings.TrimSpace(m.addInvoiceForm.Inputs[7].Value())
+	form := m.addInvoiceForm
+	inputs := form.Inputs
+
+	targetAccount := strings.TrimSpace(inputs[5].Value())
 	if targetAccount == "" {
-		targetAccount = selectedStringOption(m.addInvoiceForm.AccountOptions, m.addInvoiceForm.AccountIndex)
+		targetAccount = selectedStringOption(form.AccountOptions, form.AccountIndex)
 	}
 
-	if title == "" {
-		m.status = "invoice title is required"
-
-		return m, nil
-	}
-
-	amount, err := parseOptionalAmountCents(amountRaw)
-	if err != nil {
-		m.status = "amount error: " + err.Error()
-
-		return m, nil
-	}
-
-	invoiceDate, err := parseOptionalDatePointer(invoiceDateRaw)
-	if err != nil {
-		m.status = "invoice date must use DD.MM.YYYY format"
-
-		return m, nil
-	}
-
-	dueDate, err := parseOptionalDatePointer(dueDateRaw)
-	if err != nil {
-		m.status = "due date must use DD.MM.YYYY format"
-
-		return m, nil
-	}
-
-	now := time.Now()
-	item := invoice.Invoice{
-		Title:         title,
-		IsIncoming:    m.addInvoiceForm.IsIncoming,
-		Currency:      currency,
-		AmountCents:   amount,
-		Paid:          m.addInvoiceForm.Paid,
-		Peer:          peer,
-		InvoiceDate:   invoiceDate,
-		DueDate:       dueDate,
+	item, err := invoice.New(invoice.Fields{
+		Title:         inputs[0].Value(),
+		IsIncoming:    form.IsIncoming,
+		Currency:      selectedCurrencyOption(form.CurrencyOptions, form.CurrencyIndex),
+		Amount:        inputs[1].Value(),
+		Paid:          form.Paid,
+		Peer:          inputs[2].Value(),
+		InvoiceDate:   inputs[3].Value(),
+		DueDate:       inputs[4].Value(),
 		TargetAccount: targetAccount,
-		URL:           url,
-		Description:   description,
-		LastUpdatedAt: now,
+		URL:           inputs[6].Value(),
+		Description:   inputs[7].Value(),
+	}, dates.TUI, time.Now())
+	if err != nil {
+		m.status = err.Error()
+
+		return m, nil
 	}
 
-	if err := m.storage.CreteInvoice(&item); err != nil {
+	title := item.Title
+
+	if err := m.storage.CreateInvoice(&item); err != nil {
 		m.status = "save failed: " + err.Error()
 
 		return m, nil
@@ -352,11 +325,12 @@ func (m TheApplication) saveInvoiceFromForm() (tea.Model, tea.Cmd) {
 	m.addInvoiceForm = invoice.NewAddInvoiceForm(currencySelectionOptions(m.settings), accountSelectionOptions(m.accounts))
 	m.screen = screenInvoiceList
 
-	if item.Paid {
+	switch item.Mode() {
+	case invoice.ListPaid:
 		m.invoiceMode = invoiceListHistoryPaid
-	} else if item.IsIncoming {
+	case invoice.ListIncoming:
 		m.invoiceMode = invoiceListIncomingUnpaid
-	} else {
+	default:
 		m.invoiceMode = invoiceListOutgoingUnpaid
 	}
 
@@ -426,52 +400,31 @@ func (m TheApplication) saveInvoiceEdit() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	title := strings.TrimSpace(m.editInvoiceForm.TitleInput.Value())
-	if title == "" {
-		m.status = "invoice title is required"
+	form := m.editInvoiceForm
 
-		return m, nil
+	targetAccount := strings.TrimSpace(form.TargetAccountInput.Value())
+	if targetAccount == "" {
+		targetAccount = selectedStringOption(form.AccountOptions, form.AccountIndex)
 	}
 
-	amount, err := parseOptionalAmountCents(strings.TrimSpace(m.editInvoiceForm.AmountInput.Value()))
+	selected, err := m.invoices[index].Edit(invoice.Fields{
+		Title:         form.TitleInput.Value(),
+		IsIncoming:    form.IsIncoming,
+		Currency:      selectedCurrencyOption(form.CurrencyOptions, form.CurrencyIndex),
+		Amount:        form.AmountInput.Value(),
+		Paid:          form.Paid,
+		Peer:          form.PeerInput.Value(),
+		InvoiceDate:   form.InvoiceDateInput.Value(),
+		DueDate:       form.DueDateInput.Value(),
+		TargetAccount: targetAccount,
+		URL:           form.URLInput.Value(),
+		Description:   form.DescriptionInput.Value(),
+	}, dates.TUI, time.Now())
 	if err != nil {
-		m.status = "amount error: " + err.Error()
+		m.status = err.Error()
 
 		return m, nil
 	}
-
-	invoiceDate, err := parseOptionalDatePointer(strings.TrimSpace(m.editInvoiceForm.InvoiceDateInput.Value()))
-	if err != nil {
-		m.status = "invoice date must use DD.MM.YYYY format"
-
-		return m, nil
-	}
-
-	dueDate, err := parseOptionalDatePointer(strings.TrimSpace(m.editInvoiceForm.DueDateInput.Value()))
-	if err != nil {
-		m.status = "due date must use DD.MM.YYYY format"
-
-		return m, nil
-	}
-
-	selected := m.invoices[index]
-	selected.Title = title
-	selected.IsIncoming = m.editInvoiceForm.IsIncoming
-	selected.Currency = selectedCurrencyOption(m.editInvoiceForm.CurrencyOptions, m.editInvoiceForm.CurrencyIndex)
-	selected.AmountCents = amount
-	selected.Paid = m.editInvoiceForm.Paid
-	selected.Peer = strings.TrimSpace(m.editInvoiceForm.PeerInput.Value())
-	selected.InvoiceDate = invoiceDate
-	selected.DueDate = dueDate
-
-	selected.TargetAccount = strings.TrimSpace(m.editInvoiceForm.TargetAccountInput.Value())
-	if selected.TargetAccount == "" {
-		selected.TargetAccount = selectedStringOption(m.editInvoiceForm.AccountOptions, m.editInvoiceForm.AccountIndex)
-	}
-
-	selected.URL = strings.TrimSpace(m.editInvoiceForm.URLInput.Value())
-	selected.Description = strings.TrimSpace(m.editInvoiceForm.DescriptionInput.Value())
-	selected.LastUpdatedAt = time.Now()
 
 	if err := m.storage.SaveInvoice(&selected); err != nil {
 		m.status = "save failed: " + err.Error()
@@ -487,57 +440,14 @@ func (m TheApplication) saveInvoiceEdit() (tea.Model, tea.Cmd) {
 }
 
 func (m TheApplication) filteredInvoices() []invoice.Invoice {
-	filtered := make([]invoice.Invoice, 0, len(m.invoices))
-
-	for _, item := range m.invoices {
-		switch m.invoiceMode {
-		case invoiceListOutgoingUnpaid:
-			if !item.Paid && !item.IsIncoming {
-				filtered = append(filtered, item)
-			}
-		case invoiceListIncomingUnpaid:
-			if !item.Paid && item.IsIncoming {
-				filtered = append(filtered, item)
-			}
-		case invoiceListHistoryPaid:
-			if item.Paid {
-				filtered = append(filtered, item)
-			}
-		}
+	switch m.invoiceMode {
+	case invoiceListIncomingUnpaid:
+		return invoice.Filter(m.invoices, invoice.ListIncoming)
+	case invoiceListHistoryPaid:
+		return invoice.Filter(m.invoices, invoice.ListPaid)
+	default:
+		return invoice.Filter(m.invoices, invoice.ListOutgoing)
 	}
-
-	sort.SliceStable(filtered, func(i int, j int) bool {
-		left := filtered[i]
-		right := filtered[j]
-
-		if left.DueDate == nil && right.DueDate == nil {
-			if left.CreatedAt.Equal(right.CreatedAt) {
-				return left.ID > right.ID
-			}
-
-			return left.CreatedAt.After(right.CreatedAt)
-		}
-
-		if left.DueDate == nil {
-			return false
-		}
-
-		if right.DueDate == nil {
-			return true
-		}
-
-		if left.DueDate.Equal(*right.DueDate) {
-			if left.CreatedAt.Equal(right.CreatedAt) {
-				return left.ID > right.ID
-			}
-
-			return left.CreatedAt.After(right.CreatedAt)
-		}
-
-		return left.DueDate.After(*right.DueDate)
-	})
-
-	return filtered
 }
 
 func (m TheApplication) invoiceListPageSize() int {

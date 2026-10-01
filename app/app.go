@@ -49,7 +49,7 @@ type StorageWorker interface {
 	DeleteTax(id uint) error
 	CreateCashflow(entry *cashflow.CashflowEntry) error
 	DeleteCashflow(id uint) error
-	CreteInvoice(entry *invoice.Invoice) error
+	CreateInvoice(entry *invoice.Invoice) error
 	SaveInvoice(entry *invoice.Invoice) error
 	DeleteInvoice(id uint) error
 	DeleteSetting(targetType string, id uint) error

@@ -312,7 +312,7 @@ func (s *SQLiteStorage) DeleteCashflow(id uint) error {
 	return nil
 }
 
-func (s *SQLiteStorage) CreteInvoice(entry *invoice.Invoice) error {
+func (s *SQLiteStorage) CreateInvoice(entry *invoice.Invoice) error {
 	err := s.db.Create(entry).Error
 	if err != nil {
 		return fmt.Errorf("failed to create invoice entry: %w", err)
@@ -462,6 +462,27 @@ func (s *SQLiteStorage) DeleteDebtLog(entry *debt.Debt, logID uint) error {
 
 		if err := tx.Save(entry).Error; err != nil {
 			return fmt.Errorf("failed to save debt: %w", err)
+		}
+
+		return nil
+	})
+}
+
+// DeleteGoalLog removes one logged change of a goal and saves the goal as
+// given (with the change undone) in the same transaction.
+func (s *SQLiteStorage) DeleteGoalLog(entry *goal.Goal, logID uint) error {
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		result := tx.Where("id = ? AND goal_id = ?", logID, entry.ID).Delete(&goal.GoalLog{})
+		if result.Error != nil {
+			return fmt.Errorf("failed to delete goal log: %w", result.Error)
+		}
+
+		if result.RowsAffected == 0 {
+			return ErrLogNotFound
+		}
+
+		if err := tx.Save(entry).Error; err != nil {
+			return fmt.Errorf("failed to save goal: %w", err)
 		}
 
 		return nil
