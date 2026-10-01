@@ -88,3 +88,33 @@ func TestCreateCashflowValidates(t *testing.T) {
 		}
 	}
 }
+
+func TestCashflowCategories(t *testing.T) {
+	api := newTestAPI(t)
+	for _, input := range []NewCashflowInput{
+		{Currency: "$", Amount: "100", Date: "2026-01-05", Category: "Rent"},
+		{Currency: "EUR", Amount: "10", Date: "2026-03-05", Category: "Rent", Rate: "2"},
+		{IsIncome: true, Currency: "$", Amount: "500", Date: "2026-02-01", Category: "Salary"},
+	} {
+		if _, err := api.CreateCashflow(input); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	stats, err := api.CashflowCategories("expense")
+	if err != nil || stats.IsIncome || len(stats.Months) != 3 || stats.Months[0] != "2026-01" || len(stats.Categories) != 1 {
+		t.Fatalf("unexpected stats %+v %v", stats, err)
+	}
+
+	if rent := stats.Categories[0]; rent.Name != "Rent" || rent.Values[0] != 10000 || rent.Values[1] != 0 || rent.Values[2] != 2000 || rent.Entries[2] != 1 {
+		t.Fatalf("unexpected rent %+v", rent)
+	}
+
+	if stats, _ := api.CashflowCategories("income"); !stats.IsIncome || len(stats.Categories) != 1 || stats.Categories[0].Name != "Salary" {
+		t.Fatalf("unexpected incomes %+v", stats)
+	}
+
+	if _, err := api.CashflowCategories("gifts"); err == nil {
+		t.Fatal("expected unknown kind")
+	}
+}

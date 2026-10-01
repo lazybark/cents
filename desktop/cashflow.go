@@ -354,3 +354,62 @@ func (a *API) DeleteCashflow(id uint) error {
 
 	return nil
 }
+
+// CategoryStat is one category's amounts month by month (aligned with
+// CashflowCategories.Months), in the base currency, with entry counts.
+type CategoryStat struct {
+	Name    string  `json:"name"`
+	Values  []int64 `json:"values"`
+	Entries []int   `json:"entries"`
+}
+
+type CashflowCategories struct {
+	BaseCurrency string         `json:"baseCurrency"`
+	IsIncome     bool           `json:"isIncome"`
+	Months       []string       `json:"months"`
+	Categories   []CategoryStat `json:"categories"`
+	MissingRates int            `json:"missingRates"`
+}
+
+// CashflowCategories splits expenses ("expense") or incomes ("income") by
+// category, month by month from the oldest month with an entry to the
+// newest, largest category first.
+func (a *API) CashflowCategories(kind string) (CashflowCategories, error) {
+	var isIncome bool
+	switch kind {
+	case "income":
+		isIncome = true
+	case "expense":
+	default:
+		return CashflowCategories{}, fmt.Errorf("unknown kind %q: use income or expense", kind)
+	}
+
+	storage, stts, err := a.storageAndSettings()
+	if err != nil {
+		return CashflowCategories{}, err
+	}
+
+	entries, err := storage.LoadCashflows()
+	if err != nil {
+		return CashflowCategories{}, fmt.Errorf("failed to load cashflows: %w", err)
+	}
+
+	months, series, missing := cashflow.ByCategory(entries, isIncome)
+	result := CashflowCategories{
+		BaseCurrency: stts.BaseCurrencyLabel(),
+		IsIncome:     isIncome,
+		Months:       make([]string, 0, len(months)),
+		Categories:   make([]CategoryStat, 0, len(series)),
+		MissingRates: missing,
+	}
+
+	for _, month := range months {
+		result.Months = append(result.Months, month.Format(monthLayout))
+	}
+
+	for _, s := range series {
+		result.Categories = append(result.Categories, CategoryStat{Name: s.Category, Values: s.Values, Entries: s.Entries})
+	}
+
+	return result, nil
+}

@@ -4,6 +4,7 @@
 // entry (or of a whole month's entries in its currency) can be corrected.
 import { api } from "../api.js";
 import { chart, legend, monthLabel } from "../charts.js";
+import { initCategories, loadCategories } from "./cashflow-categories.js";
 import {
   busy,
   cell,
@@ -52,6 +53,7 @@ const el = {
   monthsHint: $("months-hint"),
 
   statsPane: $("cashflow-stats"),
+  categoriesPane: $("cashflow-categories"),
   statsRange: $("stats-range"),
   statsChart: $("stats-chart"),
   statsLegend: $("stats-legend"),
@@ -107,6 +109,7 @@ export function init() {
   el.form.elements.currency.addEventListener("change", () => syncRate(el.form, state.options.rates));
   el.rateForm.addEventListener("submit", saveRate);
   el.statsRange.addEventListener("change", () => show());
+  initCategories();
 }
 
 export async function show(message) {
@@ -114,13 +117,15 @@ export async function show(message) {
   el.monthPane.hidden = state.tab !== "month";
   el.monthsPane.hidden = state.tab !== "months";
   el.statsPane.hidden = state.tab !== "stats";
+  el.categoriesPane.hidden = state.tab !== "categories";
 
   try {
     if (state.tab === "month") await loadMonth();
     else if (state.tab === "months") await loadMonths();
-    else await loadStats();
+    else if (state.tab === "stats") await loadStats();
+    else await loadCategories();
 
-    const shown = { month: `showing ${monthName(state.month)}`, months: "all months", stats: "statistics" };
+    const shown = { month: `showing ${monthName(state.month)}`, months: "all months", stats: "statistics", categories: "by category" };
     setStatus(message ?? shown[state.tab]);
   } catch (err) {
     setStatus(`Failed to load incomes and expenses: ${err}`);

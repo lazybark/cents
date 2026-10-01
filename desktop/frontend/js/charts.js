@@ -128,7 +128,7 @@ export function chart(container, { months, series, zero = true, axis = compact, 
   months.forEach((month, i) => {
     const regular = i % every === 0;
     // The last month gets a label too, unless it would crowd the one before.
-    const lastFits = i === last && i - (i - (i % every)) >= every / 2;
+    const lastFits = i === last && i % every >= Math.max(2, every * 0.75);
     if (!regular && !lastFits) return;
     labels.append(svg("text", { x: x(i), y: HEIGHT - 10, "text-anchor": "middle" }, monthLabel(month)));
   });

@@ -193,6 +193,7 @@
           <button class="tab" type="button" role="tab" data-tab="month">Month</button>
           <button class="tab" type="button" role="tab" data-tab="months">All months</button>
           <button class="tab" type="button" role="tab" data-tab="stats">Statistics</button>
+          <button class="tab" type="button" role="tab" data-tab="categories">Categories</button>
         </div>
 
         <div id="cashflow-month" class="pane">
@@ -300,6 +301,79 @@
               </div>
             </div>
             <dl id="stats-more" class="stats"></dl>
+          </section>
+        </div>
+
+        <div id="cashflow-categories" class="pane" hidden>
+          <section class="panel">
+            <div class="panel-head">
+              <h3 id="cat-title" class="section-title"></h3>
+              <div class="chart-controls">
+                <label class="inline-field">
+                  <span class="field-label">Of</span>
+                  <select id="cat-kind">
+                    <option value="expense">Expenses</option>
+                    <option value="income">Incomes</option>
+                  </select>
+                </label>
+                <label class="inline-field">
+                  <span class="field-label">Category</span>
+                  <select id="cat-pick"></select>
+                </label>
+                <label class="inline-field">
+                  <span class="field-label">Show</span>
+                  <select id="cat-range">
+                    <option value="12">Last 12 months</option>
+                    <option value="24">Last 24 months</option>
+                    <option value="36">Last 36 months</option>
+                    <option value="0">All months</option>
+                  </select>
+                </label>
+              </div>
+            </div>
+            <div id="cat-chart"></div>
+            <div id="cat-legend" class="chart-legend"></div>
+            <p id="cat-empty" class="muted" hidden></p>
+            <p id="cat-note" class="hint"></p>
+          </section>
+
+          <section id="cat-figures-panel" class="panel" hidden>
+            <div class="figures">
+              <div>
+                <div class="label">Total</div>
+                <div id="cat-total" class="figure"></div>
+              </div>
+              <div>
+                <div class="label">Average a month</div>
+                <div id="cat-average" class="figure"></div>
+              </div>
+              <div>
+                <div class="label">Highest month</div>
+                <div id="cat-high" class="figure"></div>
+                <div id="cat-high-month" class="hint"></div>
+              </div>
+              <div>
+                <div id="cat-share-label" class="label"></div>
+                <div id="cat-share" class="figure"></div>
+              </div>
+            </div>
+            <dl id="cat-more" class="stats"></dl>
+          </section>
+
+          <section id="cat-table-panel" class="panel">
+            <table class="table clickable">
+              <thead>
+                <tr>
+                  <th>Category</th>
+                  <th class="num">Total</th>
+                  <th class="num">Share</th>
+                  <th class="num">Per month</th>
+                  <th class="num">Entries</th>
+                </tr>
+              </thead>
+              <tbody id="cat-rows"></tbody>
+            </table>
+            <p class="hint">Click a category to see it on its own.</p>
           </section>
         </div>
       </section>

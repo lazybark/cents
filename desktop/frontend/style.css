@@ -283,6 +283,7 @@ body {
 
 .panel-head {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
@@ -766,4 +767,36 @@ input[type="checkbox"] {
 .chart-swatch.bar-positive {
   height: 10px;
   background: linear-gradient(90deg, var(--positive) 50%, var(--negative) 50%);
+}
+
+.chart-controls {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px 16px;
+}
+
+/* Series colors for charts with many lines, like categories. */
+.series-0 { color: #E7C96D; }
+.series-1 { color: #6CB6FF; }
+.series-2 { color: #FF6B6B; }
+.series-3 { color: #8EC07C; }
+.series-4 { color: #C792EA; }
+.series-5 { color: #F78C6C; }
+.series-6 { color: #4FD1C5; }
+.series-7 { color: #F06FA6; }
+.series-8 { color: #9AA5FF; }
+.series-9 { color: #B5AC9D; }
+
+.series-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 8px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+tr.selected td {
+  background: rgba(231, 201, 109, 0.08);
 }
