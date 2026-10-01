@@ -3,8 +3,6 @@ package cashflow
 import (
 	"sort"
 	"time"
-
-	"github.com/lazybark/cents/flows/settings"
 )
 
 // MonthStart returns the first moment of value's month in local time.
@@ -36,11 +34,12 @@ func ForMonth(entries []CashflowEntry, month time.Time) []CashflowEntry {
 	return filtered
 }
 
-// Totals sums income and expense in the base currency. Entries without a
-// conversion rate are skipped and counted in missingRates.
-func Totals(entries []CashflowEntry, stts settings.AppSettings) (income int64, expense int64, missingRates int) {
+// Totals sums income and expense in the base currency, at each entry's
+// recorded rate. Entries without a rate are skipped and counted in
+// missingRates.
+func Totals(entries []CashflowEntry) (income int64, expense int64, missingRates int) {
 	for _, entry := range entries {
-		amountBase, ok := stts.ConvertToBaseCents(entry.Currency, entry.AmountCents)
+		amountBase, ok := entry.BaseCents()
 		if !ok {
 			missingRates++
 
@@ -59,13 +58,13 @@ func Totals(entries []CashflowEntry, stts settings.AppSettings) (income int64, e
 
 // MonthlyOverview totals every month from the oldest to the newest entry,
 // oldest first, including empty months in between. Entries without a
-// conversion rate are skipped and counted in missingRates.
-func MonthlyOverview(entries []CashflowEntry, stts settings.AppSettings) ([]CashflowMonthlyOverviewRow, int) {
+// recorded rate are skipped and counted in missingRates.
+func MonthlyOverview(entries []CashflowEntry) ([]CashflowMonthlyOverviewRow, int) {
 	totalsByMonth := make(map[time.Time]CashflowMonthlyOverviewRow)
 	missingRates := 0
 
 	for _, entry := range entries {
-		amountBase, ok := stts.ConvertToBaseCents(entry.Currency, entry.AmountCents)
+		amountBase, ok := entry.BaseCents()
 		if !ok {
 			missingRates++
 

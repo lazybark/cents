@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/lazybark/cents/dates"
-	"github.com/lazybark/cents/flows/settings"
 )
 
 func TestNewValidatesInTUIOrder(t *testing.T) {
@@ -25,12 +24,12 @@ func TestNewValidatesInTUIOrder(t *testing.T) {
 	}
 
 	for _, c := range cases {
-		if _, err := New(false, c.peer, "$", c.amount, c.paid, c.created, c.due, "", dates.TUI, now); err == nil || err.Error() != c.want {
+		if _, err := New(false, c.peer, "$", 1, c.amount, c.paid, c.created, c.due, "", dates.TUI, now); err == nil || err.Error() != c.want {
 			t.Errorf("expected %q, got %v", c.want, err)
 		}
 	}
 
-	d, err := New(true, " Alex ", "$", "100", "20", "2026-01-01", "", " lunch ", dates.ISO, now)
+	d, err := New(true, " Alex ", "$", 1, "100", "20", "2026-01-01", "", " lunch ", dates.ISO, now)
 	if err != nil || d.Peer != "Alex" || d.AmountPaidCents != 2000 || d.DueDate != nil || d.Comment != "lunch" || !d.IsOwedToUser || d.LeftCents() != 8000 {
 		t.Fatalf("unexpected debt %+v, %v", d, err)
 	}
@@ -57,12 +56,12 @@ func TestApplyPaymentKeepsPaidInRange(t *testing.T) {
 }
 
 func TestFilterAndProgress(t *testing.T) {
-	stts := settings.AppSettings{BaseCurrency: "$", Currencies: []settings.SettingCurrency{{CurrencyName: "EUR", RateToBase: 2}}}
+	// EUR was recorded at 2; BTC has no rate and counts with raw amounts.
 	items := []Debt{
-		{ID: 1, Currency: "$", AmountCents: 100, AmountPaidCents: 50},
-		{ID: 2, Currency: "EUR", AmountCents: 100, AmountPaidCents: 100, IsOwedToUser: true},
+		Debt{ID: 1, Currency: "$", AmountCents: 100, AmountPaidCents: 50, RateToBase: 1}.withBaseAmounts(),
+		Debt{ID: 2, Currency: "EUR", AmountCents: 100, AmountPaidCents: 100, IsOwedToUser: true, RateToBase: 2}.withBaseAmounts(),
 		{ID: 3, Currency: "BTC", AmountCents: 10, AmountPaidCents: 20, IsOwedToUser: true},
-		{ID: 4, Currency: "$", AmountCents: 100, IsOwedToUser: true},
+		Debt{ID: 4, Currency: "$", AmountCents: 100, IsOwedToUser: true, RateToBase: 1}.withBaseAmounts(),
 	}
 
 	ids := func(list []Debt) string {
@@ -86,7 +85,7 @@ func TestFilterAndProgress(t *testing.T) {
 		t.Errorf("paid: %s", got)
 	}
 
-	if paid, total := ProgressInBaseCents(items, stts); paid != 50+200+10 || total != 100+200+10+100 {
+	if paid, total := ProgressInBaseCents(items); paid != 50+200+10 || total != 100+200+10+100 {
 		t.Errorf("unexpected progress %d/%d", paid, total)
 	}
 }
@@ -111,5 +110,46 @@ func TestRemovePaymentUndoesIt(t *testing.T) {
 
 	if _, err := d.RemovePayment(DebtLog{DebtID: 9, DeltaPaidCents: 1}, now); err == nil {
 		t.Fatal("expected error for another debt's payment")
+	}
+}
+
+func TestRecordedRateKeepsBaseAmounts(t *testing.T) {
+	now := time.Now()
+	d, err := New(false, "Bank", "EUR", 1.2, "100", "10", "2026-01-01", "", "", dates.ISO, now)
+	if err != nil || d.AmountBaseCents != 12000 || d.AmountPaidBaseCents != 1200 {
+		t.Fatalf("unexpected debt %+v %v", d, err)
+	}
+
+	if left, ok := d.LeftBaseCents(); !ok || left != 10800 {
+		t.Fatalf("unexpected left %d %v", left, ok)
+	}
+
+	paid, _, err := d.ApplyPayment("40", "", "", dates.ISO, now)
+	if err != nil || paid.AmountPaidBaseCents != 6000 {
+		t.Fatalf("payment should convert at the recorded rate: %+v %v", paid, err)
+	}
+
+	back, err := paid.RemovePayment(DebtLog{DebtID: paid.ID, DeltaPaidCents: 4000}, now)
+	if err != nil || back.AmountPaidBaseCents != 1200 {
+		t.Fatalf("undo should convert at the recorded rate: %+v %v", back, err)
+	}
+
+	fixed, err := paid.WithRate(2, now)
+	if err != nil || fixed.AmountBaseCents != 20000 || fixed.AmountPaidBaseCents != 10000 {
+		t.Fatalf("new rate not applied: %+v %v", fixed, err)
+	}
+
+	if _, err := paid.WithRate(0, now); err == nil {
+		t.Fatal("expected a zero rate to be refused")
+	}
+
+	none, _ := New(false, "Friend", "BTC", 0, "100", "40", "2026-01-01", "", "", dates.ISO, now)
+	if _, ok := none.LeftBaseCents(); ok {
+		t.Fatal("a debt without a rate has no base amount")
+	}
+
+	// Without a rate a debt counts with its raw amounts in progress.
+	if p, total := ProgressInBaseCents([]Debt{d, none}); p != 1200+4000 || total != 12000+10000 {
+		t.Fatalf("unexpected progress %d/%d", p, total)
 	}
 }

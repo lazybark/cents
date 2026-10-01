@@ -3,8 +3,6 @@ package cashflow
 import (
 	"testing"
 	"time"
-
-	"github.com/lazybark/cents/flows/settings"
 )
 
 func day(year int, month time.Month, d int) time.Time {
@@ -12,12 +10,12 @@ func day(year int, month time.Month, d int) time.Time {
 }
 
 func TestForMonthTotalsAndOverview(t *testing.T) {
-	stts := settings.AppSettings{BaseCurrency: "$", Currencies: []settings.SettingCurrency{{CurrencyName: "EUR", RateToBase: 2}}}
+	// Totals use the rate recorded with each entry; BTC has none.
 	entries := []CashflowEntry{
-		{ID: 1, IsIncome: true, Currency: "$", AmountCents: 1000, EntryDate: day(2026, 7, 3)},
-		{ID: 2, IsIncome: false, Currency: "EUR", AmountCents: 100, EntryDate: day(2026, 9, 1)},
-		{ID: 3, IsIncome: true, Currency: "$", AmountCents: 5000, EntryDate: day(2026, 9, 20)},
-		{ID: 4, IsIncome: false, Currency: "BTC", AmountCents: 7, EntryDate: day(2026, 9, 5)},
+		CashflowEntry{ID: 1, IsIncome: true, Currency: "$", AmountCents: 1000, EntryDate: day(2026, 7, 3)}.withRate(1),
+		CashflowEntry{ID: 2, IsIncome: false, Currency: "EUR", AmountCents: 100, EntryDate: day(2026, 9, 1)}.withRate(2),
+		CashflowEntry{ID: 3, IsIncome: true, Currency: "$", AmountCents: 5000, EntryDate: day(2026, 9, 20)}.withRate(1),
+		CashflowEntry{ID: 4, IsIncome: false, Currency: "BTC", AmountCents: 7, EntryDate: day(2026, 9, 5)}.withRate(0),
 	}
 
 	september := ForMonth(entries, day(2026, 9, 15))
@@ -25,12 +23,12 @@ func TestForMonthTotalsAndOverview(t *testing.T) {
 		t.Fatalf("expected September entries newest first, got %+v", september)
 	}
 
-	income, expense, missing := Totals(september, stts)
+	income, expense, missing := Totals(september)
 	if income != 5000 || expense != 200 || missing != 1 {
 		t.Fatalf("unexpected totals %d %d %d", income, expense, missing)
 	}
 
-	rows, missing := MonthlyOverview(entries, stts)
+	rows, missing := MonthlyOverview(entries)
 	if missing != 1 || len(rows) != 3 {
 		t.Fatalf("expected July..September with one missing rate, got %d rows, %d missing", len(rows), missing)
 	}
@@ -48,16 +46,29 @@ func TestNewValidates(t *testing.T) {
 	now := time.Now()
 	categories := []string{"Salary"}
 
-	if _, err := New(true, "$", 1, now, "Salary", nil, "", "", now); err == nil || err.Error() != "no income categories configured; add one in settings" {
+	if _, err := New(true, "$", 1, 1, now, "Salary", nil, "", "", now); err == nil || err.Error() != "no income categories configured; add one in settings" {
 		t.Fatalf("unexpected error %v", err)
 	}
 
-	if _, err := New(false, "$", 1, now, "Rent", categories, "", "", now); err == nil {
+	if _, err := New(false, "$", 1, 1, now, "Rent", categories, "", "", now); err == nil {
 		t.Fatal("expected unknown category error")
 	}
 
-	entry, err := New(true, "$", 100, now, "Salary", categories, " Main ", " note ", now)
-	if err != nil || entry.AccountName != "Main" || entry.Comment != "note" || !entry.IsIncome {
+	entry, err := New(true, "EUR", 1000, 1.08, now, "Salary", categories, " Main ", " note ", now)
+	if err != nil || entry.AccountName != "Main" || entry.Comment != "note" || !entry.IsIncome || entry.RateToBase != 1.08 || entry.AmountBaseCents != 1080 {
 		t.Fatalf("unexpected entry %+v, %v", entry, err)
+	}
+
+	if _, err := entry.WithRate(0, now); err == nil || err.Error() != "rate must be greater than zero" {
+		t.Fatalf("expected rate error, got %v", err)
+	}
+
+	fixed, err := entry.WithRate(1.1, now)
+	if base, ok := fixed.BaseCents(); err != nil || !ok || base != 1100 {
+		t.Fatalf("rate not replaced: %+v %v", fixed, err)
+	}
+
+	if _, ok := (CashflowEntry{AmountCents: 5}).withRate(0).BaseCents(); ok {
+		t.Fatal("an entry without a rate has no base amount")
 	}
 }

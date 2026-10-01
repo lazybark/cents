@@ -41,13 +41,6 @@ type TaxTypeOption struct {
 	Label string `json:"label"`
 }
 
-// TaxCurrency is a currency a new tax can use, with its rate to the base
-// currency in settings now, to start the tax's own rate with.
-type TaxCurrency struct {
-	Name string  `json:"name"`
-	Rate float64 `json:"rate"`
-}
-
 type TaxesView struct {
 	BaseCurrency string          `json:"baseCurrency"`
 	Mode         string          `json:"mode"`
@@ -55,7 +48,7 @@ type TaxesView struct {
 	Progress     Progress        `json:"progress"`
 	Counts       map[string]int  `json:"counts"`
 	TaxTypes     []TaxTypeOption `json:"taxTypes"`
-	Currencies   []TaxCurrency   `json:"currencies"`
+	Currencies   []CurrencyRate  `json:"currencies"`
 }
 
 // NewTaxInput is a new tax. Rate is the currency's rate to the base
@@ -115,7 +108,7 @@ func (a *API) Taxes(mode string) (TaxesView, error) {
 			string(tax.ListPaid):   len(tax.Filter(items, tax.ListPaid)),
 		},
 		TaxTypes:   make([]TaxTypeOption, 0, len(stts.TaxTypes)),
-		Currencies: taxCurrencies(stts),
+		Currencies: currencyRates(stts),
 	}
 
 	for _, t := range stts.TaxTypes {
@@ -191,7 +184,7 @@ func (a *API) UpdateTax(input TaxUpdateInput) error {
 		return err
 	}
 
-	if !isBaseCurrency(stts, current.Currency) && strings.TrimSpace(input.Rate) != "" {
+	if !stts.IsBase(current.Currency) && strings.TrimSpace(input.Rate) != "" {
 		rate, err := money.ParseRate(input.Rate)
 		if err != nil {
 			return err
@@ -291,27 +284,6 @@ func findTax(storage StorageWorker, id uint) (tax.Tax, error) {
 	return tax.Tax{}, errTaxNotFound
 }
 
-// taxCurrencies lists the base currency (rate 1) and every configured
-// currency with its current rate.
-func taxCurrencies(stts settings.AppSettings) []TaxCurrency {
-	options := stts.CurrencyOptions()
-	result := make([]TaxCurrency, 0, len(options))
-	for i, name := range options {
-		rate := 1.0
-		if i > 0 {
-			rate, _ = stts.RateToBase(name)
-		}
-
-		result = append(result, TaxCurrency{Name: name, Rate: rate})
-	}
-
-	return result
-}
-
-func isBaseCurrency(stts settings.AppSettings, currency string) bool {
-	return strings.EqualFold(strings.TrimSpace(currency), stts.BaseCurrencyLabel())
-}
-
 // taxCurrencyAndRate checks a new tax's currency is a configured one (empty
 // means the base currency) and picks its rate: 1 for the base currency,
 // otherwise the rate typed (or, left empty, the one in settings now).
@@ -325,22 +297,13 @@ func taxCurrencyAndRate(stts settings.AppSettings, rawCurrency, rawRate string) 
 		return "", 0, fmt.Errorf("unknown currency %q: add it in settings first", rawCurrency)
 	}
 
-	if isBaseCurrency(stts, currency) {
-		return currency, 1, nil
-	}
-
-	if strings.TrimSpace(rawRate) == "" {
-		rate, ok := stts.RateToBase(currency)
-		if !ok {
-			return "", 0, fmt.Errorf("%s has no rate to %s: type one", currency, stts.BaseCurrencyLabel())
-		}
-
-		return currency, rate, nil
-	}
-
-	rate, err := money.ParseRate(rawRate)
+	rate, err := stts.EntryRate(currency, rawRate)
 	if err != nil {
 		return "", 0, err
+	}
+
+	if rate <= 0 {
+		return "", 0, fmt.Errorf("%s has no rate to %s: type one", currency, stts.BaseCurrencyLabel())
 	}
 
 	return currency, rate, nil
@@ -352,7 +315,7 @@ func taxRow(item tax.Tax, stts settings.AppSettings, now time.Time) TaxRow {
 		Country:       item.TaxCountry,
 		TypeName:      item.TaxTypeName,
 		Currency:      item.Currency,
-		IsBase:        isBaseCurrency(stts, item.Currency),
+		IsBase:        stts.IsBase(item.Currency),
 		RateToBase:    item.RateToBase,
 		DueCents:      item.AmountDueCents,
 		PaidCents:     item.AmountPaidCents,

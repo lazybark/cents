@@ -16,25 +16,30 @@ const monthLayout = "2006-01"
 
 var errCashflowNotFound = errors.New("entry not found")
 
+// CashflowRow is an entry; BaseCents is its amount at the rate recorded
+// with it (HasRate is false when it has none).
 type CashflowRow struct {
-	ID          uint   `json:"id"`
-	IsIncome    bool   `json:"isIncome"`
-	Date        string `json:"date"`
-	Currency    string `json:"currency"`
-	AmountCents int64  `json:"amountCents"`
-	BaseCents   int64  `json:"baseCents"`
-	HasRate     bool   `json:"hasRate"`
-	Category    string `json:"category"`
-	Account     string `json:"account"`
-	Comment     string `json:"comment"`
+	ID          uint    `json:"id"`
+	IsIncome    bool    `json:"isIncome"`
+	Date        string  `json:"date"`
+	Currency    string  `json:"currency"`
+	IsBase      bool    `json:"isBase"`
+	RateToBase  float64 `json:"rateToBase"`
+	AmountCents int64   `json:"amountCents"`
+	BaseCents   int64   `json:"baseCents"`
+	HasRate     bool    `json:"hasRate"`
+	Category    string  `json:"category"`
+	Account     string  `json:"account"`
+	Comment     string  `json:"comment"`
 }
 
 // CashflowOptions are the choices the income/expense form offers.
 type CashflowOptions struct {
-	Currencies        []string `json:"currencies"`
-	IncomeCategories  []string `json:"incomeCategories"`
-	ExpenseCategories []string `json:"expenseCategories"`
-	Accounts          []string `json:"accounts"`
+	Currencies        []string       `json:"currencies"`
+	Rates             []CurrencyRate `json:"rates"`
+	IncomeCategories  []string       `json:"incomeCategories"`
+	ExpenseCategories []string       `json:"expenseCategories"`
+	Accounts          []string       `json:"accounts"`
 }
 
 type CashflowMonth struct {
@@ -63,9 +68,12 @@ type CashflowOverview struct {
 	MissingRates int                   `json:"missingRates"`
 }
 
+// NewCashflowInput is a new entry. Rate is the currency's rate to the base
+// currency; empty takes the one in settings now.
 type NewCashflowInput struct {
 	IsIncome bool   `json:"isIncome"`
 	Currency string `json:"currency"`
+	Rate     string `json:"rate"`
 	Amount   string `json:"amount"`
 	Date     string `json:"date"`
 	Category string `json:"category"`
@@ -112,7 +120,7 @@ func (a *API) CashflowMonth(month string) (CashflowMonth, error) {
 	}
 
 	items := cashflow.ForMonth(entries, start)
-	income, expense, missing := cashflow.Totals(items, stts)
+	income, expense, missing := cashflow.Totals(items)
 
 	result := CashflowMonth{
 		BaseCurrency: stts.BaseCurrencyLabel(),
@@ -124,6 +132,7 @@ func (a *API) CashflowMonth(month string) (CashflowMonth, error) {
 		MissingRates: missing,
 		Options: CashflowOptions{
 			Currencies:        stts.CurrencyOptions(),
+			Rates:             currencyRates(stts),
 			IncomeCategories:  stts.IncomeCategoryOptions(),
 			ExpenseCategories: stts.ExpenseCategoryOptions(),
 			Accounts:          accountNames(accounts),
@@ -131,12 +140,14 @@ func (a *API) CashflowMonth(month string) (CashflowMonth, error) {
 	}
 
 	for _, entry := range items {
-		baseCents, ok := stts.ConvertToBaseCents(entry.Currency, entry.AmountCents)
+		baseCents, ok := entry.BaseCents()
 		result.Entries = append(result.Entries, CashflowRow{
 			ID:          entry.ID,
 			IsIncome:    entry.IsIncome,
 			Date:        entry.EntryDate.Local().Format(logDateLayout),
 			Currency:    entry.Currency,
+			IsBase:      stts.IsBase(entry.Currency),
+			RateToBase:  entry.RateToBase,
 			AmountCents: entry.AmountCents,
 			BaseCents:   baseCents,
 			HasRate:     ok,
@@ -151,14 +162,9 @@ func (a *API) CashflowMonth(month string) (CashflowMonth, error) {
 
 // CashflowOverview totals every month, newest first.
 func (a *API) CashflowOverview() (CashflowOverview, error) {
-	storage, err := a.currentStorage()
+	storage, stts, err := a.storageAndSettings()
 	if err != nil {
 		return CashflowOverview{}, err
-	}
-
-	stts, err := storage.LoadAppSettings()
-	if err != nil {
-		return CashflowOverview{}, fmt.Errorf("failed to load settings: %w", err)
 	}
 
 	entries, err := storage.LoadCashflows()
@@ -166,7 +172,7 @@ func (a *API) CashflowOverview() (CashflowOverview, error) {
 		return CashflowOverview{}, fmt.Errorf("failed to load cashflows: %w", err)
 	}
 
-	rows, missing := cashflow.MonthlyOverview(entries, stts)
+	rows, missing := cashflow.MonthlyOverview(entries)
 	result := CashflowOverview{
 		BaseCurrency: stts.BaseCurrencyLabel(),
 		Rows:         make([]CashflowOverviewRow, 0, len(rows)),
@@ -233,7 +239,12 @@ func (a *API) CreateCashflow(input NewCashflowInput) (NewCashflowResult, error) 
 		categories = stts.IncomeCategoryOptions()
 	}
 
-	entry, err := cashflow.New(input.IsIncome, currency, amount, entryDate, input.Category, categories, accountName, input.Comment, time.Now())
+	rate, err := stts.EntryRate(currency, input.Rate)
+	if err != nil {
+		return NewCashflowResult{}, err
+	}
+
+	entry, err := cashflow.New(input.IsIncome, currency, amount, rate, entryDate, input.Category, categories, accountName, input.Comment, time.Now())
 	if err != nil {
 		return NewCashflowResult{}, err
 	}
@@ -243,6 +254,74 @@ func (a *API) CreateCashflow(input NewCashflowInput) (NewCashflowResult, error) 
 	}
 
 	return NewCashflowResult{Month: cashflow.MonthStart(entry.EntryDate).Format(monthLayout)}, nil
+}
+
+// CashflowRateInput sets the rate an entry was made at. With WholeMonth it
+// goes to every entry in the same currency and month too, to fill in a
+// month's rate in one go.
+type CashflowRateInput struct {
+	ID         uint   `json:"id"`
+	Rate       string `json:"rate"`
+	WholeMonth bool   `json:"wholeMonth"`
+}
+
+// SetCashflowRate sets an entry's recorded rate (and with WholeMonth, the
+// rate of the other entries in its currency and month), returning how many
+// entries changed. Entries in the base currency always keep rate 1.
+func (a *API) SetCashflowRate(input CashflowRateInput) (int, error) {
+	storage, stts, err := a.storageAndSettings()
+	if err != nil {
+		return 0, err
+	}
+
+	rate, err := money.ParseRate(input.Rate)
+	if err != nil {
+		return 0, err
+	}
+
+	entries, err := storage.LoadCashflows()
+	if err != nil {
+		return 0, fmt.Errorf("failed to load cashflows: %w", err)
+	}
+
+	var target *cashflow.CashflowEntry
+	for i := range entries {
+		if entries[i].ID == input.ID {
+			target = &entries[i]
+		}
+	}
+
+	if target == nil {
+		return 0, errCashflowNotFound
+	}
+
+	if stts.IsBase(target.Currency) {
+		return 0, errors.New("entries in the base currency always use rate 1")
+	}
+
+	month := cashflow.MonthStart(target.EntryDate)
+	now := time.Now()
+	changed := make([]cashflow.CashflowEntry, 0, 1)
+
+	for _, entry := range entries {
+		sameMonth := strings.EqualFold(strings.TrimSpace(entry.Currency), strings.TrimSpace(target.Currency)) && cashflow.MonthStart(entry.EntryDate).Equal(month)
+		if entry.ID != target.ID && !(input.WholeMonth && sameMonth) {
+			continue
+		}
+
+		updated, err := entry.WithRate(rate, now)
+		if err != nil {
+			return 0, err
+		}
+
+		changed = append(changed, updated)
+	}
+
+	if err := storage.SaveCashflows(changed); err != nil {
+		return 0, err
+	}
+
+	return len(changed), nil
 }
 
 func (a *API) DeleteCashflow(id uint) error {

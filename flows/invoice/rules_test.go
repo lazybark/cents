@@ -11,25 +11,25 @@ import (
 func TestEditValidatesAndTrims(t *testing.T) {
 	now := time.Now()
 
-	if _, err := New(Fields{Title: " "}, dates.ISO, now); err == nil || err.Error() != "invoice title is required" {
+	if _, err := New(Fields{Title: " "}, settings.AppSettings{}, dates.ISO, now); err == nil || err.Error() != "invoice title is required" {
 		t.Fatalf("want title error, got %v", err)
 	}
 
-	if _, err := New(Fields{Title: "A", DueDate: "1.2.2026"}, dates.ISO, now); err == nil || err.Error() != "due date must use YYYY-MM-DD format" {
+	if _, err := New(Fields{Title: "A", DueDate: "1.2.2026"}, settings.AppSettings{}, dates.ISO, now); err == nil || err.Error() != "due date must use YYYY-MM-DD format" {
 		t.Fatalf("want due date error, got %v", err)
 	}
 
-	if _, err := New(Fields{Title: "A", InvoiceDate: "x"}, dates.TUI, now); err == nil || err.Error() != "invoice date must use DD.MM.YYYY format" {
+	if _, err := New(Fields{Title: "A", InvoiceDate: "x"}, settings.AppSettings{}, dates.TUI, now); err == nil || err.Error() != "invoice date must use DD.MM.YYYY format" {
 		t.Fatalf("want invoice date error, got %v", err)
 	}
 
-	item, err := New(Fields{Title: " Hosting ", Amount: " ", Peer: " ACME ", URL: " https://x.test "}, dates.ISO, now)
+	item, err := New(Fields{Title: " Hosting ", Amount: " ", Peer: " ACME ", URL: " https://x.test "}, settings.AppSettings{}, dates.ISO, now)
 	if err != nil || item.Title != "Hosting" || item.AmountCents != 0 || item.Peer != "ACME" || item.URL != "https://x.test" || item.Mode() != ListOutgoing {
 		t.Fatalf("unexpected invoice %+v %v", item, err)
 	}
 
 	item.ID = 7
-	edited, err := item.Edit(Fields{Title: "Hosting", IsIncoming: true, Amount: "12.50"}, dates.ISO, now)
+	edited, err := item.Edit(Fields{Title: "Hosting", IsIncoming: true, Amount: "12.50"}, settings.AppSettings{}, dates.ISO, now)
 	if err != nil || edited.ID != 7 || edited.AmountCents != 1250 || edited.Mode() != ListIncoming {
 		t.Fatalf("unexpected edit %+v %v", edited, err)
 	}
@@ -73,17 +73,53 @@ func TestFilterSortsLikeTheTUI(t *testing.T) {
 	}
 }
 
-func TestUnpaidInBaseCentsByDirection(t *testing.T) {
+func TestUnpaidInBaseCentsAtRecordedRates(t *testing.T) {
+	now := time.Now()
 	stts := settings.AppSettings{Currencies: []settings.SettingCurrency{{CurrencyName: "EUR", RateToBase: 2}}}
-	items := []Invoice{
-		{Currency: "EUR", AmountCents: 100},                // paid to me
-		{Currency: "$", AmountCents: 30, IsIncoming: true}, // I pay
-		{Currency: "", AmountCents: 999},                   // no currency: left out
-		{Currency: "EUR", AmountCents: 999, Paid: true},    // paid already
+	newInvoice := func(f Fields) Invoice {
+		item, err := New(f, stts, dates.ISO, now)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		return item
 	}
 
-	toMe, byMe := UnpaidInBaseCents(items, stts)
+	items := []Invoice{
+		newInvoice(Fields{Title: "paid to me", Currency: "EUR", Amount: "1"}),
+		newInvoice(Fields{Title: "I pay", Currency: "$", Amount: "0.30", IsIncoming: true, Rate: "9"}),
+		newInvoice(Fields{Title: "no currency", Amount: "9.99", Rate: "3"}),
+		newInvoice(Fields{Title: "paid", Currency: "EUR", Amount: "9.99", Paid: true}),
+	}
+
+	if items[1].RateToBase != 1 || items[2].RateToBase != 0 {
+		t.Fatalf("base currency should use 1 and no currency no rate: %+v", items)
+	}
+
+	// A later rate change in settings doesn't move recorded invoices.
+	stts.Currencies[0].RateToBase = 5
+
+	toMe, byMe := UnpaidInBaseCents(items)
 	if toMe != 200 || byMe != 30 {
 		t.Fatalf("got to me %d, by me %d", toMe, byMe)
+	}
+
+	kept, err := items[0].Edit(Fields{Title: "paid to me", Currency: "eur", Amount: "3"}, stts, dates.ISO, now)
+	if err != nil || kept.RateToBase != 2 || kept.AmountBaseCents != 600 {
+		t.Fatalf("same currency should keep the recorded rate: %+v %v", kept, err)
+	}
+
+	typed, err := items[0].Edit(Fields{Title: "paid to me", Currency: "EUR", Amount: "3", Rate: "1.5"}, stts, dates.ISO, now)
+	if err != nil || typed.RateToBase != 1.5 || typed.AmountBaseCents != 450 {
+		t.Fatalf("typed rate should win: %+v %v", typed, err)
+	}
+
+	moved, err := items[1].Edit(Fields{Title: "I pay", Currency: "EUR", Amount: "1"}, stts, dates.ISO, now)
+	if err != nil || moved.RateToBase != 5 {
+		t.Fatalf("a new currency should take its rate in settings now: %+v %v", moved, err)
+	}
+
+	if _, err := items[0].Edit(Fields{Title: "x", Currency: "EUR", Rate: "-1"}, stts, dates.ISO, now); err == nil || err.Error() != "rate must be greater than zero" {
+		t.Fatalf("expected rate error, got %v", err)
 	}
 }

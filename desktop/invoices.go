@@ -15,20 +15,26 @@ import (
 
 var errInvoiceNotFound = errors.New("invoice not found")
 
+// InvoiceRow is an invoice; BaseCents is its amount at the rate recorded
+// with it (HasRate is false when it has none).
 type InvoiceRow struct {
-	ID            uint   `json:"id"`
-	Title         string `json:"title"`
-	IsIncoming    bool   `json:"isIncoming"`
-	Currency      string `json:"currency"`
-	AmountCents   int64  `json:"amountCents"`
-	Paid          bool   `json:"paid"`
-	Peer          string `json:"peer"`
-	InvoiceDate   string `json:"invoiceDate"`
-	DueDate       string `json:"dueDate"`
-	Overdue       bool   `json:"overdue"`
-	TargetAccount string `json:"targetAccount"`
-	URL           string `json:"url"`
-	Description   string `json:"description"`
+	ID            uint    `json:"id"`
+	Title         string  `json:"title"`
+	IsIncoming    bool    `json:"isIncoming"`
+	Currency      string  `json:"currency"`
+	IsBase        bool    `json:"isBase"`
+	RateToBase    float64 `json:"rateToBase"`
+	HasRate       bool    `json:"hasRate"`
+	AmountCents   int64   `json:"amountCents"`
+	BaseCents     int64   `json:"baseCents"`
+	Paid          bool    `json:"paid"`
+	Peer          string  `json:"peer"`
+	InvoiceDate   string  `json:"invoiceDate"`
+	DueDate       string  `json:"dueDate"`
+	Overdue       bool    `json:"overdue"`
+	TargetAccount string  `json:"targetAccount"`
+	URL           string  `json:"url"`
+	Description   string  `json:"description"`
 }
 
 // InvoicesView is one invoice list. The unpaid totals cover every unpaid
@@ -42,17 +48,20 @@ type InvoicesView struct {
 	UnpaidToMeCents int64          `json:"unpaidToMeCents"`
 	UnpaidByMeCents int64          `json:"unpaidByMeCents"`
 	NotCounted      int            `json:"notCounted"`
-	Currencies      []string       `json:"currencies"`
+	Currencies      []CurrencyRate `json:"currencies"`
 	Accounts        []string       `json:"accounts"`
 }
 
 // InvoiceInput is an invoice as typed into the form; ID is zero for a new
-// one. Every field can change, as in the TUI.
+// one. Every field can change, as in the TUI. Rate is the currency's rate
+// to the base currency; empty keeps the recorded one while the currency
+// stays the same, and otherwise takes the one in settings now.
 type InvoiceInput struct {
 	ID            uint   `json:"id"`
 	Title         string `json:"title"`
 	IsIncoming    bool   `json:"isIncoming"`
 	Currency      string `json:"currency"`
+	Rate          string `json:"rate"`
 	Amount        string `json:"amount"`
 	Paid          bool   `json:"paid"`
 	Peer          string `json:"peer"`
@@ -87,7 +96,7 @@ func (a *API) Invoices(mode string) (InvoicesView, error) {
 	}
 
 	listed := invoice.Filter(items, listMode)
-	toMe, byMe := invoice.UnpaidInBaseCents(items, stts)
+	toMe, byMe := invoice.UnpaidInBaseCents(items)
 	now := time.Now()
 
 	view := InvoicesView{
@@ -97,7 +106,7 @@ func (a *API) Invoices(mode string) (InvoicesView, error) {
 		Counts:          map[string]int{},
 		UnpaidToMeCents: toMe,
 		UnpaidByMeCents: byMe,
-		Currencies:      stts.CurrencyOptions(),
+		Currencies:      currencyRates(stts),
 		Accounts:        accountNames(accounts),
 	}
 
@@ -106,13 +115,13 @@ func (a *API) Invoices(mode string) (InvoicesView, error) {
 	}
 
 	for _, item := range items {
-		if _, ok := stts.ConvertToBaseCents(item.Currency, item.AmountCents); !ok && !item.Paid && item.AmountCents != 0 {
+		if _, ok := item.BaseCents(); !ok && !item.Paid && item.AmountCents != 0 {
 			view.NotCounted++
 		}
 	}
 
 	for _, item := range listed {
-		view.Invoices = append(view.Invoices, invoiceRow(item, now))
+		view.Invoices = append(view.Invoices, invoiceRow(item, stts, now))
 	}
 
 	return view, nil
@@ -129,7 +138,7 @@ func (a *API) CreateInvoice(input InvoiceInput) (CreatedIn, error) {
 		return CreatedIn{}, err
 	}
 
-	entry, err := invoice.New(fields, dates.ISO, time.Now())
+	entry, err := invoice.New(fields, stts, dates.ISO, time.Now())
 	if err != nil {
 		return CreatedIn{}, err
 	}
@@ -159,7 +168,7 @@ func (a *API) UpdateInvoice(input InvoiceInput) (CreatedIn, error) {
 		return CreatedIn{}, err
 	}
 
-	updated, err := current.Edit(fields, dates.ISO, time.Now())
+	updated, err := current.Edit(fields, stts, dates.ISO, time.Now())
 	if err != nil {
 		return CreatedIn{}, err
 	}
@@ -230,6 +239,7 @@ func invoiceFields(input InvoiceInput, stts settings.AppSettings, current string
 		Title:         input.Title,
 		IsIncoming:    input.IsIncoming,
 		Currency:      currency,
+		Rate:          input.Rate,
 		Amount:        input.Amount,
 		Paid:          input.Paid,
 		Peer:          input.Peer,
@@ -256,13 +266,19 @@ func findInvoice(storage StorageWorker, id uint) (invoice.Invoice, error) {
 	return invoice.Invoice{}, errInvoiceNotFound
 }
 
-func invoiceRow(item invoice.Invoice, now time.Time) InvoiceRow {
+func invoiceRow(item invoice.Invoice, stts settings.AppSettings, now time.Time) InvoiceRow {
+	baseCents, hasRate := item.BaseCents()
+
 	return InvoiceRow{
 		ID:            item.ID,
 		Title:         item.Title,
 		IsIncoming:    item.IsIncoming,
 		Currency:      item.Currency,
+		IsBase:        stts.IsBase(item.Currency),
+		RateToBase:    item.RateToBase,
+		HasRate:       hasRate,
 		AmountCents:   item.AmountCents,
+		BaseCents:     baseCents,
 		Paid:          item.Paid,
 		Peer:          item.Peer,
 		InvoiceDate:   formatOptionalDay(item.InvoiceDate),

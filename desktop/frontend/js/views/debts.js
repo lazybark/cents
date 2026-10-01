@@ -1,6 +1,6 @@
 // Debts: what I owe and what I'm owed, unpaid or paid, with paid progress.
 // Each debt can be edited, take logged payments and be deleted, like in the
-// TUI.
+// TUI. A debt keeps the rate to the base currency it was recorded with.
 import { api } from "../api.js";
 import {
   badge,
@@ -15,10 +15,15 @@ import {
   formError,
   localDate,
   progressText,
+  rateInput,
+  rateText,
   renderPaymentLogs,
   setProgress,
   setStatus,
+  showRate,
   signedMoney,
+  syncRate,
+  withBase,
 } from "../ui.js";
 
 const $ = (id) => document.getElementById(id);
@@ -66,6 +71,7 @@ export function init() {
 
   el.add.addEventListener("click", openAdd);
   el.addForm.addEventListener("submit", saveNew);
+  el.addForm.elements.currency.addEventListener("change", () => syncRate(el.addForm, state.view.currencies));
   el.editForm.addEventListener("submit", saveEdit);
   el.paymentForm.addEventListener("submit", logPayment);
   el.delete.addEventListener("click", askDelete);
@@ -119,9 +125,9 @@ function render(view) {
         cell(peerCell),
         cell(debt.createdAt, "nowrap"),
         dueCell(debt.dueDate, debt.overdue),
-        cell(formatMoney(debt.currency, debt.amountCents), "num"),
-        cell(formatMoney(debt.currency, debt.paidCents), "num"),
-        cell(formatMoney(debt.currency, debt.leftCents), debt.leftCents > 0 ? "num" : "num muted"),
+        cell(withBase(debt, debt.amountCents, view.baseCurrency, debt.baseAmountCents), "num"),
+        cell(withBase(debt, debt.paidCents, view.baseCurrency, debt.basePaidCents), "num"),
+        cell(withBase(debt, debt.leftCents, view.baseCurrency, debt.baseLeftCents), debt.leftCents > 0 ? "num" : "num muted"),
       );
       clickableRow(row, () => openEdit(debt));
 
@@ -135,7 +141,11 @@ function render(view) {
 function openAdd() {
   const form = el.addForm;
   form.reset();
-  fillSelect(form.elements.currency, state.view?.currencies ?? []);
+  fillSelect(
+    form.elements.currency,
+    (state.view?.currencies ?? []).map((c) => c.name),
+  );
+  syncRate(form, state.view?.currencies ?? []);
   // Start with the direction of the list being looked at.
   form.elements.direction.value = state.mode === "incoming" ? "incoming" : "outgoing";
   form.elements.createdAt.value = localDate(new Date());
@@ -150,6 +160,7 @@ async function saveNew(event) {
     isOwedToUser: form.direction.value === "incoming",
     peer: form.peer.value,
     currency: form.currency.value,
+    rate: rateInput(el.addForm),
     amount: form.amount.value,
     amountPaid: form.amountPaid.value,
     createdAt: form.createdAt.value,
@@ -178,6 +189,8 @@ function openEdit(debt) {
   form.createdAt.value = debt.createdAt;
   form.dueDate.value = debt.dueDate;
   form.comment.value = debt.comment;
+  // Debts saved before rates were kept may have none: one can be added.
+  showRate(el.editForm, state.view.baseCurrency, debt.currency, debt.rateToBase, debt.isBase);
   formError(el.editForm, "");
 
   el.paymentForm.reset();
@@ -193,7 +206,9 @@ function openEdit(debt) {
 
 function showDebtHeader(debt) {
   el.editTitle.textContent = debt.peer;
-  el.editSubtitle.textContent = `${direction(debt)} · ${progressText(debt.currency, debt.paidCents, debt.amountCents)}`;
+  const base = state.view.baseCurrency;
+  const left = debt.isBase ? "" : debt.hasRate ? ` · ${formatMoney(base, debt.baseLeftCents)} left at ${rateText(debt.rateToBase)}` : " · no rate to " + base;
+  el.editSubtitle.textContent = `${direction(debt)} · ${progressText(debt.currency, debt.paidCents, debt.amountCents)}${left}`;
   setProgress(el.editProgress, debt.paidCents, debt.amountCents);
 }
 
@@ -213,6 +228,7 @@ async function saveEdit(event) {
   const form = el.editForm.elements;
   const input = {
     id: debt.id,
+    rate: rateInput(el.editForm),
     amount: form.amount.value,
     amountPaid: form.amountPaid.value,
     createdAt: form.createdAt.value,

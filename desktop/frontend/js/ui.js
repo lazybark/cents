@@ -187,3 +187,59 @@ export function dueCell(dueDate, isOverdue) {
 
   return cell(content, isOverdue ? "nowrap negative" : "nowrap");
 }
+
+// --- recorded rates --------------------------------------------------------
+// Dated records keep the rate to the base currency they were entered with.
+// A form's rate field is a .rate-field label holding a .rate-label and an
+// input named rate; it is hidden for the base currency, whose rate is 1.
+
+// rateText shows a rate without float noise, like "1.08"; empty for none.
+export function rateText(rate) {
+  return rate > 0 ? String(Number(rate.toFixed(6))) : "";
+}
+
+function sameCurrency(a, b) {
+  return (a ?? "").trim().toLowerCase() === (b ?? "").trim().toLowerCase();
+}
+
+// showRate shows form's rate field for currency with rate filled in, or
+// hides it when there is nothing to convert.
+export function showRate(form, baseCurrency, currency, rate, hide) {
+  const field = form.querySelector(".rate-field");
+  field.hidden = Boolean(hide);
+  form.querySelector(".rate-label").textContent = `Rate: 1 ${currency} in ${baseCurrency}`;
+  form.elements.rate.value = rateText(rate);
+}
+
+// syncRate shows form's rate field for the currency picked in it, starting
+// with that currency's rate in settings now. rates lists {name, rate} with
+// the base currency first.
+export function syncRate(form, rates) {
+  const currency = form.elements.currency.value;
+  const option = rates.find((r) => sameCurrency(r.name, currency));
+  const base = rates[0]?.name ?? "";
+
+  showRate(form, base, currency, option?.rate ?? 0, !currency || sameCurrency(currency, base));
+}
+
+// rateInput is what to send as a form's rate: nothing while it's hidden.
+export function rateInput(form) {
+  return form.querySelector(".rate-field").hidden ? "" : form.elements.rate.value;
+}
+
+// withBase shows an amount in its currency and, for another currency, the
+// amount in the base currency at the record's rate below it (or "no rate").
+// format turns (currency, cents) into text; it defaults to formatMoney.
+export function withBase(record, cents, baseCurrency, baseCents, format = formatMoney) {
+  const content = document.createElement("div");
+  content.append(format(record.currency, cents));
+
+  if (!record.isBase && record.currency) {
+    const base = document.createElement("div");
+    base.className = "account-description";
+    base.textContent = record.hasRate === false ? "no rate" : format(baseCurrency, baseCents);
+    content.append(base);
+  }
+
+  return content;
+}

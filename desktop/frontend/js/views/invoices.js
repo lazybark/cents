@@ -14,7 +14,11 @@ import {
   formatMoney,
   formError,
   localDate,
+  rateInput,
   setStatus,
+  showRate,
+  syncRate,
+  withBase,
 } from "../ui.js";
 
 const $ = (id) => document.getElementById(id);
@@ -59,6 +63,7 @@ export function init() {
 
   el.add.addEventListener("click", () => openDialog(null));
   el.form.addEventListener("submit", save);
+  el.form.elements.currency.addEventListener("change", currencyPicked);
   el.openURL.addEventListener("click", openURL);
   el.delete.addEventListener("click", askDelete);
 }
@@ -119,7 +124,7 @@ function render(view) {
         cell(invoice.invoiceDate || "—", invoice.invoiceDate ? "nowrap" : "muted"),
         dueCell(invoice.dueDate, invoice.overdue),
         cell(invoice.targetAccount || "—", invoice.targetAccount ? "" : "muted"),
-        invoice.amountCents !== 0 ? cell(formatMoney(invoice.currency, invoice.amountCents), "num") : cell("—", "num muted"),
+        invoice.amountCents !== 0 ? cell(withBase(invoice, invoice.amountCents, view.baseCurrency, invoice.baseCents), "num") : cell("—", "num muted"),
       );
       clickableRow(row, () => openDialog(invoice));
 
@@ -130,13 +135,28 @@ function render(view) {
 
 // --- add and edit ----------------------------------------------------------
 
+// currencyPicked shows the rate for the picked currency: the invoice's own
+// while it stays in its recorded currency, else the one in settings now.
+function currencyPicked() {
+  const invoice = state.current;
+  const form = el.form;
+  const currency = form.elements.currency.value;
+
+  if (invoice?.currency && currency && currency.toLowerCase() === invoice.currency.toLowerCase()) {
+    showRate(form, state.view.baseCurrency, currency, invoice.rateToBase, invoice.isBase);
+    return;
+  }
+
+  syncRate(form, state.view?.currencies ?? []);
+}
+
 function openDialog(invoice) {
   state.current = invoice;
   const view = state.view;
   const form = el.form.elements;
   el.form.reset();
 
-  const currencies = [...(view?.currencies ?? [])];
+  const currencies = (view?.currencies ?? []).map((c) => c.name);
   // Keep an invoice's currency selectable even if it left settings since.
   if (invoice?.currency && !currencies.some((c) => c.toLowerCase() === invoice.currency.toLowerCase())) {
     currencies.push(invoice.currency);
@@ -157,6 +177,7 @@ function openDialog(invoice) {
     form.targetAccount.value = invoice.targetAccount;
     form.url.value = invoice.url;
     form.description.value = invoice.description;
+    currencyPicked();
   } else {
     el.dialogTitle.textContent = "Add invoice";
     // Start with the direction of the list being looked at, in the base
@@ -164,6 +185,7 @@ function openDialog(invoice) {
     form.direction.value = state.mode === "incoming" ? "incoming" : "outgoing";
     form.currency.value = currencies[0] ?? "";
     form.invoiceDate.value = localDate(new Date());
+    currencyPicked();
   }
 
   el.openURL.hidden = !invoice?.url;
@@ -181,6 +203,7 @@ async function save(event) {
     title: form.title.value,
     isIncoming: form.direction.value === "incoming",
     currency: form.currency.value,
+    rate: rateInput(el.form),
     amount: form.amount.value,
     paid: form.paid.checked,
     peer: form.peer.value,

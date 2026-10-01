@@ -57,7 +57,7 @@ func Compute(data Data, month time.Time) Summary {
 	stts := data.Settings
 	var result Summary
 
-	income, expense, _ := cashflow.Totals(cashflow.ForMonth(data.Cashflows, month), stts)
+	income, expense, _ := cashflow.Totals(cashflow.ForMonth(data.Cashflows, month))
 	result.MonthlyNetCents = income - expense
 
 	active := make([]subscription.Subscription, 0, len(data.Subscriptions))
@@ -70,12 +70,14 @@ func Compute(data Data, month time.Time) Summary {
 	result.MonthlySubscriptionsCents, result.YearlySubscriptionsCents = subscription.TotalsInBaseCents(active, stts)
 	result.AccountsCents = account.SumInBaseCents(data.Accounts, stts)
 
+	// Debts, invoices and incomes/expenses count at the rate recorded with
+	// each; ones without a rate are left out.
 	for _, d := range data.Debts {
-		if d.AmountPaidCents >= d.AmountCents {
+		if d.IsPaid() {
 			continue
 		}
 
-		converted, ok := stts.ConvertToBaseCents(d.Currency, d.AmountCents-d.AmountPaidCents)
+		converted, ok := d.LeftBaseCents()
 		if !ok {
 			continue
 		}
@@ -94,7 +96,7 @@ func Compute(data Data, month time.Time) Summary {
 		}
 	}
 
-	result.InvoicesToMeCents, result.InvoicesByMeCents = invoice.UnpaidInBaseCents(data.Invoices, stts)
+	result.InvoicesToMeCents, result.InvoicesByMeCents = invoice.UnpaidInBaseCents(data.Invoices)
 
 	result.GoalsAccumulatedCents, result.GoalsTargetCents = goal.ProgressInBaseCents(data.Goals, stts)
 

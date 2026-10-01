@@ -8,6 +8,8 @@ import (
 
 	"github.com/lazybark/cents/dates"
 	"github.com/lazybark/cents/flows/debt"
+	"github.com/lazybark/cents/flows/settings"
+	"github.com/lazybark/cents/money"
 )
 
 var (
@@ -15,18 +17,26 @@ var (
 	errLogNotFound  = errors.New("log entry not found")
 )
 
+// DebtRow has amounts in the debt's currency and, as Base*, in the base
+// currency at the rate recorded with it (HasRate is false when it has none).
 type DebtRow struct {
-	ID           uint   `json:"id"`
-	IsOwedToUser bool   `json:"isOwedToUser"`
-	Peer         string `json:"peer"`
-	Currency     string `json:"currency"`
-	AmountCents  int64  `json:"amountCents"`
-	PaidCents    int64  `json:"paidCents"`
-	LeftCents    int64  `json:"leftCents"`
-	CreatedAt    string `json:"createdAt"`
-	DueDate      string `json:"dueDate"`
-	Overdue      bool   `json:"overdue"`
-	Comment      string `json:"comment"`
+	ID              uint    `json:"id"`
+	IsOwedToUser    bool    `json:"isOwedToUser"`
+	Peer            string  `json:"peer"`
+	Currency        string  `json:"currency"`
+	IsBase          bool    `json:"isBase"`
+	RateToBase      float64 `json:"rateToBase"`
+	HasRate         bool    `json:"hasRate"`
+	AmountCents     int64   `json:"amountCents"`
+	PaidCents       int64   `json:"paidCents"`
+	LeftCents       int64   `json:"leftCents"`
+	BaseAmountCents int64   `json:"baseAmountCents"`
+	BasePaidCents   int64   `json:"basePaidCents"`
+	BaseLeftCents   int64   `json:"baseLeftCents"`
+	CreatedAt       string  `json:"createdAt"`
+	DueDate         string  `json:"dueDate"`
+	Overdue         bool    `json:"overdue"`
+	Comment         string  `json:"comment"`
 }
 
 type DebtsView struct {
@@ -35,13 +45,16 @@ type DebtsView struct {
 	Debts        []DebtRow      `json:"debts"`
 	Progress     Progress       `json:"progress"`
 	Counts       map[string]int `json:"counts"`
-	Currencies   []string       `json:"currencies"`
+	Currencies   []CurrencyRate `json:"currencies"`
 }
 
+// NewDebtInput is a new debt. Rate is the currency's rate to the base
+// currency; empty takes the one in settings now.
 type NewDebtInput struct {
 	IsOwedToUser bool   `json:"isOwedToUser"`
 	Peer         string `json:"peer"`
 	Currency     string `json:"currency"`
+	Rate         string `json:"rate"`
 	Amount       string `json:"amount"`
 	AmountPaid   string `json:"amountPaid"`
 	CreatedAt    string `json:"createdAt"`
@@ -49,8 +62,11 @@ type NewDebtInput struct {
 	Comment      string `json:"comment"`
 }
 
+// DebtUpdateInput changes a debt. Rate replaces the recorded rate of a debt
+// in another currency; empty keeps it.
 type DebtUpdateInput struct {
 	ID         uint   `json:"id"`
+	Rate       string `json:"rate"`
 	Amount     string `json:"amount"`
 	AmountPaid string `json:"amountPaid"`
 	CreatedAt  string `json:"createdAt"`
@@ -78,7 +94,7 @@ func (a *API) Debts(mode string) (DebtsView, error) {
 	}
 
 	listed := debt.Filter(items, listMode)
-	paid, total := debt.ProgressInBaseCents(listed, stts)
+	paid, total := debt.ProgressInBaseCents(listed)
 	now := time.Now()
 
 	view := DebtsView{
@@ -87,7 +103,7 @@ func (a *API) Debts(mode string) (DebtsView, error) {
 		Debts:        make([]DebtRow, 0, len(listed)),
 		Progress:     Progress{PaidCents: paid, TotalCents: total},
 		Counts:       map[string]int{},
-		Currencies:   stts.CurrencyOptions(),
+		Currencies:   currencyRates(stts),
 	}
 
 	for _, m := range []debt.ListMode{debt.ListOutgoing, debt.ListIncoming, debt.ListPaid} {
@@ -95,7 +111,7 @@ func (a *API) Debts(mode string) (DebtsView, error) {
 	}
 
 	for _, item := range listed {
-		view.Debts = append(view.Debts, debtRow(item, now))
+		view.Debts = append(view.Debts, debtRow(item, stts, now))
 	}
 
 	return view, nil
@@ -107,12 +123,21 @@ func (a *API) CreateDebt(input NewDebtInput) (CreatedIn, error) {
 		return CreatedIn{}, err
 	}
 
-	entry, err := debt.New(input.IsOwedToUser, input.Peer, input.Currency, input.Amount, input.AmountPaid, input.CreatedAt, input.DueDate, input.Comment, dates.ISO, time.Now())
+	currency, ok := matchOption(stts.CurrencyOptions(), strings.TrimSpace(input.Currency))
+
+	rate := 0.0
+	if ok {
+		var err error
+		if rate, err = stts.EntryRate(currency, input.Rate); err != nil {
+			return CreatedIn{}, err
+		}
+	}
+
+	entry, err := debt.New(input.IsOwedToUser, input.Peer, input.Currency, rate, input.Amount, input.AmountPaid, input.CreatedAt, input.DueDate, input.Comment, dates.ISO, time.Now())
 	if err != nil {
 		return CreatedIn{}, err
 	}
 
-	currency, ok := matchOption(stts.CurrencyOptions(), strings.TrimSpace(input.Currency))
 	if !ok {
 		return CreatedIn{}, fmt.Errorf("unknown currency %q: add it in settings first", input.Currency)
 	}
@@ -136,10 +161,11 @@ func (a *API) CreateDebt(input NewDebtInput) (CreatedIn, error) {
 	return CreatedIn{Mode: string(mode)}, nil
 }
 
-// UpdateDebt changes amount, amount paid, dates and comment; peer, currency
-// and direction can't change, as in the TUI.
+// UpdateDebt changes amount, amount paid, dates and comment, plus the rate
+// of a debt in another currency; peer, currency and direction can't change,
+// as in the TUI.
 func (a *API) UpdateDebt(input DebtUpdateInput) error {
-	storage, err := a.currentStorage()
+	storage, stts, err := a.storageAndSettings()
 	if err != nil {
 		return err
 	}
@@ -149,9 +175,21 @@ func (a *API) UpdateDebt(input DebtUpdateInput) error {
 		return err
 	}
 
-	updated, err := current.Edit(input.Amount, input.AmountPaid, input.CreatedAt, input.DueDate, input.Comment, dates.ISO, time.Now())
+	now := time.Now()
+	updated, err := current.Edit(input.Amount, input.AmountPaid, input.CreatedAt, input.DueDate, input.Comment, dates.ISO, now)
 	if err != nil {
 		return err
+	}
+
+	if !stts.IsBase(current.Currency) && strings.TrimSpace(input.Rate) != "" {
+		rate, err := money.ParseRate(input.Rate)
+		if err != nil {
+			return err
+		}
+
+		if updated, err = updated.WithRate(rate, now); err != nil {
+			return err
+		}
 	}
 
 	if err := storage.SaveDebt(&updated); err != nil {
@@ -184,7 +222,7 @@ func (a *API) DebtLogs(id uint) ([]PaymentLog, error) {
 // AddDebtPayment logs a payment and moves the amount paid by it, returning
 // the debt as it is now.
 func (a *API) AddDebtPayment(input PaymentInput) (DebtRow, error) {
-	storage, err := a.currentStorage()
+	storage, stts, err := a.storageAndSettings()
 	if err != nil {
 		return DebtRow{}, err
 	}
@@ -208,14 +246,14 @@ func (a *API) AddDebtPayment(input PaymentInput) (DebtRow, error) {
 		return DebtRow{}, fmt.Errorf("log save failed: %w", err)
 	}
 
-	return debtRow(updated, now), nil
+	return debtRow(updated, stts, now), nil
 }
 
 // DeleteDebtPayment removes one logged payment and undoes it, so the amount
 // paid moves back by the payment's amount. Only the payments DebtLogs lists
 // can be removed. Returns the debt as it is now.
 func (a *API) DeleteDebtPayment(debtID uint, logID uint) (DebtRow, error) {
-	storage, err := a.currentStorage()
+	storage, stts, err := a.storageAndSettings()
 	if err != nil {
 		return DebtRow{}, err
 	}
@@ -251,7 +289,7 @@ func (a *API) DeleteDebtPayment(debtID uint, logID uint) (DebtRow, error) {
 		return DebtRow{}, err
 	}
 
-	return debtRow(updated, now), nil
+	return debtRow(updated, stts, now), nil
 }
 
 func (a *API) DeleteDebt(id uint) error {
@@ -286,18 +324,26 @@ func findDebt(storage StorageWorker, id uint) (debt.Debt, error) {
 	return debt.Debt{}, errDebtNotFound
 }
 
-func debtRow(item debt.Debt, now time.Time) DebtRow {
+func debtRow(item debt.Debt, stts settings.AppSettings, now time.Time) DebtRow {
+	baseLeft, hasRate := item.LeftBaseCents()
+
 	return DebtRow{
-		ID:           item.ID,
-		IsOwedToUser: item.IsOwedToUser,
-		Peer:         item.Peer,
-		Currency:     item.Currency,
-		AmountCents:  item.AmountCents,
-		PaidCents:    item.AmountPaidCents,
-		LeftCents:    item.LeftCents(),
-		CreatedAt:    formatDay(item.DebtCreatedAt),
-		DueDate:      formatOptionalDay(item.DueDate),
-		Overdue:      overdue(item.DueDate, item.IsPaid(), now),
-		Comment:      item.Comment,
+		ID:              item.ID,
+		IsOwedToUser:    item.IsOwedToUser,
+		Peer:            item.Peer,
+		Currency:        item.Currency,
+		IsBase:          stts.IsBase(item.Currency),
+		RateToBase:      item.RateToBase,
+		HasRate:         hasRate,
+		AmountCents:     item.AmountCents,
+		PaidCents:       item.AmountPaidCents,
+		LeftCents:       item.LeftCents(),
+		BaseAmountCents: item.AmountBaseCents,
+		BasePaidCents:   item.AmountPaidBaseCents,
+		BaseLeftCents:   baseLeft,
+		CreatedAt:       formatDay(item.DebtCreatedAt),
+		DueDate:         formatOptionalDay(item.DueDate),
+		Overdue:         overdue(item.DueDate, item.IsPaid(), now),
+		Comment:         item.Comment,
 	}
 }

@@ -14,13 +14,18 @@ type Invoice struct {
 	IsIncoming    bool
 	Currency      string
 	AmountCents   int64
-	Paid          bool
-	Peer          string
-	InvoiceDate   *time.Time
-	DueDate       *time.Time
-	TargetAccount string
-	URL           string
-	Description   string
+	// RateToBase is the currency's rate to the base currency when the
+	// invoice was recorded (0 when none was known, or no currency), and
+	// AmountBaseCents the amount at it.
+	RateToBase      float64
+	AmountBaseCents int64
+	Paid            bool
+	Peer            string
+	InvoiceDate     *time.Time
+	DueDate         *time.Time
+	TargetAccount   string
+	URL             string
+	Description     string
 }
 
 const (

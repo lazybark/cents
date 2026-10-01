@@ -23,11 +23,13 @@ const (
 )
 
 // Fields are an invoice's values as typed into a form. Every field can be
-// changed after creation.
+// changed after creation. Rate is the rate to the base currency typed, if
+// any; see settings.EditRate for what an empty one means.
 type Fields struct {
 	Title         string
 	IsIncoming    bool
 	Currency      string
+	Rate          string
 	Amount        string
 	Paid          bool
 	Peer          string
@@ -40,13 +42,13 @@ type Fields struct {
 
 // New validates a new invoice and builds it. Every interface creates
 // invoices through here, so the rules and messages match.
-func New(f Fields, format dates.Format, now time.Time) (Invoice, error) {
-	return Invoice{}.Edit(f, format, now)
+func New(f Fields, stts settings.AppSettings, format dates.Format, now time.Time) (Invoice, error) {
+	return Invoice{}.Edit(f, stts, format, now)
 }
 
 // Edit replaces the invoice's values with f. Only the title is required;
-// an empty amount means zero.
-func (i Invoice) Edit(f Fields, format dates.Format, now time.Time) (Invoice, error) {
+// an empty amount means zero. An invoice without a currency has no rate.
+func (i Invoice) Edit(f Fields, stts settings.AppSettings, format dates.Format, now time.Time) (Invoice, error) {
 	title := strings.TrimSpace(f.Title)
 	if title == "" {
 		return Invoice{}, errors.New("invoice title is required")
@@ -72,10 +74,21 @@ func (i Invoice) Edit(f Fields, format dates.Format, now time.Time) (Invoice, er
 		return Invoice{}, err
 	}
 
+	currency := strings.TrimSpace(f.Currency)
+	rate := 0.0
+	if currency != "" {
+		rate, err = stts.EditRate(i.Currency, i.RateToBase, currency, f.Rate)
+		if err != nil {
+			return Invoice{}, err
+		}
+	}
+
 	i.Title = title
 	i.IsIncoming = f.IsIncoming
-	i.Currency = strings.TrimSpace(f.Currency)
+	i.Currency = currency
 	i.AmountCents = amount
+	i.RateToBase = rate
+	i.AmountBaseCents, _ = settings.BaseCents(amount, rate)
 	i.Paid = f.Paid
 	i.Peer = strings.TrimSpace(f.Peer)
 	i.InvoiceDate = invoiceDate
@@ -131,16 +144,26 @@ func Filter(items []Invoice, mode ListMode) []Invoice {
 	return filtered
 }
 
-// UnpaidInBaseCents totals unpaid invoices in the base currency: what is
-// owed to me (outgoing) and what I owe (incoming). Invoices without a
-// conversion rate are left out.
-func UnpaidInBaseCents(items []Invoice, stts settings.AppSettings) (toMe int64, byMe int64) {
+// BaseCents is the amount in the base currency at the invoice's rate,
+// reporting false when it has none.
+func (i Invoice) BaseCents() (int64, bool) {
+	if i.RateToBase <= 0 {
+		return 0, false
+	}
+
+	return i.AmountBaseCents, true
+}
+
+// UnpaidInBaseCents totals unpaid invoices in the base currency at their
+// recorded rates: what is owed to me (outgoing) and what I owe (incoming).
+// Invoices without a rate are left out.
+func UnpaidInBaseCents(items []Invoice) (toMe int64, byMe int64) {
 	for _, item := range items {
 		if item.Paid {
 			continue
 		}
 
-		converted, ok := stts.ConvertToBaseCents(item.Currency, item.AmountCents)
+		converted, ok := item.BaseCents()
 		if !ok {
 			continue
 		}

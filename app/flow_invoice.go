@@ -306,7 +306,7 @@ func (m TheApplication) saveInvoiceFromForm() (tea.Model, tea.Cmd) {
 		TargetAccount: targetAccount,
 		URL:           inputs[6].Value(),
 		Description:   inputs[7].Value(),
-	}, dates.TUI, time.Now())
+	}, m.settings, dates.TUI, time.Now())
 	if err != nil {
 		m.status = err.Error()
 
@@ -419,7 +419,7 @@ func (m TheApplication) saveInvoiceEdit() (tea.Model, tea.Cmd) {
 		TargetAccount: targetAccount,
 		URL:           form.URLInput.Value(),
 		Description:   form.DescriptionInput.Value(),
-	}, dates.TUI, time.Now())
+	}, m.settings, dates.TUI, time.Now())
 	if err != nil {
 		m.status = err.Error()
 

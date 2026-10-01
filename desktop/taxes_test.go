@@ -89,7 +89,7 @@ func TestTaxInAnotherCurrencyKeepsItsRate(t *testing.T) {
 	view, _ := api.Taxes("unpaid")
 	typeID := view.TaxTypes[0].ID
 
-	if len(view.Currencies) != 2 || view.Currencies[0] != (TaxCurrency{Name: "$", Rate: 1}) || view.Currencies[1] != (TaxCurrency{Name: "EUR", Rate: 1.08}) {
+	if len(view.Currencies) != 2 || view.Currencies[0] != (CurrencyRate{Name: "$", Rate: 1}) || view.Currencies[1] != (CurrencyRate{Name: "EUR", Rate: 1.08}) {
 		t.Fatalf("unexpected currency options %+v", view.Currencies)
 	}
 

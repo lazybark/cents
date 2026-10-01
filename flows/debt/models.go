@@ -14,10 +14,15 @@ type Debt struct {
 	Currency        string
 	AmountCents     int64
 	AmountPaidCents int64
-	IsOwedToUser    bool
-	DebtCreatedAt   time.Time
-	DueDate         *time.Time
-	Comment         string
+	// RateToBase is the currency's rate to the base currency when the debt
+	// was recorded (0 when none was known); the base amounts are kept at it.
+	RateToBase          float64
+	AmountBaseCents     int64
+	AmountPaidBaseCents int64
+	IsOwedToUser        bool
+	DebtCreatedAt       time.Time
+	DueDate             *time.Time
+	Comment             string
 }
 
 type DebtLog struct {

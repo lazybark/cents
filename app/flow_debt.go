@@ -224,7 +224,7 @@ func (m TheApplication) renderDebtChoiceRow(field int, label string, options []s
 }
 
 func (m TheApplication) debtProgressTotalsBase(items []debt.Debt) (paid int64, total int64) {
-	return debt.ProgressInBaseCents(items, m.settings)
+	return debt.ProgressInBaseCents(items)
 }
 
 func (m TheApplication) confirmDeleteDebt() (tea.Model, tea.Cmd) {
@@ -424,7 +424,10 @@ func (m TheApplication) saveDebtFromForm() (tea.Model, tea.Cmd) {
 	currency := selectedCurrencyOption(m.addDebtForm.CurrencyOptions, m.addDebtForm.CurrencyIndex)
 	inputs := m.addDebtForm.Inputs
 
-	newDebt, err := debt.New(m.addDebtForm.IsOwedToUser, inputs[0].Value(), currency, inputs[1].Value(), inputs[2].Value(), inputs[3].Value(), inputs[4].Value(), inputs[5].Value(), dates.TUI, time.Now())
+	// The TUI keeps the currency's rate in settings now with the debt.
+	rate, _ := m.settings.EntryRate(currency, "")
+
+	newDebt, err := debt.New(m.addDebtForm.IsOwedToUser, inputs[0].Value(), currency, rate, inputs[1].Value(), inputs[2].Value(), inputs[3].Value(), inputs[4].Value(), inputs[5].Value(), dates.TUI, time.Now())
 	if err != nil {
 		m.status = err.Error()
 		return m, nil

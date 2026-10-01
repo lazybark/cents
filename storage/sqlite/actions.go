@@ -488,3 +488,17 @@ func (s *SQLiteStorage) DeleteGoalLog(entry *goal.Goal, logID uint) error {
 		return nil
 	})
 }
+
+// SaveCashflows saves income and expense entries together, so a rate set
+// on several of them lands on all or none.
+func (s *SQLiteStorage) SaveCashflows(entries []cashflow.CashflowEntry) error {
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		for i := range entries {
+			if err := tx.Save(&entries[i]).Error; err != nil {
+				return fmt.Errorf("failed to save cashflow entry: %w", err)
+			}
+		}
+
+		return nil
+	})
+}

@@ -15,8 +15,13 @@ import {
   localDate,
   progressText,
   renderPaymentLogs,
+  rateInput,
+  rateText,
   setProgress,
   setStatus,
+  showRate,
+  syncRate,
+  withBase,
 } from "../ui.js";
 
 const $ = (id) => document.getElementById(id);
@@ -88,26 +93,6 @@ function label(tax) {
   return `${tax.country} / ${tax.typeName}`;
 }
 
-// amountCell shows a tax's amount in its currency and, for another
-// currency, the base amount at its recorded rate below it.
-function amountCell(tax, cents, baseCents, className) {
-  const content = document.createElement("div");
-  content.append(formatMoney(tax.currency, cents));
-
-  if (!tax.isBase) {
-    const base = document.createElement("div");
-    base.className = "account-description";
-    base.textContent = formatMoney(state.view.baseCurrency, baseCents);
-    content.append(base);
-  }
-
-  return cell(content, className);
-}
-
-function rateText(rate) {
-  return String(Number(rate.toFixed(6)));
-}
-
 function render(view) {
   for (const tab of el.tabs) {
     tab.setAttribute("aria-selected", String(tab.dataset.mode === view.mode));
@@ -138,9 +123,9 @@ function render(view) {
         cell(nameCell),
         cell(tax.period),
         dueCell(tax.dueDate, tax.overdue),
-        amountCell(tax, tax.dueCents, tax.baseDueCents, "num"),
-        amountCell(tax, tax.paidCents, tax.basePaidCents, "num"),
-        amountCell(tax, tax.leftCents, tax.baseLeftCents, tax.leftCents > 0 ? "num" : "num muted"),
+        cell(withBase(tax, tax.dueCents, view.baseCurrency, tax.baseDueCents), "num"),
+        cell(withBase(tax, tax.paidCents, view.baseCurrency, tax.basePaidCents), "num"),
+        cell(withBase(tax, tax.leftCents, view.baseCurrency, tax.baseLeftCents), tax.leftCents > 0 ? "num" : "num muted"),
         cell(`${tax.paidPercent.toFixed(1)}%`, "num"),
       );
       clickableRow(row, () => openEdit(tax));
@@ -179,27 +164,16 @@ function openAdd() {
   el.addDialog.showModal();
 }
 
-// showRate shows a form's rate field, labelled with what it converts,
-// unless the tax is in the base currency.
-function showRate(form, currency, isBase) {
-  const field = form.querySelector(".tax-rate-field");
-  field.hidden = isBase;
-  form.querySelector(".tax-rate-label").textContent = `Rate: 1 ${currency} in ${state.view.baseCurrency}`;
-}
-
 // The rate of a new tax starts with the one in settings, and is kept with
 // the tax from then on.
 function syncAddCurrency() {
   const view = state.view;
   const form = el.addForm.elements;
-  const chosen = (view?.currencies ?? []).find((c) => c.name === form.currency.value);
-  const isBase = !chosen || chosen.name === view.currencies[0].name;
-
-  showRate(el.addForm, chosen?.name ?? "", isBase);
-  form.rate.value = isBase || !chosen.rate ? "" : rateText(chosen.rate);
+  syncRate(el.addForm, view?.currencies ?? []);
+  const isBase = el.addForm.querySelector(".rate-field").hidden;
   el.addBase.textContent = isBase
     ? `Amounts are in ${view?.baseCurrency ?? "the base currency"}.`
-    : `Amounts are in ${chosen.name}. The rate is saved with the tax, so changing it in settings later won't change this tax.`;
+    : `Amounts are in ${form.currency.value}. The rate is saved with the tax, so changing it in settings later won't change this tax.`;
 }
 
 async function saveNew(event) {
@@ -208,7 +182,7 @@ async function saveNew(event) {
   const input = {
     taxTypeId: Number(form.taxTypeId.value),
     currency: form.currency.value,
-    rate: el.addForm.querySelector(".tax-rate-field").hidden ? "" : form.rate.value,
+    rate: rateInput(el.addForm),
     amountDue: form.amountDue.value,
     amountPaid: form.amountPaid.value,
     period: form.period.value,
@@ -237,8 +211,7 @@ function openEdit(tax) {
   form.period.value = tax.period;
   form.dueDate.value = tax.dueDate;
   form.comment.value = tax.comment;
-  showRate(el.editForm, tax.currency, tax.isBase);
-  form.rate.value = tax.isBase ? "" : rateText(tax.rateToBase);
+  showRate(el.editForm, state.view.baseCurrency, tax.currency, tax.rateToBase, tax.isBase);
   formError(el.editForm, "");
 
   el.paymentForm.reset();
@@ -276,7 +249,7 @@ async function saveEdit(event) {
   const form = el.editForm.elements;
   const input = {
     id: tax.id,
-    rate: tax.isBase ? "" : form.rate.value,
+    rate: rateInput(el.editForm),
     amountDue: form.amountDue.value,
     amountPaid: form.amountPaid.value,
     period: form.period.value,

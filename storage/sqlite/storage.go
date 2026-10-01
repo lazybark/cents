@@ -51,6 +51,10 @@ func OpenDatabase(dbPath string) (*gorm.DB, bool, error) {
 		return nil, false, fmt.Errorf("failed to set currencies of older taxes: %w", err)
 	}
 
+	if err := backfillRecordedRates(db); err != nil {
+		return nil, false, fmt.Errorf("failed to set rates of older records: %w", err)
+	}
+
 	return db, created, nil
 }
 
@@ -106,6 +110,69 @@ func backfillTaxCurrencies(db *gorm.DB) error {
 			"amount_due_base_cents":  gorm.Expr("amount_due_cents"),
 			"amount_paid_base_cents": gorm.Expr("amount_paid_cents"),
 		}).Error
+}
+
+// recordedRateTables are the dated records that keep the rate they were
+// entered with, and their amount columns with the base amount column each
+// is kept in.
+var recordedRateTables = []struct {
+	table   string
+	amounts map[string]string
+}{
+	{"cashflow_entries", map[string]string{"amount_cents": "amount_base_cents"}},
+	{"debts", map[string]string{"amount_cents": "amount_base_cents", "amount_paid_cents": "amount_paid_base_cents"}},
+	{"invoices", map[string]string{"amount_cents": "amount_base_cents"}},
+}
+
+// backfillRecordedRates gives records saved before they kept a rate (it is
+// NULL) the best guess there is: 1 in the base currency, otherwise the
+// currency's rate in settings now, or 0 (no rate) when it has none. The
+// rates can be corrected afterwards.
+func backfillRecordedRates(db *gorm.DB) error {
+	stts, err := LoadAppSettings(db)
+	if err != nil {
+		return err
+	}
+
+	rates := []struct {
+		currency string
+		rate     float64
+	}{{stts.BaseCurrencyLabel(), 1}}
+
+	for _, currency := range stts.Currencies {
+		if currency.RateToBase > 0 && !stts.IsBase(currency.CurrencyName) {
+			rates = append(rates, struct {
+				currency string
+				rate     float64
+			}{strings.TrimSpace(currency.CurrencyName), currency.RateToBase})
+		}
+	}
+
+	return db.Transaction(func(tx *gorm.DB) error {
+		for _, t := range recordedRateTables {
+			for _, r := range rates {
+				updates := map[string]any{"rate_to_base": r.rate}
+				for amount, base := range t.amounts {
+					updates[base] = gorm.Expr("CAST(ROUND("+amount+" * ?) AS INTEGER)", r.rate)
+				}
+
+				if err := tx.Table(t.table).Where("rate_to_base IS NULL AND lower(trim(currency)) = lower(?)", r.currency).Updates(updates).Error; err != nil {
+					return fmt.Errorf("%s: %w", t.table, err)
+				}
+			}
+
+			updates := map[string]any{"rate_to_base": 0}
+			for _, base := range t.amounts {
+				updates[base] = 0
+			}
+
+			if err := tx.Table(t.table).Where("rate_to_base IS NULL").Updates(updates).Error; err != nil {
+				return fmt.Errorf("%s: %w", t.table, err)
+			}
+		}
+
+		return nil
+	})
 }
 
 func EnsureSettingsDefaults(db *gorm.DB) error {

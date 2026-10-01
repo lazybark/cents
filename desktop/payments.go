@@ -1,6 +1,10 @@
 package desktop
 
-import "time"
+import (
+	"time"
+
+	"github.com/lazybark/cents/flows/settings"
+)
 
 // Debts and taxes both track an amount paid that moves through logged
 // payments; these types are shared by their API methods.
@@ -24,6 +28,27 @@ type PaymentInput struct {
 	Delta string `json:"delta"`
 	Date  string `json:"date"`
 	Note  string `json:"note"`
+}
+
+// CurrencyRate is a currency a new record can use, with its rate to the
+// base currency in settings now (1 for the base currency itself), to start
+// the record's own rate with.
+type CurrencyRate struct {
+	Name string  `json:"name"`
+	Rate float64 `json:"rate"`
+}
+
+// currencyRates lists the base currency and every configured currency
+// with its current rate.
+func currencyRates(stts settings.AppSettings) []CurrencyRate {
+	options := stts.CurrencyOptions()
+	result := make([]CurrencyRate, 0, len(options))
+	for _, name := range options {
+		rate, _ := stts.EntryRate(name, "")
+		result = append(result, CurrencyRate{Name: name, Rate: rate})
+	}
+
+	return result
 }
 
 // CreatedIn names the list a new debt or tax shows up in.

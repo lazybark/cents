@@ -30,6 +30,7 @@ type StorageWorker interface {
 	LoadInvoices() ([]invoice.Invoice, error)
 	LoadCashflows() ([]cashflow.CashflowEntry, error)
 	CreateCashflow(entry *cashflow.CashflowEntry) error
+	SaveCashflows(entries []cashflow.CashflowEntry) error
 	DeleteCashflow(id uint) error
 	CreateSubscription(entry *subscription.Subscription) error
 	SaveSubscription(entry *subscription.Subscription) error

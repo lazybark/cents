@@ -239,7 +239,7 @@
               <div id="invoices-by-me" class="figure"></div>
             </div>
           </div>
-          <p class="hint">All unpaid invoices, in the base currency. <span id="invoices-not-counted"></span></p>
+          <p class="hint">All unpaid invoices, in the base currency at the rate recorded with each. <span id="invoices-not-counted"></span></p>
         </section>
 
         <section class="panel">
@@ -271,7 +271,7 @@
           <div class="label">Paid so far</div>
           <div id="debts-progress-text" class="figure"></div>
           <div class="progress progress-large"><div id="debts-progress-fill" class="progress-fill"></div></div>
-          <p class="hint">In the base currency. Debts without a conversion rate count with their own amounts.</p>
+          <p class="hint">In the base currency, at the rate recorded with each debt. Debts without a rate count with their own amounts.</p>
         </section>
 
         <section class="panel">
@@ -477,6 +477,27 @@
     </div>
   </dialog>
 
+  <dialog id="cashflow-rate-dialog" class="dialog">
+    <form id="cashflow-rate-form" class="form" novalidate>
+      <h2 class="dialog-title">Rate for this entry</h2>
+      <p id="cashflow-rate-entry" class="muted"></p>
+      <label class="field rate-field">
+        <span class="field-label rate-label">Rate</span>
+        <input name="rate" inputmode="decimal" maxlength="24" autocomplete="off" autofocus>
+      </label>
+      <label class="check">
+        <input type="checkbox" name="wholeMonth">
+        <span id="cashflow-rate-month"></span>
+      </label>
+      <p class="hint">The rate is saved with the entry; changing it in settings doesn't change entries already made.</p>
+      <p class="form-error negative" hidden></p>
+      <div class="dialog-actions">
+        <button type="button" class="button" data-close>Cancel</button>
+        <button type="submit" class="button button-primary">Save rate</button>
+      </div>
+    </form>
+  </dialog>
+
   <dialog id="cashflow-dialog" class="dialog">
     <form id="cashflow-form" class="form" novalidate>
       <h2 id="cashflow-title" class="dialog-title"></h2>
@@ -493,6 +514,10 @@
         <label class="field">
           <span class="field-label">Currency</span>
           <select name="currency"></select>
+        </label>
+        <label class="field rate-field">
+          <span class="field-label rate-label">Rate</span>
+          <input name="rate" inputmode="decimal" maxlength="24" autocomplete="off">
         </label>
       </div>
       <label class="field">
@@ -624,6 +649,10 @@
           <input name="amountPaid" inputmode="decimal" maxlength="24" value="0" autocomplete="off">
         </label>
       </div>
+      <label class="field rate-field">
+        <span class="field-label rate-label">Rate</span>
+        <input name="rate" inputmode="decimal" maxlength="24" autocomplete="off">
+      </label>
       <div class="field-row">
         <label class="field">
           <span class="field-label">Created</span>
@@ -661,6 +690,10 @@
         <label class="field">
           <span class="field-label">Amount paid</span>
           <input name="amountPaid" inputmode="decimal" maxlength="24" autocomplete="off">
+        </label>
+        <label class="field rate-field">
+          <span class="field-label rate-label">Rate</span>
+          <input name="rate" inputmode="decimal" maxlength="24" autocomplete="off">
         </label>
       </div>
       <div class="field-row">
@@ -754,6 +787,10 @@
           <span class="field-label">Currency</span>
           <select name="currency"></select>
         </label>
+        <label class="field rate-field">
+          <span class="field-label rate-label">Rate</span>
+          <input name="rate" inputmode="decimal" maxlength="24" autocomplete="off">
+        </label>
       </div>
       <label class="check">
         <input type="checkbox" name="paid">
@@ -784,7 +821,7 @@
         <span class="field-label">Description</span>
         <input name="description" maxlength="180" placeholder="optional" autocomplete="off">
       </label>
-      <p class="hint">Invoices without a currency are kept but not counted in totals.</p>
+      <p class="hint">The rate is saved with the invoice and kept while its currency stays the same. Invoices without a currency are kept but not counted in totals.</p>
       <p class="form-error negative" hidden></p>
       <div class="dialog-actions spread">
         <button id="invoice-delete" type="button" class="button button-danger">Delete invoice</button>
@@ -931,8 +968,8 @@
           <span class="field-label">Currency</span>
           <select name="currency"></select>
         </label>
-        <label class="field tax-rate-field">
-          <span class="field-label tax-rate-label">Rate</span>
+        <label class="field rate-field">
+          <span class="field-label rate-label">Rate</span>
           <input name="rate" inputmode="decimal" maxlength="24" autocomplete="off">
         </label>
       </div>
@@ -985,8 +1022,8 @@
           <span class="field-label">Amount paid</span>
           <input name="amountPaid" inputmode="decimal" maxlength="24" autocomplete="off">
         </label>
-        <label class="field tax-rate-field">
-          <span class="field-label tax-rate-label">Rate</span>
+        <label class="field rate-field">
+          <span class="field-label rate-label">Rate</span>
           <input name="rate" inputmode="decimal" maxlength="24" autocomplete="off">
         </label>
       </div>

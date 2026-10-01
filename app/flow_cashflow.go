@@ -175,7 +175,7 @@ func (m TheApplication) renderCashflowHistory(width int) string {
 		return panelStyle.Width(width).Render(strings.Join(lines, "\n"))
 	}
 
-	incomeTotal, expenseTotal, missingRates := cashflow.Totals(items, m.settings)
+	incomeTotal, expenseTotal, missingRates := cashflow.Totals(items)
 
 	net := incomeTotal - expenseTotal
 	base := m.baseCurrencyLabel()
@@ -356,7 +356,10 @@ func (m TheApplication) saveCashflowFromForm() (tea.Model, tea.Cmd) {
 	currency := selectedCurrencyOption(m.addCashflowForm.CurrencyOptions, m.addCashflowForm.CurrencyIndex)
 	account := selectedStringOption(m.addCashflowForm.AccountOptions, m.addCashflowForm.AccountIndex)
 
-	entry, err := cashflow.New(m.addCashflowForm.IsIncome, currency, amount, entryDate, category, m.addCashflowForm.CategoryOptions, account, comment, time.Now())
+	// The TUI keeps the currency's rate in settings now with the entry.
+	rate, _ := m.settings.EntryRate(currency, "")
+
+	entry, err := cashflow.New(m.addCashflowForm.IsIncome, currency, amount, rate, entryDate, category, m.addCashflowForm.CategoryOptions, account, comment, time.Now())
 	if err != nil {
 		m.status = err.Error()
 
@@ -497,7 +500,7 @@ func (m TheApplication) filteredCashflowsForMonth() []cashflow.CashflowEntry {
 }
 
 func (m TheApplication) monthlyCashflowOverviewRows() ([]cashflow.CashflowMonthlyOverviewRow, int) {
-	return cashflow.MonthlyOverview(m.cashflows, m.settings)
+	return cashflow.MonthlyOverview(m.cashflows)
 }
 
 func (m TheApplication) confirmDeleteCashflow() (tea.Model, tea.Cmd) {

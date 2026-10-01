@@ -13,10 +13,14 @@ type CashflowEntry struct {
 	IsIncome      bool
 	Currency      string
 	AmountCents   int64
-	EntryDate     time.Time
-	Category      string
-	AccountName   string
-	Comment       string
+	// RateToBase is the currency's rate to the base currency when the entry
+	// was made (0 when none was known) and AmountBaseCents the amount at it.
+	RateToBase      float64
+	AmountBaseCents int64
+	EntryDate       time.Time
+	Category        string
+	AccountName     string
+	Comment         string
 }
 
 const (

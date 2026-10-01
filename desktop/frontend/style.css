@@ -443,6 +443,10 @@ body {
   cursor: pointer;
 }
 
+.row-action + .row-action {
+  margin-left: 8px;
+}
+
 .row-action:hover,
 .row-action:focus-visible {
   color: var(--negative);

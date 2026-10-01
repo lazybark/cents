@@ -1,5 +1,7 @@
 // Incomes & expenses: one month's entries with totals, or every month's
 // totals side by side. Entries can be added and deleted, like in the TUI.
+// Each keeps the rate to the base currency it was made at; the rate of an
+// entry (or of a whole month's entries in its currency) can be corrected.
 import { api } from "../api.js";
 import {
   busy,
@@ -10,9 +12,13 @@ import {
   formatMoney,
   formError,
   localDate,
+  rateInput,
+  rateText,
   rowAction,
   setStatus,
+  showRate,
   signClass,
+  syncRate,
 } from "../ui.js";
 
 const $ = (id) => document.getElementById(id);
@@ -48,6 +54,11 @@ const el = {
   form: $("cashflow-form"),
   formTitle: $("cashflow-title"),
   noCategories: $("cashflow-no-categories"),
+
+  rateDialog: $("cashflow-rate-dialog"),
+  rateForm: $("cashflow-rate-form"),
+  rateEntry: $("cashflow-rate-entry"),
+  rateMonth: $("cashflow-rate-month"),
 };
 
 const state = {
@@ -56,6 +67,9 @@ const state = {
   month: "",
   options: null,
   isIncome: true,
+  baseCurrency: "",
+  // The entry whose rate is being set.
+  rated: null,
 };
 
 export const title = "Incomes & expenses";
@@ -74,6 +88,8 @@ export function init() {
   el.addIncome.addEventListener("click", () => openAdd(true));
   el.addExpense.addEventListener("click", () => openAdd(false));
   el.form.addEventListener("submit", save);
+  el.form.elements.currency.addEventListener("change", () => syncRate(el.form, state.options.rates));
+  el.rateForm.addEventListener("submit", saveRate);
 }
 
 export async function show(message) {
@@ -120,6 +136,7 @@ async function loadMonth() {
 
   state.month = data.month;
   state.options = data.options;
+  state.baseCurrency = data.baseCurrency;
 
   el.monthLabel.textContent = monthName(data.month);
   el.monthIncome.textContent = money(data.incomeCents);
@@ -127,7 +144,7 @@ async function loadMonth() {
   el.monthNet.textContent = money(data.netCents);
   el.monthNet.className = `figure ${signClass(data.netCents)}`;
   el.monthMissing.hidden = data.missingRates === 0;
-  el.monthMissing.textContent = `${data.missingRates} record(s) excluded from totals: missing conversion rate.`;
+  el.monthMissing.textContent = `${data.missingRates} record(s) have no rate and aren't counted in totals. Use “Rate” on them to add one.`;
 
   el.monthBaseHeading.textContent = `In ${data.baseCurrency}`;
   el.monthEmpty.hidden = data.entries.length > 0;
@@ -141,7 +158,20 @@ function entryRow(entry, baseCurrency) {
   const amountClass = entry.isIncome ? "num positive" : "num";
 
   const row = document.createElement("tr");
-  const remove = rowAction("Delete", () => askDelete(entry));
+  const actions = document.createElement("span");
+  actions.className = "nowrap";
+  // Base currency entries always use rate 1, so there's nothing to set.
+  if (!entry.isBase) actions.append(rowAction("Rate", () => openRate(entry)));
+  actions.append(rowAction("Delete", () => askDelete(entry)));
+
+  const base = document.createElement("div");
+  base.append(entry.hasRate ? signed(baseCurrency, entry.baseCents) : "no rate");
+  if (!entry.isBase && entry.hasRate) {
+    const rate = document.createElement("div");
+    rate.className = "account-description";
+    rate.textContent = `at ${rateText(entry.rateToBase)}`;
+    base.append(rate);
+  }
 
   row.append(
     cell(entry.date, "nowrap"),
@@ -149,11 +179,40 @@ function entryRow(entry, baseCurrency) {
     cell(entry.account || "—", entry.account ? "" : "muted"),
     cell(entry.comment, "muted wrap"),
     cell(signed(entry.currency, entry.amountCents), amountClass),
-    cell(entry.hasRate ? signed(baseCurrency, entry.baseCents) : "no rate", entry.hasRate ? amountClass : "num muted"),
-    cell(remove, "num"),
+    cell(base, entry.hasRate ? amountClass : "num muted"),
+    cell(actions, "num"),
   );
 
   return row;
+}
+
+// --- rates -----------------------------------------------------------------
+
+function openRate(entry) {
+  state.rated = entry;
+  const form = el.rateForm;
+  const kind = entry.isIncome ? "income" : "expense";
+
+  form.reset();
+  el.rateEntry.textContent = `${formatMoney(entry.currency, entry.amountCents)} ${kind} on ${entry.date} · ${entry.category}`;
+  showRate(form, state.baseCurrency, entry.currency, entry.rateToBase);
+  el.rateMonth.textContent = `Use this rate for every ${entry.currency} entry in ${monthName(state.month)}`;
+  formError(form, "");
+  el.rateDialog.showModal();
+}
+
+async function saveRate(event) {
+  event.preventDefault();
+  const form = el.rateForm.elements;
+  const input = { id: state.rated.id, rate: form.rate.value, wholeMonth: form.wholeMonth.checked };
+
+  try {
+    const changed = await busy(el.rateForm, () => api.SetCashflowRate(input));
+    el.rateDialog.close();
+    await show(`set rate ${rateText(Number(input.rate))} on ${changed} entr${changed === 1 ? "y" : "ies"}`);
+  } catch (err) {
+    formError(el.rateForm, String(err));
+  }
 }
 
 function askDelete(entry) {
@@ -177,7 +236,7 @@ async function loadMonths() {
   el.monthsEmpty.hidden = data.rows.length > 0;
   el.monthsHint.hidden = data.rows.length === 0;
   el.monthsMissing.hidden = data.missingRates === 0;
-  el.monthsMissing.textContent = `${data.missingRates} record(s) skipped: missing conversion rate.`;
+  el.monthsMissing.textContent = `${data.missingRates} record(s) have no rate and aren't counted. Open their month to add one.`;
 
   el.monthsRows.replaceChildren(
     ...data.rows.map((item) => {
@@ -222,6 +281,7 @@ async function openAdd(isIncome) {
   fillSelect(form.elements.category, categories);
   fillSelect(form.elements.account, ["", ...options.accounts], ["— none —", ...options.accounts]);
   form.elements.date.value = localDate(new Date());
+  syncRate(form, options.rates);
 
   // An entry needs a category, so say where to add one up front.
   const missing = categories.length === 0;
@@ -239,6 +299,7 @@ async function save(event) {
   const input = {
     isIncome: state.isIncome,
     currency: form.currency.value,
+    rate: rateInput(el.form),
     amount: form.amount.value,
     date: form.date.value,
     category: form.category.value,
