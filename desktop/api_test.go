@@ -19,8 +19,15 @@ func newTestAPI(t *testing.T) *API {
 		t.Fatal(err)
 	}
 
-	if err := db.Create(&settings.SettingCurrency{CurrencyName: "EUR", RateToBase: 1.08}).Error; err != nil {
-		t.Fatal(err)
+	seed := []any{
+		&settings.SettingCurrency{CurrencyName: "EUR", RateToBase: 1.08},
+		&settings.SettingIncomeCategory{CategoryName: "Salary"},
+		&settings.SettingExpenseCategory{CategoryName: "Rent"},
+	}
+	for _, row := range seed {
+		if err := db.Create(row).Error; err != nil {
+			t.Fatal(err)
+		}
 	}
 
 	return newAPI(Options{Storage: storage.NewSQLiteStorage(db)})

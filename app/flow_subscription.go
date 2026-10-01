@@ -2,7 +2,6 @@ package app
 
 import (
 	"fmt"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -212,40 +211,11 @@ func (m TheApplication) renderSubscriptionRow(width int, index int, sub subscrip
 }
 
 func splitSubscriptionsByActivity(subs []subscription.Subscription) (active []subscription.Subscription, inactive []subscription.Subscription) {
-	active = make([]subscription.Subscription, 0, len(subs))
-	inactive = make([]subscription.Subscription, 0, len(subs))
-
-	for _, sub := range subs {
-		if sub.IsActive {
-			active = append(active, sub)
-
-			continue
-		}
-
-		inactive = append(inactive, sub)
-	}
-
-	return active, inactive
+	return subscription.SplitByActivity(subs)
 }
 
 func sortSubscriptionsByAmount(values []subscription.Subscription) []subscription.Subscription {
-	if len(values) < 2 {
-		return values
-	}
-
-	cloned := make([]subscription.Subscription, len(values))
-
-	copy(cloned, values)
-
-	sort.SliceStable(cloned, func(i, j int) bool {
-		if cloned[i].AmountCents == cloned[j].AmountCents {
-			return cloned[i].CreatedAt.After(cloned[j].CreatedAt)
-		}
-
-		return cloned[i].AmountCents > cloned[j].AmountCents
-	})
-
-	return cloned
+	return subscription.SortByAmount(values)
 }
 
 func (m TheApplication) updateSubscriptionNew(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -503,52 +473,15 @@ func (m TheApplication) saveSubscriptionFromForm() (tea.Model, tea.Cmd) {
 	if paymentMethodCustom != "" {
 		paymentMethod = paymentMethodCustom
 	}
-	dayYearRaw := strings.TrimSpace(m.addSubscriptionForm.Inputs[4].Value())
-	dayMonthRaw := strings.TrimSpace(m.addSubscriptionForm.Inputs[5].Value())
+	dayYearRaw := m.addSubscriptionForm.Inputs[4].Value()
+	dayMonthRaw := m.addSubscriptionForm.Inputs[5].Value()
+	period := m.addSubscriptionForm.PeriodOptions[m.addSubscriptionForm.PeriodIndex]
+	subType := m.addSubscriptionForm.TypeOptions[m.addSubscriptionForm.TypeIndex]
 
-	if name == "" {
-		m.status = "subscription name is required"
-		return m, nil
-	}
-	if currency == "" {
-		m.status = "currency is required"
-		return m, nil
-	}
-	if paymentMethod == "" {
-		m.status = "payment method is required"
-		return m, nil
-	}
-
-	amount, err := parseAmountCents(amountRaw)
-	if err != nil {
-		m.status = "amount error: " + err.Error()
-		return m, nil
-	}
-
-	dateYearly, err := parseOptionalDate(dayYearRaw)
+	newSubscription, err := subscription.New(name, currency, amountRaw, period, paymentMethod, subType, m.addSubscriptionForm.IsActive, dayYearRaw, dayMonthRaw, time.Now())
 	if err != nil {
 		m.status = err.Error()
 		return m, nil
-	}
-
-	dayMonthly, err := parseOptionalDay(dayMonthRaw, 1, 31, "monthly")
-	if err != nil {
-		m.status = err.Error()
-		return m, nil
-	}
-
-	now := time.Now()
-	newSubscription := subscription.Subscription{
-		Name:              name,
-		Currency:          currency,
-		AmountCents:       amount,
-		Period:            m.addSubscriptionForm.PeriodOptions[m.addSubscriptionForm.PeriodIndex],
-		PaymentMethod:     paymentMethod,
-		Type:              m.addSubscriptionForm.TypeOptions[m.addSubscriptionForm.TypeIndex],
-		IsActive:          m.addSubscriptionForm.IsActive,
-		PaymentDateYearly: dateYearly,
-		PaymentDayMonthly: dayMonthly,
-		LastUpdatedAt:     now,
 	}
 
 	if err := m.storage.CreateSubscription(&newSubscription); err != nil {
@@ -572,19 +505,6 @@ func (m TheApplication) saveSubscriptionEdit() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	amountRaw := strings.TrimSpace(m.editSubscriptionForm.AmountInput.Value())
-	paymentMethod := strings.TrimSpace(m.editSubscriptionForm.PaymentMethodInput.Value())
-	if paymentMethod == "" {
-		m.status = "payment method is required"
-		return m, nil
-	}
-
-	amount, err := parseAmountCents(amountRaw)
-	if err != nil {
-		m.status = "amount error: " + err.Error()
-		return m, nil
-	}
-
 	selectedIndex := -1
 	for i := range m.subscriptions {
 		if m.subscriptions[i].ID == m.editingSubscriptionID {
@@ -597,11 +517,11 @@ func (m TheApplication) saveSubscriptionEdit() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	selected := m.subscriptions[selectedIndex]
-	selected.AmountCents = amount
-	selected.PaymentMethod = paymentMethod
-	selected.IsActive = m.editSubscriptionForm.IsActive
-	selected.LastUpdatedAt = time.Now()
+	selected, err := m.subscriptions[selectedIndex].Edit(m.editSubscriptionForm.AmountInput.Value(), m.editSubscriptionForm.PaymentMethodInput.Value(), m.editSubscriptionForm.IsActive, time.Now())
+	if err != nil {
+		m.status = err.Error()
+		return m, nil
+	}
 
 	if err := m.storage.SaveSubscription(&selected); err != nil {
 		m.status = "save failed: " + err.Error()

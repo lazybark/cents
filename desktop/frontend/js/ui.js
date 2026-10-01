@@ -77,3 +77,54 @@ export function setStatus(message) {
 export function loadedStatus(loadedAt) {
   setStatus(`updated ${new Date(loadedAt).toLocaleString()}`);
 }
+
+// clickableRow makes a table row open something on click, Enter or Space.
+export function clickableRow(row, open) {
+  row.tabIndex = 0;
+  row.addEventListener("click", open);
+  row.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      open();
+    }
+  });
+}
+
+const confirm = {
+  dialog: document.getElementById("confirm-dialog"),
+  title: document.getElementById("confirm-title"),
+  message: document.getElementById("confirm-message"),
+  ok: document.getElementById("confirm-ok"),
+  action: null,
+};
+
+confirm.ok.addEventListener("click", async () => {
+  try {
+    await busy(confirm.dialog, confirm.action);
+    confirm.dialog.close();
+  } catch (err) {
+    formError(confirm.dialog, String(err));
+  }
+});
+
+// confirmDelete asks before running action; the dialog closes once action
+// succeeds and shows its error otherwise.
+export function confirmDelete(title, message, action) {
+  confirm.title.textContent = title;
+  confirm.message.textContent = message;
+  confirm.action = action;
+  formError(confirm.dialog, "");
+  confirm.dialog.showModal();
+}
+
+export function badge(text) {
+  const span = document.createElement("span");
+  span.className = "badge";
+  span.textContent = text;
+  return span;
+}
+
+// fillSelect replaces a <select>'s options with values (label = value).
+export function fillSelect(select, values, labels = values) {
+  select.replaceChildren(...values.map((value, index) => new Option(labels[index], value)));
+}

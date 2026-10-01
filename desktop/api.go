@@ -29,6 +29,11 @@ type StorageWorker interface {
 	LoadTaxes() ([]tax.Tax, error)
 	LoadInvoices() ([]invoice.Invoice, error)
 	LoadCashflows() ([]cashflow.CashflowEntry, error)
+	CreateCashflow(entry *cashflow.CashflowEntry) error
+	DeleteCashflow(id uint) error
+	CreateSubscription(entry *subscription.Subscription) error
+	SaveSubscription(entry *subscription.Subscription) error
+	DeleteSubscription(id uint) error
 	CreateAccount(entry *account.Account) error
 	UpdateAccountAmount(id uint, amountCents int64, ignoreInSummaries bool, updatedAt time.Time) error
 	DeleteAccount(id uint) error

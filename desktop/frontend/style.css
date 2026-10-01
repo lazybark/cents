@@ -40,7 +40,7 @@ body {
 
 .app {
   display: grid;
-  grid-template-columns: 168px minmax(0, 1fr);
+  grid-template-columns: 200px minmax(0, 1fr);
   min-height: 100vh;
 }
 
@@ -110,17 +110,92 @@ body {
   color: var(--headline);
 }
 
-.view {
+.view,
+.pane {
   display: flex;
   flex-direction: column;
   gap: 16px;
+}
+
+.view {
   flex: 1;
+}
+
+/* Tabs switch between panes or filters inside a view. */
+.tabs {
+  display: flex;
+  gap: 4px;
+  align-self: flex-start;
+  padding: 3px;
+  border: 1px solid var(--row-border);
+  border-radius: 6px;
+}
+
+.tab {
+  font: inherit;
+  color: var(--hint);
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+  padding: 3px 12px;
+  cursor: pointer;
+}
+
+.tab:hover,
+.tab:focus-visible {
+  color: var(--text);
+  background: var(--surface);
+  outline: none;
+}
+
+.tab[aria-selected="true"] {
+  color: var(--bg);
+  background: var(--headline);
+  font-weight: bold;
+}
+
+.month-switch {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.month-label {
+  min-width: 160px;
+  text-align: center;
+  font-weight: bold;
+  color: var(--headline);
+}
+
+.month-switch #month-current {
+  margin-left: auto;
+}
+
+/* A row of headline numbers with labels above them. */
+.figures {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px 16px;
+}
+
+.figure {
+  font-size: 20px;
+  font-weight: bold;
+  font-variant-numeric: tabular-nums;
 }
 
 .columns {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
   gap: 16px;
+}
+
+@media (max-width: 760px) {
+  .app {
+    grid-template-columns: 150px minmax(0, 1fr);
+  }
 }
 
 .setup {
@@ -191,6 +266,10 @@ body {
   border: 1px solid var(--panel-border);
   border-radius: 8px;
   padding: 12px 16px;
+  /* Wide tables scroll inside their panel rather than the whole page;
+     relative keeps absolutely positioned children inside that scroll. */
+  position: relative;
+  overflow-x: auto;
 }
 
 .panel-head {
@@ -295,20 +374,20 @@ body {
   white-space: nowrap;
 }
 
-.accounts tbody tr {
+.clickable tbody tr {
   cursor: pointer;
 }
 
-.accounts tbody tr:hover td,
-.accounts tbody tr:focus-visible td {
+.clickable tbody tr:hover td,
+.clickable tbody tr:focus-visible td {
   background: var(--surface);
 }
 
-.accounts tbody tr:focus-visible {
+.clickable tbody tr:focus-visible {
   outline: 1px solid var(--headline);
 }
 
-.accounts tr.ignored td {
+.table tr.ignored td {
   color: var(--muted);
 }
 
@@ -335,6 +414,40 @@ body {
 
 .logs {
   margin-top: 8px;
+}
+
+.table .nowrap {
+  white-space: nowrap;
+}
+
+.table .wrap {
+  overflow-wrap: anywhere;
+}
+
+.row-action {
+  font: inherit;
+  font-size: 12px;
+  color: var(--muted);
+  background: transparent;
+  border: 0;
+  padding: 0 2px;
+  cursor: pointer;
+}
+
+.row-action:hover,
+.row-action:focus-visible {
+  color: var(--negative);
+  outline: none;
+  text-decoration: underline;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
 }
 
 /* Controls */
@@ -453,7 +566,8 @@ input[type="checkbox"] {
   cursor: pointer;
 }
 
-.form-error {
+/* The form's gap spaces its children; paragraphs add no margin of their own. */
+.form p {
   margin: 0;
 }
 
@@ -506,6 +620,11 @@ input[type="checkbox"] {
 
 .dialog-actions.spread {
   justify-content: space-between;
+}
+
+.dialog-actions-group {
+  display: flex;
+  gap: 8px;
 }
 
 .status {

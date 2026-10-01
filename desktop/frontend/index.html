@@ -26,6 +26,8 @@
       <h1 class="brand">cents</h1>
       <button class="nav-item" type="button" data-view="overview">Overview</button>
       <button class="nav-item" type="button" data-view="accounts">Accounts</button>
+      <button class="nav-item" type="button" data-view="cashflow">Incomes &amp; expenses</button>
+      <button class="nav-item" type="button" data-view="subscriptions">Subscriptions</button>
       <div class="nav-spacer"></div>
       <button class="nav-item" type="button" data-view="settings">Settings</button>
     </nav>
@@ -34,7 +36,10 @@
       <header class="content-head">
         <h2 id="view-title" class="view-title"></h2>
         <div class="toolbar">
-          <button id="add-account" class="button button-primary" type="button" hidden>Add account</button>
+          <button id="add-income" class="button button-primary" type="button" data-for="cashflow" hidden>Add income</button>
+          <button id="add-expense" class="button" type="button" data-for="cashflow" hidden>Add expense</button>
+          <button id="add-subscription" class="button button-primary" type="button" data-for="subscriptions" hidden>Add subscription</button>
+          <button id="add-account" class="button button-primary" type="button" data-for="accounts" hidden>Add account</button>
           <button id="refresh" class="button" type="button">Refresh</button>
         </div>
       </header>
@@ -74,7 +79,7 @@
               <select id="sort"></select>
             </label>
           </div>
-          <table class="table accounts">
+          <table class="table accounts clickable">
             <thead>
               <tr>
                 <th>Name</th>
@@ -88,6 +93,123 @@
           </table>
           <p id="empty" class="muted" hidden>No accounts yet. Use “Add account” to create one.</p>
           <p id="accounts-hint" class="hint">Click an account to update its amount, edit its value history or delete it.</p>
+        </section>
+      </section>
+
+      <section id="view-cashflow" class="view" hidden>
+        <div class="tabs" role="tablist">
+          <button class="tab" type="button" role="tab" data-tab="month">Month</button>
+          <button class="tab" type="button" role="tab" data-tab="months">All months</button>
+        </div>
+
+        <div id="cashflow-month" class="pane">
+          <section class="panel">
+            <div class="month-switch">
+              <button id="month-prev" class="button" type="button" aria-label="Previous month">‹</button>
+              <span id="month-label" class="month-label"></span>
+              <button id="month-next" class="button" type="button" aria-label="Next month">›</button>
+              <button id="month-current" class="button" type="button">This month</button>
+            </div>
+            <div class="figures">
+              <div>
+                <div class="label">Income</div>
+                <div id="month-income" class="figure positive"></div>
+              </div>
+              <div>
+                <div class="label">Expense</div>
+                <div id="month-expense" class="figure"></div>
+              </div>
+              <div>
+                <div class="label">Net</div>
+                <div id="month-net" class="figure"></div>
+              </div>
+            </div>
+            <p id="month-missing" class="hint" hidden></p>
+          </section>
+
+          <section class="panel">
+            <table class="table">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Category</th>
+                  <th>Account</th>
+                  <th>Comment</th>
+                  <th class="num">Amount</th>
+                  <th id="month-base-heading" class="num">In base</th>
+                  <th><span class="visually-hidden">Actions</span></th>
+                </tr>
+              </thead>
+              <tbody id="month-entries"></tbody>
+            </table>
+            <p id="month-empty" class="muted" hidden>No records for this month.</p>
+          </section>
+        </div>
+
+        <div id="cashflow-months" class="pane" hidden>
+          <section class="panel">
+            <table class="table clickable">
+              <thead>
+                <tr>
+                  <th>Month</th>
+                  <th id="months-income-heading" class="num">Income</th>
+                  <th id="months-expense-heading" class="num">Expense</th>
+                  <th id="months-net-heading" class="num">Net</th>
+                  <th class="num">Net vs previous</th>
+                </tr>
+              </thead>
+              <tbody id="months-rows"></tbody>
+            </table>
+            <p id="months-empty" class="muted" hidden>No records yet.</p>
+            <p id="months-missing" class="hint" hidden></p>
+            <p id="months-hint" class="hint">Click a month to see its entries.</p>
+          </section>
+        </div>
+      </section>
+
+      <section id="view-subscriptions" class="view" hidden>
+        <div class="tabs" role="tablist">
+          <button class="tab" type="button" role="tab" data-mode="active">Active</button>
+          <button class="tab" type="button" role="tab" data-mode="all">All</button>
+        </div>
+
+        <section class="panel">
+          <div class="figures">
+            <div>
+              <div class="label">Active monthly</div>
+              <div id="subs-active-monthly" class="figure"></div>
+            </div>
+            <div>
+              <div class="label">Active yearly</div>
+              <div id="subs-active-yearly" class="figure"></div>
+            </div>
+            <div class="inactive-total" hidden>
+              <div class="label">Inactive monthly</div>
+              <div id="subs-inactive-monthly" class="figure muted"></div>
+            </div>
+            <div class="inactive-total" hidden>
+              <div class="label">Inactive yearly</div>
+              <div id="subs-inactive-yearly" class="figure muted"></div>
+            </div>
+          </div>
+          <p class="hint">Yearly is yearly subscriptions plus twelve months of monthly ones.</p>
+        </section>
+
+        <section class="panel">
+          <table class="table clickable">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Billing</th>
+                <th>Payment method</th>
+                <th class="num">Amount</th>
+                <th id="subs-base-heading" class="num">In base</th>
+              </tr>
+            </thead>
+            <tbody id="subs-rows"></tbody>
+          </table>
+          <p id="subs-empty" class="muted" hidden>No subscriptions found.</p>
+          <p id="subs-hint" class="hint">Click a subscription to edit or delete it.</p>
         </section>
       </section>
 
@@ -213,13 +335,134 @@
     </div>
   </dialog>
 
-  <dialog id="delete-dialog" class="dialog">
-    <h2 class="dialog-title">Delete account?</h2>
-    <p id="delete-message"></p>
+  <dialog id="cashflow-dialog" class="dialog">
+    <form id="cashflow-form" class="form" novalidate>
+      <h2 id="cashflow-title" class="dialog-title"></h2>
+      <p id="cashflow-no-categories" class="negative" hidden></p>
+      <label class="field">
+        <span class="field-label">Date</span>
+        <input type="date" name="date">
+      </label>
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">Amount</span>
+          <input name="amount" inputmode="decimal" maxlength="24" placeholder="1000.00" autocomplete="off" autofocus>
+        </label>
+        <label class="field">
+          <span class="field-label">Currency</span>
+          <select name="currency"></select>
+        </label>
+      </div>
+      <label class="field">
+        <span class="field-label">Category</span>
+        <select name="category"></select>
+      </label>
+      <label class="field">
+        <span class="field-label">Account (optional)</span>
+        <select name="account"></select>
+      </label>
+      <label class="field">
+        <span class="field-label">Comment</span>
+        <input name="comment" maxlength="140" placeholder="optional comment" autocomplete="off">
+      </label>
+      <p class="form-error negative" hidden></p>
+      <div class="dialog-actions">
+        <button type="button" class="button" data-close>Cancel</button>
+        <button type="submit" class="button button-primary">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="subscription-add-dialog" class="dialog">
+    <form id="subscription-add-form" class="form" novalidate>
+      <h2 class="dialog-title">Add subscription</h2>
+      <label class="field">
+        <span class="field-label">Name</span>
+        <input name="name" maxlength="80" placeholder="GitHub" autocomplete="off" autofocus>
+      </label>
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">Amount</span>
+          <input name="amount" inputmode="decimal" maxlength="24" placeholder="9.99" autocomplete="off">
+        </label>
+        <label class="field">
+          <span class="field-label">Currency</span>
+          <select name="currency"></select>
+        </label>
+      </div>
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">Period</span>
+          <select name="period"></select>
+        </label>
+        <label class="field" data-period="month">
+          <span class="field-label">Payment day (optional)</span>
+          <input name="paymentDay" type="number" min="1" max="31" step="1" placeholder="18">
+        </label>
+        <label class="field" data-period="year" hidden>
+          <span class="field-label">Payment date (optional)</span>
+          <input name="paymentDate" type="date">
+        </label>
+      </div>
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">Payment method</span>
+          <input name="paymentMethod" list="payment-methods" maxlength="80" autocomplete="off">
+        </label>
+        <label class="field">
+          <span class="field-label">Type</span>
+          <select name="type"></select>
+        </label>
+      </div>
+      <label class="check">
+        <input type="checkbox" name="isActive" checked>
+        <span>Active</span>
+      </label>
+      <p class="form-error negative" hidden></p>
+      <div class="dialog-actions">
+        <button type="button" class="button" data-close>Cancel</button>
+        <button type="submit" class="button button-primary">Save subscription</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="subscription-edit-dialog" class="dialog">
+    <form id="subscription-edit-form" class="form" novalidate>
+      <h2 id="subscription-title" class="dialog-title"></h2>
+      <p id="subscription-subtitle" class="muted"></p>
+      <label class="field">
+        <span class="field-label">Amount</span>
+        <input name="amount" inputmode="decimal" maxlength="24" placeholder="9.99" autocomplete="off" autofocus>
+      </label>
+      <label class="field">
+        <span class="field-label">Payment method</span>
+        <input name="paymentMethod" list="payment-methods" maxlength="80" autocomplete="off">
+      </label>
+      <label class="check">
+        <input type="checkbox" name="isActive">
+        <span>Active</span>
+      </label>
+      <p class="hint">Name, type, period and payment day can't be changed after creation.</p>
+      <p class="form-error negative" hidden></p>
+      <div class="dialog-actions spread">
+        <button id="subscription-delete" type="button" class="button button-danger">Delete subscription</button>
+        <span class="dialog-actions-group">
+          <button type="button" class="button" data-close>Cancel</button>
+          <button type="submit" class="button button-primary">Save</button>
+        </span>
+      </div>
+    </form>
+  </dialog>
+
+  <datalist id="payment-methods"></datalist>
+
+  <dialog id="confirm-dialog" class="dialog">
+    <h2 id="confirm-title" class="dialog-title"></h2>
+    <p id="confirm-message"></p>
     <p class="form-error negative" hidden></p>
     <div class="dialog-actions">
       <button type="button" class="button" data-close autofocus>Cancel</button>
-      <button id="confirm-delete" type="button" class="button button-danger">Delete</button>
+      <button id="confirm-ok" type="button" class="button button-danger">Delete</button>
     </div>
   </dialog>
 

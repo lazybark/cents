@@ -272,31 +272,7 @@ func currencySelectionOptions(settings settings.AppSettings) []string {
 }
 
 func paymentMethodSelectionOptions(settings settings.AppSettings) []string {
-	if len(settings.PaymentMethods) == 0 {
-		return []string{"Other"}
-	}
-
-	options := make([]string, 0, len(settings.PaymentMethods))
-	for _, method := range settings.PaymentMethods {
-		name := strings.TrimSpace(method.PaymentMethodName)
-		if name == "" {
-			continue
-		}
-
-		if method.IsDefault {
-			options = append([]string{name}, options...)
-
-			continue
-		}
-
-		options = append(options, name)
-	}
-
-	if len(options) == 0 {
-		return []string{"Other"}
-	}
-
-	return options
+	return settings.PaymentMethodOptions()
 }
 
 func databaseStatus(created bool, count int, dbPath string) string {

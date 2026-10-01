@@ -2,8 +2,6 @@ package app
 
 import (
 	"errors"
-	"fmt"
-	"strconv"
 	"strings"
 	"time"
 
@@ -22,37 +20,6 @@ func parseOptionalAmountCents(raw string) (int64, error) {
 	}
 
 	return parseAmountCents(trimmed)
-}
-
-func parseOptionalDay(raw string, minValue int, maxValue int, label string) (*int, error) {
-	trimmed := strings.TrimSpace(raw)
-	if trimmed == "" {
-		return nil, nil
-	}
-
-	value, err := strconv.Atoi(trimmed)
-	if err != nil {
-		return nil, errors.New(label + " day must be an integer")
-	}
-
-	if value < minValue || value > maxValue {
-		return nil, fmt.Errorf("%s day must be between %d and %d", label, minValue, maxValue)
-	}
-
-	return &value, nil
-}
-
-func parseOptionalDate(raw string) (string, error) {
-	trimmed := strings.TrimSpace(raw)
-	if trimmed == "" {
-		return "", nil
-	}
-
-	if _, err := time.Parse("02.01.2006", trimmed); err != nil {
-		return "", errors.New("yearly date must use DD.MM.YYYY format")
-	}
-
-	return trimmed, nil
 }
 
 func parseRequiredDate(raw string) (time.Time, error) {

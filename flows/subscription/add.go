@@ -21,9 +21,9 @@ func NewAddSubscriptionForm(currencyOptions []string, paymentMethodOptions []str
 		CurrencyIndex:        0,
 		PaymentMethodOptions: append([]string(nil), paymentMethodOptions...),
 		PaymentMethodIndex:   0,
-		PeriodOptions:        []string{"month", "year"},
+		PeriodOptions:        PeriodOptions(),
 		PeriodIndex:          0,
-		TypeOptions:          []string{"Software", "Domain", "Service", "Multimedia", "Other"},
+		TypeOptions:          TypeOptions(),
 		TypeIndex:            0,
 		IsActive:             true,
 	}

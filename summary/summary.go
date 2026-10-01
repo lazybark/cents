@@ -57,7 +57,7 @@ func Compute(data Data, month time.Time) Summary {
 	stts := data.Settings
 	var result Summary
 
-	income, expense := monthlyCashflow(data.Cashflows, stts, month)
+	income, expense, _ := cashflow.Totals(cashflow.ForMonth(data.Cashflows, month), stts)
 	result.MonthlyNetCents = income - expense
 
 	active := make([]subscription.Subscription, 0, len(data.Subscriptions))
@@ -114,28 +114,4 @@ func Compute(data Data, month time.Time) Summary {
 	result.GoalsAccumulatedCents, result.GoalsTargetCents = goal.ProgressInBaseCents(data.Goals, stts)
 
 	return result
-}
-
-func monthlyCashflow(entries []cashflow.CashflowEntry, stts settings.AppSettings, month time.Time) (income int64, expense int64) {
-	month = month.Local()
-
-	for _, entry := range entries {
-		day := entry.EntryDate.Local()
-		if day.Year() != month.Year() || day.Month() != month.Month() {
-			continue
-		}
-
-		amountBase, ok := stts.ConvertToBaseCents(entry.Currency, entry.AmountCents)
-		if !ok {
-			continue
-		}
-
-		if entry.IsIncome {
-			income += amountBase
-		} else {
-			expense += amountBase
-		}
-	}
-
-	return income, expense
 }

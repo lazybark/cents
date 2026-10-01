@@ -2,8 +2,12 @@
 // offers (add, update amount, value history, delete).
 import { api } from "../api.js";
 import {
+  badge,
   busy,
   cell,
+  clickableRow,
+  confirmDelete,
+  fillSelect,
   formatAmount,
   formatMoney,
   formatUpdatedAt,
@@ -40,10 +44,6 @@ const el = {
   logs: $("logs"),
   logsEmpty: $("logs-empty"),
   deleteAccount: $("delete-account"),
-
-  deleteDialog: $("delete-dialog"),
-  deleteMessage: $("delete-message"),
-  confirmDelete: $("confirm-delete"),
 };
 
 const state = {
@@ -66,7 +66,6 @@ export function init() {
   el.amountForm.addEventListener("submit", saveAmount);
   el.logForm.addEventListener("submit", saveLog);
   el.deleteAccount.addEventListener("click", askDelete);
-  el.confirmDelete.addEventListener("click", confirmDelete);
 }
 
 // show reloads the accounts; message replaces the default status line.
@@ -152,18 +151,12 @@ function renderAccounts(overview) {
 
   for (const acct of overview.accounts) {
     const row = document.createElement("tr");
-    row.tabIndex = 0;
     if (acct.ignoreInSummaries) row.className = "ignored";
 
     const name = document.createElement("div");
     name.className = "account-name";
     name.textContent = acct.name;
-    if (acct.ignoreInSummaries) {
-      const badge = document.createElement("span");
-      badge.className = "badge";
-      badge.textContent = "ignored";
-      name.append(badge);
-    }
+    if (acct.ignoreInSummaries) name.append(badge("ignored"));
 
     const description = document.createElement("div");
     description.className = "account-description";
@@ -182,14 +175,7 @@ function renderAccounts(overview) {
       cell(formatUpdatedAt(acct.lastUpdatedAt)),
     );
 
-    row.addEventListener("click", () => openAccount(acct));
-    row.addEventListener("keydown", (event) => {
-      if (event.key === "Enter" || event.key === " ") {
-        event.preventDefault();
-        openAccount(acct);
-      }
-    });
-
+    clickableRow(row, () => openAccount(acct));
     el.accounts.append(row);
   }
 }
@@ -201,7 +187,7 @@ function openAddAccount() {
   const currencies = state.overview?.currencies ?? [];
 
   form.reset();
-  form.elements.currency.replaceChildren(...currencies.map((name) => new Option(name, name)));
+  fillSelect(form.elements.currency, currencies);
   formError(form, "");
   el.addDialog.showModal();
 }
@@ -312,20 +298,11 @@ async function saveLog(event) {
 // --- delete ----------------------------------------------------------------
 
 function askDelete() {
-  el.deleteMessage.textContent = `“${state.current.name}” and its value history will be deleted. This can't be undone.`;
-  formError(el.deleteDialog, "");
-  el.deleteDialog.showModal();
-}
-
-async function confirmDelete() {
   const acct = state.current;
 
-  try {
-    await busy(el.deleteDialog, () => api.DeleteAccount(acct.id));
-    el.deleteDialog.close();
+  confirmDelete("Delete account?", `“${acct.name}” and its value history will be deleted. This can't be undone.`, async () => {
+    await api.DeleteAccount(acct.id);
     el.accountDialog.close();
     await show(`deleted account ${acct.name}`);
-  } catch (err) {
-    formError(el.deleteDialog, String(err));
-  }
+  });
 }

@@ -302,3 +302,15 @@ func matchOption(options []string, value string) (string, bool) {
 
 	return "", false
 }
+
+// accountNames lists account names for pickers, skipping blank ones.
+func accountNames(accounts []account.Account) []string {
+	names := make([]string, 0, len(accounts))
+	for _, acct := range accounts {
+		if name := strings.TrimSpace(acct.Name); name != "" {
+			names = append(names, name)
+		}
+	}
+
+	return names
+}

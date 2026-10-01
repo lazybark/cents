@@ -3,10 +3,12 @@
 import { api } from "./api.js";
 import { busy, setDBPath } from "./ui.js";
 import * as accounts from "./views/accounts.js";
+import * as cashflow from "./views/cashflow.js";
 import * as overview from "./views/overview.js";
 import * as settings from "./views/settings.js";
+import * as subscriptions from "./views/subscriptions.js";
 
-const views = { overview, accounts, settings };
+const views = { overview, accounts, cashflow, subscriptions, settings };
 const DEFAULT_VIEW = "overview";
 
 const $ = (id) => document.getElementById(id);
@@ -21,7 +23,8 @@ const el = {
   app: $("app"),
   viewTitle: $("view-title"),
   refresh: $("refresh"),
-  addAccount: $("add-account"),
+  // Toolbar buttons that belong to one view, named by data-for.
+  viewActions: document.querySelectorAll(".toolbar [data-for]"),
   navItems: document.querySelectorAll(".nav-item"),
 };
 
@@ -74,7 +77,7 @@ function navigate(name) {
   }
 
   el.viewTitle.textContent = views[current].title;
-  el.addAccount.hidden = current !== "accounts";
+  for (const action of el.viewActions) action.hidden = action.dataset.for !== current;
   refresh();
 }
 

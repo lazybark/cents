@@ -18,29 +18,11 @@ const (
 )
 
 func incomeCategorySelectionOptions(settings settings.AppSettings) []string {
-	items := make([]string, 0, len(settings.IncomeCategories))
-
-	for _, category := range settings.IncomeCategories {
-		name := strings.TrimSpace(category.CategoryName)
-		if name != "" {
-			items = append(items, name)
-		}
-	}
-
-	return items
+	return settings.IncomeCategoryOptions()
 }
 
 func expenseCategorySelectionOptions(settings settings.AppSettings) []string {
-	items := make([]string, 0, len(settings.ExpenseCategories))
-
-	for _, category := range settings.ExpenseCategories {
-		name := strings.TrimSpace(category.CategoryName)
-		if name != "" {
-			items = append(items, name)
-		}
-	}
-
-	return items
+	return settings.ExpenseCategoryOptions()
 }
 
 func accountSelectionOptions(accounts []account.Account) []string {
