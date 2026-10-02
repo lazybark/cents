@@ -98,3 +98,29 @@ func TestOlderCategoriesAreNotArchived(t *testing.T) {
 		t.Fatalf("older categories should load as not archived: %+v %v", stts.IncomeCategories, err)
 	}
 }
+
+func TestOlderAccountsAreNotArchived(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "cents.db")
+	db, _, err := OpenDatabase(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, stmt := range []string{
+		"INSERT INTO accounts (name, description, currency, balance_cents) VALUES ('Checking', 'main', '$', 100)",
+		"ALTER TABLE accounts DROP COLUMN archived",
+	} {
+		if err := db.Exec(stmt).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if db, _, err = OpenDatabase(path); err != nil {
+		t.Fatal(err)
+	}
+
+	accounts, err := NewSQLiteStorage(db).LoadAccounts()
+	if err != nil || len(accounts) != 1 || accounts[0].Archived {
+		t.Fatalf("older accounts should load as not archived: %+v %v", accounts, err)
+	}
+}

@@ -25,18 +25,10 @@ func expenseCategorySelectionOptions(settings settings.AppSettings) []string {
 	return settings.ExpenseCategoryOptions()
 }
 
+// accountSelectionOptions are "" (no account) and the accounts new records
+// can pick; archived ones are left out.
 func accountSelectionOptions(accounts []account.Account) []string {
-	items := make([]string, 0, len(accounts)+1)
-	items = append(items, "")
-
-	for _, acct := range accounts {
-		name := strings.TrimSpace(acct.Name)
-		if name != "" {
-			items = append(items, name)
-		}
-	}
-
-	return items
+	return append([]string{""}, account.PickerNames(accounts)...)
 }
 
 func cashflowAccountDisplayOptions(accountOptions []string) []string {

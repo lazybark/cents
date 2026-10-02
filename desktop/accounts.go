@@ -24,6 +24,7 @@ type AccountRow struct {
 	BaseCents         int64     `json:"baseCents"`
 	HasRate           bool      `json:"hasRate"`
 	IgnoreInSummaries bool      `json:"ignoreInSummaries"`
+	Archived          bool      `json:"archived"`
 	LastUpdatedAt     time.Time `json:"lastUpdatedAt"`
 }
 
@@ -60,6 +61,8 @@ type AmountUpdateInput struct {
 	Amount            string `json:"amount"`
 	IgnoreInSummaries bool   `json:"ignoreInSummaries"`
 	UpdateLog         bool   `json:"updateLog"`
+	// Archived keeps the account out of the pickers for new records.
+	Archived bool `json:"archived"`
 }
 
 type AmountUpdateResult struct {
@@ -103,7 +106,8 @@ func (a *API) Accounts(sort int) (AccountsOverview, error) {
 		sort = int(account.SortBaseAmount)
 	}
 
-	accounts = account.Sort(accounts, stts, account.SortField(sort))
+	// Archived accounts go after the others, in the same order.
+	accounts = account.ArchivedLast(account.Sort(accounts, stts, account.SortField(sort)))
 
 	result := AccountsOverview{
 		BaseCurrency: stts.BaseCurrencyLabel(),
@@ -139,6 +143,7 @@ func (a *API) Accounts(sort int) (AccountsOverview, error) {
 			BaseCents:         baseCents,
 			HasRate:           ok,
 			IgnoreInSummaries: acct.IgnoreInSummaries,
+			Archived:          acct.Archived,
 			LastUpdatedAt:     acct.LastUpdatedAt,
 		})
 	}
@@ -194,6 +199,10 @@ func (a *API) UpdateAccountAmount(input AmountUpdateInput) (AmountUpdateResult, 
 	now := time.Now()
 	if err := storage.UpdateAccountAmount(input.ID, amount, input.IgnoreInSummaries, now); err != nil {
 		return AmountUpdateResult{}, fmt.Errorf("update failed: %w", err)
+	}
+
+	if err := storage.SetAccountArchived(input.ID, input.Archived); err != nil {
+		return AmountUpdateResult{}, err
 	}
 
 	var result AmountUpdateResult
@@ -355,14 +364,8 @@ func matchOption(options []string, value string) (string, bool) {
 	return "", false
 }
 
-// accountNames lists account names for pickers, skipping blank ones.
+// accountNames lists account names for pickers, skipping blank and
+// archived ones.
 func accountNames(accounts []account.Account) []string {
-	names := make([]string, 0, len(accounts))
-	for _, acct := range accounts {
-		if name := strings.TrimSpace(acct.Name); name != "" {
-			names = append(names, name)
-		}
-	}
-
-	return names
+	return account.PickerNames(accounts)
 }

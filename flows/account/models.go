@@ -16,6 +16,9 @@ type Account struct {
 	BalanceCents      int64
 	LeftoverCents     int64
 	IgnoreInSummaries bool
+	// Archived accounts (closed, or kept only for their history) aren't
+	// offered when picking an account for new records.
+	Archived bool `gorm:"not null;default:false"`
 }
 
 type AccountValueLog struct {

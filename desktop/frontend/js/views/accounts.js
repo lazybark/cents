@@ -156,12 +156,13 @@ function renderAccounts(overview) {
 
   for (const acct of overview.accounts) {
     const row = document.createElement("tr");
-    if (acct.ignoreInSummaries) row.className = "ignored";
+    if (acct.ignoreInSummaries || acct.archived) row.className = "ignored";
 
     const name = document.createElement("div");
     name.className = "account-name";
     name.textContent = acct.name;
     if (acct.ignoreInSummaries) name.append(badge("ignored"));
+    if (acct.archived) name.append(badge("archived"));
 
     const description = document.createElement("div");
     description.className = "account-description";
@@ -231,6 +232,7 @@ function openAccount(acct) {
   amount.amount.value = formatAmount(acct.balanceCents);
   amount.updateLog.checked = false;
   amount.ignoreInSummaries.checked = acct.ignoreInSummaries;
+  amount.archived.checked = acct.archived;
   formError(el.amountForm, "");
 
   const log = el.logForm.elements;
@@ -361,6 +363,7 @@ async function saveAmount(event) {
     amount: form.amount.value,
     ignoreInSummaries: form.ignoreInSummaries.checked,
     updateLog: form.updateLog.checked,
+    archived: form.archived.checked,
   };
 
   try {
@@ -368,7 +371,8 @@ async function saveAmount(event) {
     el.accountDialog.close();
 
     const warning = result.warning ? ` (${result.warning})` : "";
-    await show(`updated amount for ${acct.name}${warning}`);
+    const action = input.archived === acct.archived ? "updated amount for" : input.archived ? "archived" : "unarchived";
+    await show(`${action} ${acct.name}${warning}`);
   } catch (err) {
     formError(el.amountForm, String(err));
   }

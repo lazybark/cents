@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/lazybark/cents/flows/account"
 	storage "github.com/lazybark/cents/storage/sqlite"
 )
 
@@ -120,5 +121,12 @@ func TestEditingACategoryKeepsItArchived(t *testing.T) {
 	stts, err := m.storage.LoadAppSettings()
 	if err != nil || len(stts.ExpenseCategories) != 1 || stts.ExpenseCategories[0].CategoryName != "Cars" || !stts.ExpenseCategories[0].Archived || !stts.ExpenseCategories[0].CreatedAt.Equal(car.CreatedAt) {
 		t.Fatalf("renaming should keep the category archived and its creation time: %+v %v", stts.ExpenseCategories, err)
+	}
+}
+
+func TestArchivedAccountsLeaveTUIPickers(t *testing.T) {
+	got := accountSelectionOptions([]account.Account{{Name: "Checking"}, {Name: "Old", Archived: true}})
+	if len(got) != 2 || got[0] != "" || got[1] != "Checking" {
+		t.Fatalf("unexpected options %v", got)
 	}
 }

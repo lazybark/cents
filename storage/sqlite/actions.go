@@ -115,6 +115,15 @@ func (s *SQLiteStorage) UpdateAccountAmount(id uint, amountCents int64, ignoreIn
 	}).Error
 }
 
+// SetAccountArchived archives an account or brings it back.
+func (s *SQLiteStorage) SetAccountArchived(id uint, archived bool) error {
+	if err := s.db.Model(&account.Account{}).Where("id = ?", id).Update("archived", archived).Error; err != nil {
+		return fmt.Errorf("failed to archive account: %w", err)
+	}
+
+	return nil
+}
+
 func (s *SQLiteStorage) DeleteAccount(id uint) error {
 	if err := s.db.Where("account_id = ?", id).Delete(&account.AccountValueLog{}).Error; err != nil {
 		return fmt.Errorf("failed to delete account value logs: %w", err)

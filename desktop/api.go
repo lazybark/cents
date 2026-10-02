@@ -40,6 +40,7 @@ type StorageWorker interface {
 	CreateAccount(entry *account.Account) error
 	UpdateAccountAmount(id uint, amountCents int64, ignoreInSummaries bool, updatedAt time.Time) error
 	DeleteAccount(id uint) error
+	SetAccountArchived(id uint, archived bool) error
 	LoadAccountValueLogs(accountID uint) ([]account.AccountValueLog, error)
 	UpsertAccountValueLog(accountID uint, day time.Time, valueCents int64) error
 	DeleteAccountValueLog(accountID uint, logID uint) error

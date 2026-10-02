@@ -87,3 +87,36 @@ func TestArchivedCategory(t *testing.T) {
 		t.Fatalf("unarchived category should count again: %+v", stats)
 	}
 }
+
+func TestArchivedAccount(t *testing.T) {
+	api := newTestAPI(t)
+	old := mustCreate(t, api, NewAccountInput{Name: "Old card", Description: "closed", Currency: "$", Amount: "0"})
+	mustCreate(t, api, NewAccountInput{Name: "Checking", Description: "main", Currency: "$", Amount: "100"})
+
+	if _, err := api.UpdateAccountAmount(AmountUpdateInput{ID: old.ID, Amount: "0", Archived: true}); err != nil {
+		t.Fatal(err)
+	}
+
+	overview, err := api.Accounts(0)
+	if err != nil || len(overview.Accounts) != 2 || overview.Accounts[1].Name != "Old card" || !overview.Accounts[1].Archived || overview.Accounts[0].Archived {
+		t.Fatalf("archived account should stay listed, last: %+v %v", overview.Accounts, err)
+	}
+
+	month, _ := api.CashflowMonth("")
+	invoices, _ := api.Invoices("outgoing")
+	if len(month.Options.Accounts) != 1 || month.Options.Accounts[0] != "Checking" || len(invoices.Accounts) != 1 {
+		t.Fatalf("archived account offered in pickers: %+v %+v", month.Options.Accounts, invoices.Accounts)
+	}
+
+	if _, err := api.CreateCashflow(NewCashflowInput{Currency: "$", Amount: "1", Date: "2026-03-01", Category: "Rent", Account: "old card"}); err == nil || err.Error() != `account "Old card" is archived` {
+		t.Fatalf("expected archived account error, got %v", err)
+	}
+
+	if _, err := api.UpdateAccountAmount(AmountUpdateInput{ID: old.ID, Amount: "0"}); err != nil {
+		t.Fatal(err)
+	}
+
+	if month, _ := api.CashflowMonth(""); len(month.Options.Accounts) != 2 {
+		t.Fatalf("unarchived account should be offered again: %+v", month.Options.Accounts)
+	}
+}

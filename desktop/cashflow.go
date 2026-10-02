@@ -253,6 +253,12 @@ func (a *API) CreateCashflow(input NewCashflowInput) (NewCashflowResult, error) 
 	accountName := strings.TrimSpace(input.Account)
 	if accountName != "" {
 		if accountName, ok = matchOption(accountNames(accounts), accountName); !ok {
+			for _, acct := range accounts {
+				if acct.Archived && strings.EqualFold(strings.TrimSpace(acct.Name), strings.TrimSpace(input.Account)) {
+					return NewCashflowResult{}, fmt.Errorf("account %q is archived", acct.Name)
+				}
+			}
+
 			return NewCashflowResult{}, fmt.Errorf("unknown account %q", input.Account)
 		}
 	}
