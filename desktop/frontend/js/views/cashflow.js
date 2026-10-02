@@ -12,6 +12,7 @@ import {
   clickableRow,
   confirmDelete,
   fillSelect,
+  formatAmount,
   formatMoney,
   formError,
   localDate,
@@ -76,6 +77,7 @@ const el = {
   form: $("cashflow-form"),
   formTitle: $("cashflow-title"),
   noCategories: $("cashflow-no-categories"),
+  kindField: $("cashflow-kind-field"),
 
   rateDialog: $("cashflow-rate-dialog"),
   rateForm: $("cashflow-rate-form"),
@@ -166,6 +168,8 @@ const state = {
   baseCurrency: "",
   // The entry whose rate is being set.
   rated: null,
+  // The entry open in the dialog for editing, or null when adding one.
+  editing: null,
 };
 
 export const title = "Incomes & expenses";
@@ -184,7 +188,8 @@ export function init() {
   el.addIncome.addEventListener("click", () => openAdd(true));
   el.addExpense.addEventListener("click", () => openAdd(false));
   el.form.addEventListener("submit", save);
-  el.form.elements.currency.addEventListener("change", () => syncRate(el.form, state.options.rates));
+  el.form.elements.currency.addEventListener("change", currencyPicked);
+  el.form.elements.kind.addEventListener("change", () => fillCategories(el.form.elements.kind.value === "income"));
   el.rateForm.addEventListener("submit", saveRate);
   el.statsRange.addEventListener("change", () => show());
   el.statsArchived.addEventListener("change", () => show());
@@ -285,6 +290,7 @@ function entryRow(entry, baseCurrency) {
   const actions = document.createElement("span");
   actions.className = "nowrap";
   // Base currency entries always use rate 1, so there's nothing to set.
+  actions.append(rowAction("Edit", () => openEdit(entry)));
   if (!entry.isBase) actions.append(rowAction("Rate", () => openRate(entry)));
   actions.append(rowAction("Delete", () => askDelete(entry)));
 
@@ -474,37 +480,108 @@ async function loadStats() {
   );
 }
 
-// --- add -------------------------------------------------------------------
+// --- add and edit ----------------------------------------------------------
 
-async function openAdd(isIncome) {
-  if (!state.options) {
-    try {
-      state.options = (await api.CashflowMonth("")).options;
-    } catch (err) {
-      setStatus(`Failed to load form options: ${err}`);
-      return;
-    }
+async function loadOptions() {
+  if (state.options) return true;
+
+  try {
+    state.options = (await api.CashflowMonth("")).options;
+    return true;
+  } catch (err) {
+    setStatus(`Failed to load form options: ${err}`);
+    return false;
   }
+}
 
+// withKept lists values with kept added when it isn't one of them, for an
+// edited entry that keeps something no longer offered (an archived
+// category, say).
+function withKept(values, kept) {
+  if (!kept || values.some((v) => v.toLowerCase() === kept.toLowerCase())) return values;
+  return [...values, kept];
+}
+
+// fillCategories offers the categories of the chosen kind; an edited entry
+// keeps its own while it stays that kind.
+function fillCategories(isIncome) {
   const form = el.form;
   const options = state.options;
-  const categories = isIncome ? options.incomeCategories : options.expenseCategories;
-  const kind = isIncome ? "income" : "expense";
+  const editing = state.editing;
+  const kept = editing && editing.isIncome === isIncome ? editing.category : "";
+  const categories = withKept(isIncome ? options.incomeCategories : options.expenseCategories, kept);
+  const labels = categories.map((c) => (c === kept && editing.categoryArchived ? `${c} (archived)` : c));
 
-  state.isIncome = isIncome;
-  form.reset();
-  el.formTitle.textContent = isIncome ? "Add income" : "Add expense";
-  fillSelect(form.elements.currency, options.currencies);
-  fillSelect(form.elements.category, categories);
-  fillSelect(form.elements.account, ["", ...options.accounts], ["— none —", ...options.accounts]);
-  form.elements.date.value = localDate(new Date());
-  syncRate(form, options.rates);
+  fillSelect(form.elements.category, categories, labels);
+  if (kept) form.elements.category.value = kept;
 
   // An entry needs a category, so say where to add one up front.
   const missing = categories.length === 0;
   el.noCategories.hidden = !missing;
-  el.noCategories.textContent = `No ${kind} categories yet. Add one in Settings first.`;
+  el.noCategories.textContent = `No ${isIncome ? "income" : "expense"} categories yet. Add one in Settings first.`;
   form.querySelector('[type="submit"]').disabled = missing;
+}
+
+// currencyPicked shows the rate for the picked currency: an edited entry's
+// own while it stays in its currency, else the one in settings now.
+function currencyPicked() {
+  const editing = state.editing;
+  const currency = el.form.elements.currency.value;
+
+  if (editing && currency.toLowerCase() === editing.currency.toLowerCase()) {
+    showRate(el.form, state.baseCurrency, currency, editing.rateToBase, editing.isBase);
+    return;
+  }
+
+  syncRate(el.form, state.options.rates);
+}
+
+async function openAdd(isIncome) {
+  if (!(await loadOptions())) return;
+
+  const form = el.form;
+  const options = state.options;
+
+  state.editing = null;
+  state.isIncome = isIncome;
+  form.reset();
+  el.formTitle.textContent = isIncome ? "Add income" : "Add expense";
+  el.kindField.hidden = true;
+  fillSelect(form.elements.currency, options.currencies);
+  fillCategories(isIncome);
+  fillSelect(form.elements.account, ["", ...options.accounts], ["— none —", ...options.accounts]);
+  form.elements.date.value = localDate(new Date());
+  syncRate(form, options.rates);
+
+  formError(form, "");
+  el.dialog.showModal();
+}
+
+async function openEdit(entry) {
+  if (!(await loadOptions())) return;
+
+  const form = el.form;
+  const fields = form.elements;
+  const options = state.options;
+
+  state.editing = entry;
+  form.reset();
+  el.formTitle.textContent = entry.isIncome ? "Edit income" : "Edit expense";
+  el.kindField.hidden = false;
+  fields.kind.value = entry.isIncome ? "income" : "expense";
+
+  const currencies = withKept(options.currencies, entry.currency);
+  const accounts = withKept(options.accounts, entry.account);
+  fillSelect(fields.currency, currencies);
+  fillCategories(entry.isIncome);
+  fillSelect(fields.account, ["", ...accounts], ["— none —", ...accounts]);
+
+  fields.date.value = entry.date;
+  fields.amount.value = formatAmount(entry.amountCents);
+  fields.currency.value = currencies.find((c) => c.toLowerCase() === entry.currency.toLowerCase()) ?? entry.currency;
+  fields.account.value = entry.account;
+  fields.comment.value = entry.comment;
+  currencyPicked();
 
   formError(form, "");
   el.dialog.showModal();
@@ -513,8 +590,10 @@ async function openAdd(isIncome) {
 async function save(event) {
   event.preventDefault();
   const form = el.form.elements;
+  const editing = state.editing;
+  const isIncome = editing ? form.kind.value === "income" : state.isIncome;
   const input = {
-    isIncome: state.isIncome,
+    isIncome,
     currency: form.currency.value,
     rate: rateInput(el.form),
     amount: form.amount.value,
@@ -524,12 +603,20 @@ async function save(event) {
     comment: form.comment.value,
   };
 
+  // The rate is shown rounded; sent back untouched, it would round the
+  // recorded one. Left empty, the recorded rate is kept.
+  if (editing && input.currency.toLowerCase() === editing.currency.toLowerCase() && input.rate === rateText(editing.rateToBase)) {
+    input.rate = "";
+  }
+
   try {
-    const result = await busy(el.form, () => api.CreateCashflow(input));
+    const result = await busy(el.form, () => (editing ? api.UpdateCashflow({ id: editing.id, ...input }) : api.CreateCashflow(input)));
     el.dialog.close();
+    state.editing = null;
     state.month = result.month;
     state.tab = "month";
-    await show(input.isIncome ? "saved income" : "saved expense");
+    const kind = isIncome ? "income" : "expense";
+    await show(editing ? `updated ${kind}` : `saved ${kind}`);
   } catch (err) {
     formError(el.form, String(err));
   }

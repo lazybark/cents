@@ -218,14 +218,47 @@ func (a *API) cashflowOverview(includeArchived bool) (CashflowOverview, error) {
 }
 
 func (a *API) CreateCashflow(input NewCashflowInput) (NewCashflowResult, error) {
+	return a.saveCashflow(input, nil)
+}
+
+// CashflowUpdateInput changes the entry with ID to the values given, like
+// a new entry's.
+type CashflowUpdateInput struct {
+	ID uint `json:"id"`
+	NewCashflowInput
+}
+
+// UpdateCashflow changes an income or expense. Its own category, account
+// and currency stay valid while they're kept, even if they were archived
+// or removed from settings since; its recorded rate is kept too unless the
+// currency changes or another rate is typed. It returns the entry's month,
+// which may have changed.
+func (a *API) UpdateCashflow(input CashflowUpdateInput) (NewCashflowResult, error) {
 	storage, err := a.currentStorage()
 	if err != nil {
 		return NewCashflowResult{}, err
 	}
 
-	stts, err := storage.LoadAppSettings()
+	entries, err := storage.LoadCashflows()
 	if err != nil {
-		return NewCashflowResult{}, fmt.Errorf("failed to load settings: %w", err)
+		return NewCashflowResult{}, fmt.Errorf("failed to load cashflows: %w", err)
+	}
+
+	for i := range entries {
+		if entries[i].ID == input.ID {
+			return a.saveCashflow(input.NewCashflowInput, &entries[i])
+		}
+	}
+
+	return NewCashflowResult{}, errCashflowNotFound
+}
+
+// saveCashflow creates an entry from input, or with current set, changes
+// that entry.
+func (a *API) saveCashflow(input NewCashflowInput, current *cashflow.CashflowEntry) (NewCashflowResult, error) {
+	storage, stts, err := a.storageAndSettings()
+	if err != nil {
+		return NewCashflowResult{}, err
 	}
 
 	accounts, err := storage.LoadAccounts()
@@ -245,14 +278,24 @@ func (a *API) CreateCashflow(input NewCashflowInput) (NewCashflowResult, error) 
 		return NewCashflowResult{}, errors.New("date must use YYYY-MM-DD format")
 	}
 
-	currency, ok := matchOption(stts.CurrencyOptions(), strings.TrimSpace(input.Currency))
+	// An edited entry may keep values that are no longer offered.
+	currencies := stts.CurrencyOptions()
+	pickable := accountNames(accounts)
+	if current != nil {
+		currencies = append(currencies, current.Currency)
+		if name := strings.TrimSpace(current.AccountName); name != "" {
+			pickable = append(pickable, name)
+		}
+	}
+
+	currency, ok := matchOption(currencies, strings.TrimSpace(input.Currency))
 	if !ok {
 		return NewCashflowResult{}, fmt.Errorf("unknown currency %q: add it in settings first", input.Currency)
 	}
 
 	accountName := strings.TrimSpace(input.Account)
 	if accountName != "" {
-		if accountName, ok = matchOption(accountNames(accounts), accountName); !ok {
+		if accountName, ok = matchOption(pickable, accountName); !ok {
 			for _, acct := range accounts {
 				if acct.Archived && strings.EqualFold(strings.TrimSpace(acct.Name), strings.TrimSpace(input.Account)) {
 					return NewCashflowResult{}, fmt.Errorf("account %q is archived", acct.Name)
@@ -268,18 +311,37 @@ func (a *API) CreateCashflow(input NewCashflowInput) (NewCashflowResult, error) 
 		categories = stts.IncomeCategoryOptions()
 	}
 
-	rate, err := stts.EntryRate(currency, input.Rate)
+	now := time.Now()
+	if current == nil {
+		rate, err := stts.EntryRate(currency, input.Rate)
+		if err != nil {
+			return NewCashflowResult{}, err
+		}
+
+		entry, err := cashflow.New(input.IsIncome, currency, amount, rate, entryDate, input.Category, categories, accountName, input.Comment, now)
+		if err != nil {
+			return NewCashflowResult{}, err
+		}
+
+		if err := storage.CreateCashflow(&entry); err != nil {
+			return NewCashflowResult{}, fmt.Errorf("save failed: %w", err)
+		}
+
+		return NewCashflowResult{Month: cashflow.MonthStart(entry.EntryDate).Format(monthLayout)}, nil
+	}
+
+	rate, err := stts.EditRate(current.Currency, current.RateToBase, currency, input.Rate)
 	if err != nil {
 		return NewCashflowResult{}, err
 	}
 
-	entry, err := cashflow.New(input.IsIncome, currency, amount, rate, entryDate, input.Category, categories, accountName, input.Comment, time.Now())
+	entry, err := current.Edit(input.IsIncome, currency, amount, rate, entryDate, input.Category, categories, accountName, input.Comment, now)
 	if err != nil {
 		return NewCashflowResult{}, err
 	}
 
-	if err := storage.CreateCashflow(&entry); err != nil {
-		return NewCashflowResult{}, fmt.Errorf("save failed: %w", err)
+	if err := storage.SaveCashflows([]cashflow.CashflowEntry{entry}); err != nil {
+		return NewCashflowResult{}, err
 	}
 
 	return NewCashflowResult{Month: cashflow.MonthStart(entry.EntryDate).Format(monthLayout)}, nil

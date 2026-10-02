@@ -2,6 +2,10 @@
 
 ## Plans
 
+
+Add button "add new" when creating a new entry. So all inputs retain their values, new record added and user can instanly add several more records there.
+
+
 - Export to CSV (specific account, expense, history, etc.)
 - Import is the other way around: import via join, replacing existing data where necessary
 - Automatic currency exchange update, with writing down the latest time in config, noting it in the interface and refreshing in case it was outdated

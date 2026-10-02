@@ -27,3 +27,27 @@ func TestNewRefusesArchivedCategories(t *testing.T) {
 		t.Fatalf("expected archived category to be refused, got %v", err)
 	}
 }
+
+func TestEditKeepsItsOwnCategory(t *testing.T) {
+	now := day(2026, 3, 1)
+	entry := CashflowEntry{ID: 7, CreatedAt: day(2026, 1, 1), Category: "Car", Currency: "$", AmountCents: 100}
+
+	edited, err := entry.Edit(false, "$", 250, 1, day(2026, 3, 2), " car ", []string{"Rent"}, "", "fixed", now)
+	if err != nil || edited.ID != 7 || !edited.CreatedAt.Equal(entry.CreatedAt) || edited.Category != "Car" || edited.AmountCents != 250 || edited.Comment != "fixed" {
+		t.Fatalf("keeping an archived category should work: %+v %v", edited, err)
+	}
+
+	if _, err := entry.Edit(false, "$", 250, 1, now, "Boat", []string{"Rent"}, "", "", now); err == nil || err.Error() != `unknown category "Boat"` {
+		t.Fatalf("a new category must be a current one, got %v", err)
+	}
+
+	// Switching to income needs an income category.
+	if _, err := entry.Edit(true, "$", 250, 1, now, "Car", []string{"Salary"}, "", "", now); err == nil {
+		t.Fatal("an expense category isn't an income one")
+	}
+
+	moved, err := entry.Edit(true, "$", 250, 1, now, "Salary", []string{"Salary"}, "", "", now)
+	if err != nil || !moved.IsIncome || moved.Category != "Salary" {
+		t.Fatalf("switching to income: %+v %v", moved, err)
+	}
+}

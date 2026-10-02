@@ -907,6 +907,14 @@
     <form id="cashflow-form" class="form" novalidate>
       <h2 id="cashflow-title" class="dialog-title"></h2>
       <p id="cashflow-no-categories" class="negative" hidden></p>
+      <!-- Only when editing: adding picks the type with its button. -->
+      <label id="cashflow-kind-field" class="field" hidden>
+        <span class="field-label">Type</span>
+        <select name="kind">
+          <option value="expense">Expense</option>
+          <option value="income">Income</option>
+        </select>
+      </label>
       <label class="field">
         <span class="field-label">Date</span>
         <input type="date" name="date">

@@ -60,6 +60,27 @@ func New(isIncome bool, currency string, amountCents int64, rate float64, entryD
 	return entry.withRate(rate), nil
 }
 
+// Edit replaces the entry's values, with the same rules as New. Its own
+// category stays valid while it's kept, even if it's archived or gone
+// from settings now.
+func (e CashflowEntry) Edit(isIncome bool, currency string, amountCents int64, rate float64, entryDate time.Time, category string, categories []string, accountName, comment string, now time.Time) (CashflowEntry, error) {
+	current := strings.TrimSpace(e.Category)
+	if isIncome == e.IsIncome && current != "" && strings.EqualFold(strings.TrimSpace(category), current) {
+		category = current
+		categories = append(append([]string(nil), categories...), current)
+	}
+
+	updated, err := New(isIncome, currency, amountCents, rate, entryDate, category, categories, accountName, comment, now)
+	if err != nil {
+		return CashflowEntry{}, err
+	}
+
+	updated.ID = e.ID
+	updated.CreatedAt = e.CreatedAt
+
+	return updated, nil
+}
+
 // WithRate replaces the entry's rate to the base currency, to fill in or
 // correct the rate it was actually made at.
 func (e CashflowEntry) WithRate(rate float64, now time.Time) (CashflowEntry, error) {
