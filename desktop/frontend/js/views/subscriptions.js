@@ -1,5 +1,7 @@
-// Subscriptions: active or all, with monthly and yearly totals, plus add,
-// edit (amount, payment method, active) and delete, like in the TUI.
+// Subscriptions: any regular payment (software, rent, insurance…), active
+// or all, with monthly and yearly totals. Every field can be edited; a
+// next payment date repeats every period, payments due soon are marked,
+// and one can be marked paid early to show the next.
 import { api } from "../api.js";
 import {
   badge,
@@ -7,10 +9,13 @@ import {
   cell,
   clickableRow,
   confirmDelete,
+  dueText,
   fillSelect,
   formatAmount,
   formatMoney,
   formError,
+  nextPaymentCell,
+  periodLabel,
   setStatus,
 } from "../ui.js";
 
@@ -29,21 +34,22 @@ const el = {
   empty: $("subs-empty"),
   hint: $("subs-hint"),
   paymentMethods: $("payment-methods"),
+  types: $("subscription-types"),
 
-  addDialog: $("subscription-add-dialog"),
-  addForm: $("subscription-add-form"),
-
-  editDialog: $("subscription-edit-dialog"),
-  editForm: $("subscription-edit-form"),
-  editTitle: $("subscription-title"),
-  editSubtitle: $("subscription-subtitle"),
-  editDelete: $("subscription-delete"),
+  dialog: $("subscription-dialog"),
+  form: $("subscription-form"),
+  title: $("subscription-title"),
+  due: $("subscription-due"),
+  dueText: $("subscription-due-text"),
+  paid: $("subscription-paid"),
+  delete: $("subscription-delete"),
 };
 
 const state = {
   // Like the TUI menu, the list starts with active subscriptions.
   mode: "active",
   view: null,
+  // The subscription open in the dialog, or null when adding one.
   current: null,
 };
 
@@ -57,11 +63,10 @@ export function init() {
     });
   }
 
-  el.add.addEventListener("click", openAdd);
-  el.addForm.addEventListener("submit", saveNew);
-  el.addForm.elements.period.addEventListener("change", syncPeriodFields);
-  el.editForm.addEventListener("submit", saveEdit);
-  el.editDelete.addEventListener("click", askDelete);
+  el.add.addEventListener("click", () => openDialog(null));
+  el.form.addEventListener("submit", save);
+  el.paid.addEventListener("click", markPaid);
+  el.delete.addEventListener("click", askDelete);
 }
 
 export async function show(message) {
@@ -71,7 +76,8 @@ export async function show(message) {
     const view = await api.Subscriptions(state.mode);
     state.view = view;
     render(view);
-    setStatus(message ?? `${view.subscriptions.length} ${state.mode === "all" ? "" : "active "}subscription(s)`);
+    const soon = view.subscriptions.filter((s) => s.dueSoon).length;
+    setStatus(message ?? `${view.subscriptions.length} ${state.mode === "all" ? "" : "active "}subscription(s)${soon ? `, ${soon} due soon` : ""}`);
   } catch (err) {
     setStatus(`Failed to load subscriptions: ${err}`);
   }
@@ -90,6 +96,7 @@ function render(view) {
   el.empty.hidden = view.subscriptions.length > 0;
   el.hint.hidden = view.subscriptions.length === 0;
   el.paymentMethods.replaceChildren(...view.options.paymentMethods.map((name) => new Option(name)));
+  el.types.replaceChildren(...view.options.types.map((name) => new Option(name)));
 
   el.rows.replaceChildren(
     ...view.subscriptions.map((sub) => {
@@ -110,104 +117,115 @@ function render(view) {
 
       row.append(
         cell(nameCell),
-        cell(billing(sub), "nowrap"),
+        nextPaymentCell(sub),
+        cell(periodLabel(sub.period)),
         cell(sub.paymentMethod),
         cell(formatMoney(sub.currency, sub.amountCents), "num"),
         cell(sub.hasRate ? money(sub.baseCents) : "no rate", sub.hasRate ? "num" : "num muted"),
       );
-      clickableRow(row, () => openEdit(sub));
+      clickableRow(row, () => openDialog(sub));
 
       return row;
     }),
   );
 }
 
-// billing reads like "Monthly · day 18" or "Yearly · 2026-12-24".
-function billing(sub) {
-  const period = sub.period === "year" ? "Yearly" : sub.period === "month" ? "Monthly" : sub.period;
-  const when = sub.period === "year" ? sub.paymentDate : sub.paymentDay && `day ${sub.paymentDay}`;
+// --- add and edit ----------------------------------------------------------
 
-  return when ? `${period} · ${when}` : period;
-}
-
-// --- add -------------------------------------------------------------------
-
-function openAdd() {
+function openDialog(sub) {
   const options = state.view?.options;
   if (!options) return;
 
-  const form = el.addForm;
+  state.current = sub;
+  const form = el.form;
+  const fields = form.elements;
   form.reset();
-  fillSelect(form.elements.currency, options.currencies);
-  fillSelect(form.elements.period, options.periods, options.periods.map((p) => (p === "year" ? "Yearly" : "Monthly")));
-  fillSelect(form.elements.type, options.types);
-  form.elements.paymentMethod.value = options.paymentMethods[0] ?? "";
-  syncPeriodFields();
+
+  // An edited subscription keeps its currency even if it left settings.
+  const currencies = sub && !options.currencies.includes(sub.currency) ? [...options.currencies, sub.currency] : options.currencies;
+  fillSelect(fields.currency, currencies);
+  fillSelect(fields.period, options.periods, options.periods.map(periodLabel));
+
+  if (sub) {
+    el.title.textContent = sub.name;
+    fields.name.value = sub.name;
+    fields.type.value = sub.type;
+    fields.amount.value = formatAmount(sub.amountCents);
+    fields.currency.value = sub.currency;
+    fields.period.value = sub.period;
+    fields.nextPayment.value = sub.anchor;
+    fields.paymentMethod.value = sub.paymentMethod;
+    fields.isActive.checked = sub.isActive;
+  } else {
+    el.title.textContent = "Add subscription";
+    fields.period.value = "month";
+    fields.paymentMethod.value = options.paymentMethods[0] ?? "";
+  }
+
+  showDue(sub);
+  el.delete.hidden = !sub;
   formError(form, "");
-  el.addDialog.showModal();
+  el.dialog.showModal();
 }
 
-// Only the payment day field matching the period is shown and sent.
-function syncPeriodFields() {
-  const period = el.addForm.elements.period.value;
-  for (const field of el.addForm.querySelectorAll("[data-period]")) field.hidden = field.dataset.period !== period;
+// showDue says when an edited subscription is paid next, with a way to
+// mark that payment paid.
+function showDue(sub) {
+  el.due.hidden = !sub?.nextPayment;
+  if (!sub?.nextPayment) return;
+
+  el.dueText.replaceChildren(`Next payment ${sub.nextPayment}`);
+  const label = badge(dueText(sub.dueInDays));
+  if (sub.dueSoon) label.classList.add("badge-soon");
+  el.dueText.append(label);
 }
 
-async function saveNew(event) {
-  event.preventDefault();
-  const form = el.addForm.elements;
-  const yearly = form.period.value === "year";
-  const input = {
-    name: form.name.value,
-    currency: form.currency.value,
-    amount: form.amount.value,
-    period: form.period.value,
-    paymentMethod: form.paymentMethod.value,
-    type: form.type.value,
-    isActive: form.isActive.checked,
-    paymentDate: yearly ? form.paymentDate.value : "",
-    paymentDay: yearly ? "" : form.paymentDay.value,
+function formInput() {
+  const fields = el.form.elements;
+
+  return {
+    id: state.current?.id ?? 0,
+    name: fields.name.value,
+    type: fields.type.value,
+    currency: fields.currency.value,
+    amount: fields.amount.value,
+    period: fields.period.value,
+    paymentMethod: fields.paymentMethod.value,
+    nextPayment: fields.nextPayment.value,
+    isActive: fields.isActive.checked,
   };
+}
+
+async function save(event) {
+  event.preventDefault();
+  const editing = state.current;
+  const input = formInput();
 
   try {
-    await busy(el.addForm, () => api.CreateSubscription(input));
-    el.addDialog.close();
-    // The TUI shows every subscription after adding one, so a new inactive
-    // one doesn't seem to vanish.
-    state.mode = "all";
-    await show(`saved subscription ${input.name.trim()}`);
+    await busy(el.form, () => (editing ? api.UpdateSubscription(input) : api.CreateSubscription(input)));
+    el.dialog.close();
+    // A new inactive one would vanish from the active list, so like the TUI
+    // every subscription shows after adding one.
+    if (!editing) state.mode = "all";
+    await show(`${editing ? "updated" : "saved"} subscription ${input.name.trim()}`);
   } catch (err) {
-    formError(el.addForm, String(err));
+    formError(el.form, String(err));
   }
 }
 
-// --- edit & delete ---------------------------------------------------------
-
-function openEdit(sub) {
-  state.current = sub;
-  const form = el.editForm.elements;
-
-  el.editTitle.textContent = sub.name;
-  el.editSubtitle.textContent = [sub.type, billing(sub), sub.currency].filter(Boolean).join(" · ");
-  form.amount.value = formatAmount(sub.amountCents);
-  form.paymentMethod.value = sub.paymentMethod;
-  form.isActive.checked = sub.isActive;
-  formError(el.editForm, "");
-  el.editDialog.showModal();
-}
-
-async function saveEdit(event) {
-  event.preventDefault();
+// markPaid marks the next payment paid; the dialog stays open showing the
+// one after it.
+async function markPaid() {
   const sub = state.current;
-  const form = el.editForm.elements;
-  const input = { id: sub.id, amount: form.amount.value, paymentMethod: form.paymentMethod.value, isActive: form.isActive.checked };
 
   try {
-    await busy(el.editForm, () => api.UpdateSubscription(input));
-    el.editDialog.close();
-    await show(`updated subscription ${sub.name}`);
+    const updated = await busy(el.form, () => api.MarkSubscriptionPaid(sub.id));
+    state.current = updated;
+    showDue(updated);
+    formError(el.form, "");
+    await show(`marked ${sub.name} paid; next payment ${updated.nextPayment}`);
   } catch (err) {
-    formError(el.editForm, String(err));
+    formError(el.form, String(err));
   }
 }
 
@@ -216,7 +234,7 @@ function askDelete() {
 
   confirmDelete("Delete subscription?", `“${sub.name}” will be deleted. This can't be undone.`, async () => {
     await api.DeleteSubscription(sub.id);
-    el.editDialog.close();
+    el.dialog.close();
     await show(`deleted subscription ${sub.name}`);
   });
 }

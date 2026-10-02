@@ -1,11 +1,14 @@
 // Overview: the same figures as the TUI home screen, in the base currency.
 import { api } from "../api.js";
-import { formatMoney, loadedStatus, setStatus, signClass } from "../ui.js";
+import { badge, cell, formatMoney, loadedStatus, nextPaymentCell, periodLabel, setStatus, signClass, withBase } from "../ui.js";
 
 const el = {
   netWorth: document.getElementById("net-worth"),
   financial: document.getElementById("financial"),
   obligations: document.getElementById("obligations"),
+  upcoming: document.getElementById("upcoming-rows"),
+  upcomingTable: document.getElementById("upcoming-table"),
+  upcomingEmpty: document.getElementById("upcoming-empty"),
 };
 
 export const title = "Overview";
@@ -47,6 +50,34 @@ function render(o) {
     ["Invoices I owe", money(o.invoicesByMeCents), owed(o.invoicesByMeCents)],
     ["Goals progress", goalsProgress(o, money), "wide", progressBar(o)],
   ]);
+
+  renderUpcoming(o);
+}
+
+// renderUpcoming lists the regular payments due soon, soonest first.
+function renderUpcoming(o) {
+  el.upcomingTable.hidden = o.upcoming.length === 0;
+  el.upcomingEmpty.hidden = o.upcoming.length > 0;
+  el.upcoming.replaceChildren(
+    ...o.upcoming.map((sub) => {
+      const row = document.createElement("tr");
+
+      const name = document.createElement("div");
+      name.className = "account-name";
+      name.textContent = sub.name;
+      name.append(badge(periodLabel(sub.period).toLowerCase()));
+
+      const details = document.createElement("div");
+      details.className = "account-description";
+      details.textContent = [sub.type, sub.paymentMethod].filter(Boolean).join(" · ");
+
+      const nameCell = document.createElement("div");
+      nameCell.append(name, details);
+
+      row.append(cell(nameCell), nextPaymentCell(sub), cell(withBase(sub, sub.amountCents, o.baseCurrency, sub.baseCents), "num"));
+      return row;
+    }),
+  );
 }
 
 function goalsProgress(o, money) {

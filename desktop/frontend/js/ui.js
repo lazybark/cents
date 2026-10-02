@@ -258,3 +258,33 @@ export function withBase(record, cents, baseCurrency, baseCents, format = format
 
   return content;
 }
+
+// --- regular payments ------------------------------------------------------
+
+const PERIOD_LABELS = { week: "Weekly", month: "Monthly", quarter: "Quarterly", year: "Yearly" };
+
+// periodLabel reads like "Monthly".
+export function periodLabel(period) {
+  return PERIOD_LABELS[period] ?? period;
+}
+
+// dueText reads like "today", "tomorrow" or "in 12 days".
+export function dueText(days) {
+  if (days <= 0) return "today";
+  if (days === 1) return "tomorrow";
+  return `in ${days} days`;
+}
+
+// nextPaymentCell shows a subscription's next payment day, with a red "in
+// 3 days" label when it's soon.
+export function nextPaymentCell(sub) {
+  if (!sub.nextPayment) return cell("—", "muted");
+
+  const content = document.createElement("span");
+  content.append(sub.nextPayment);
+  const label = badge(dueText(sub.dueInDays));
+  if (sub.dueSoon) label.classList.add("badge-soon");
+  content.append(label);
+
+  return cell(content, sub.dueSoon ? "nowrap negative" : "nowrap");
+}

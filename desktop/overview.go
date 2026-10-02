@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/lazybark/cents/flows/subscription"
 	"github.com/lazybark/cents/summary"
 )
 
@@ -30,6 +31,9 @@ type Overview struct {
 	GoalsAccumulated int64 `json:"goalsAccumulatedCents"`
 	GoalsTarget      int64 `json:"goalsTargetCents"`
 
+	// Upcoming are the active subscriptions paid soon, soonest first.
+	Upcoming []SubscriptionRow `json:"upcoming"`
+
 	LoadedAt time.Time `json:"loadedAt"`
 }
 
@@ -49,7 +53,13 @@ func (a *API) Overview() (Overview, error) {
 	month := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
 	sum := summary.Compute(data, month)
 
+	upcoming := make([]SubscriptionRow, 0)
+	for _, sub := range subscription.Upcoming(data.Subscriptions, now) {
+		upcoming = append(upcoming, subscriptionRow(sub, data.Settings, now))
+	}
+
 	return Overview{
+		Upcoming:             upcoming,
 		BaseCurrency:         data.Settings.BaseCurrencyLabel(),
 		Month:                month,
 		NetWorth:             sum.NetWorthCents(),

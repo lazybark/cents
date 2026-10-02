@@ -110,6 +110,14 @@
             <dl id="obligations" class="stats"></dl>
           </section>
         </div>
+        <section class="panel">
+          <h3 class="section-title">Coming up</h3>
+          <table id="upcoming-table" class="table">
+            <tbody id="upcoming-rows"></tbody>
+          </table>
+          <p id="upcoming-empty" class="muted" hidden>No regular payments due soon.</p>
+          <p class="hint">Active subscriptions due within 5 days (monthly), 2 days (weekly), 2 weeks (quarterly) or a month (yearly).</p>
+        </section>
       </section>
 
       <section id="view-accounts" class="view" hidden>
@@ -452,7 +460,7 @@
               <div id="subs-inactive-yearly" class="figure muted"></div>
             </div>
           </div>
-          <p class="hint">Yearly is yearly subscriptions plus twelve months of monthly ones.</p>
+          <p class="hint">Monthly counts what's paid every month or week; yearly counts everything over a year (weeks, months, quarters and years).</p>
         </section>
 
         <section class="panel">
@@ -460,7 +468,8 @@
             <thead>
               <tr>
                 <th>Name</th>
-                <th>Billing</th>
+                <th>Next payment</th>
+                <th>Every</th>
                 <th>Payment method</th>
                 <th class="num">Amount</th>
                 <th id="subs-base-heading" class="num">In base</th>
@@ -469,7 +478,7 @@
             <tbody id="subs-rows"></tbody>
           </table>
           <p id="subs-empty" class="muted" hidden>No subscriptions found.</p>
-          <p id="subs-hint" class="hint">Click a subscription to edit or delete it.</p>
+          <p id="subs-hint" class="hint">Click a payment to edit it, mark it paid or delete it. Rent, insurance, utilities: any regular payment fits here.</p>
         </section>
       </section>
 
@@ -957,13 +966,19 @@
     </form>
   </dialog>
 
-  <dialog id="subscription-add-dialog" class="dialog">
-    <form id="subscription-add-form" class="form" novalidate>
-      <h2 class="dialog-title">Add subscription</h2>
-      <label class="field">
-        <span class="field-label">Name</span>
-        <input name="name" maxlength="80" placeholder="GitHub" autocomplete="off" autofocus>
-      </label>
+  <dialog id="subscription-dialog" class="dialog dialog-wide">
+    <form id="subscription-form" class="form" novalidate>
+      <h2 id="subscription-title" class="dialog-title"></h2>
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">Name</span>
+          <input name="name" maxlength="80" placeholder="Rent, Netflix, car insurance…" autocomplete="off" autofocus>
+        </label>
+        <label class="field">
+          <span class="field-label">Type</span>
+          <input name="type" list="subscription-types" maxlength="60" placeholder="pick or type your own" autocomplete="off">
+        </label>
+      </div>
       <div class="field-row">
         <label class="field">
           <span class="field-label">Amount</span>
@@ -973,63 +988,35 @@
           <span class="field-label">Currency</span>
           <select name="currency"></select>
         </label>
+        <label class="field">
+          <span class="field-label">Every</span>
+          <select name="period"></select>
+        </label>
       </div>
       <div class="field-row">
         <label class="field">
-          <span class="field-label">Period</span>
-          <select name="period"></select>
+          <span class="field-label">Next payment (optional)</span>
+          <input name="nextPayment" type="date">
         </label>
-        <label class="field" data-period="month">
-          <span class="field-label">Payment day (optional)</span>
-          <input name="paymentDay" type="number" min="1" max="31" step="1" placeholder="18">
-        </label>
-        <label class="field" data-period="year" hidden>
-          <span class="field-label">Payment date (optional)</span>
-          <input name="paymentDate" type="date">
-        </label>
-      </div>
-      <div class="field-row">
         <label class="field">
           <span class="field-label">Payment method</span>
           <input name="paymentMethod" list="payment-methods" maxlength="80" autocomplete="off">
-        </label>
-        <label class="field">
-          <span class="field-label">Type</span>
-          <select name="type"></select>
         </label>
       </div>
       <label class="check">
         <input type="checkbox" name="isActive" checked>
         <span>Active</span>
       </label>
-      <p class="form-error negative" hidden></p>
-      <div class="dialog-actions">
-        <button type="button" class="button" data-close>Cancel</button>
-        <button type="submit" class="button button-primary">Save subscription</button>
-      </div>
-    </form>
-  </dialog>
+      <p class="hint">A passed payment date moves on by itself, every period from the date set here.</p>
 
-  <dialog id="subscription-edit-dialog" class="dialog">
-    <form id="subscription-edit-form" class="form" novalidate>
-      <h2 id="subscription-title" class="dialog-title"></h2>
-      <p id="subscription-subtitle" class="muted"></p>
-      <label class="field">
-        <span class="field-label">Amount</span>
-        <input name="amount" inputmode="decimal" maxlength="24" placeholder="9.99" autocomplete="off" autofocus>
-      </label>
-      <label class="field">
-        <span class="field-label">Payment method</span>
-        <input name="paymentMethod" list="payment-methods" maxlength="80" autocomplete="off">
-      </label>
-      <label class="check">
-        <input type="checkbox" name="isActive">
-        <span>Active</span>
-      </label>
-      <p class="hint">Name, type, period and payment day can't be changed after creation.</p>
+      <div id="subscription-due" class="due-box" hidden>
+        <span id="subscription-due-text"></span>
+        <button id="subscription-paid" type="button" class="button button-accent">Paid: show the next one</button>
+      </div>
+
       <p class="form-error negative" hidden></p>
       <div class="dialog-actions spread">
-        <button id="subscription-delete" type="button" class="button button-danger">Delete subscription</button>
+        <button id="subscription-delete" type="button" class="button button-danger">Delete</button>
         <span class="dialog-actions-group">
           <button type="button" class="button" data-close>Cancel</button>
           <button type="submit" class="button button-primary">Save</button>
@@ -1681,6 +1668,7 @@
   <datalist id="asset-types"></datalist>
   <datalist id="currency-catalog"></datalist>
   <datalist id="credit-purposes"></datalist>
+  <datalist id="subscription-types"></datalist>
 
   <!-- Add/edit form for any settings list; views/settings.js fills the fields. -->
   <dialog id="setting-dialog" class="dialog">

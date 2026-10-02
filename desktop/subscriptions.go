@@ -3,10 +3,12 @@ package desktop
 import (
 	"errors"
 	"fmt"
-	"strconv"
+	"sort"
 	"strings"
 	"time"
 
+	"github.com/lazybark/cents/dates"
+	"github.com/lazybark/cents/flows/settings"
 	"github.com/lazybark/cents/flows/subscription"
 )
 
@@ -17,10 +19,15 @@ const (
 
 var errSubscriptionNotFound = errors.New("subscription not found")
 
+// SubscriptionRow is a subscription: any regular payment, from software to
+// rent. NextPayment is the next payment day (YYYY-MM-DD, "" without a
+// schedule), DueInDays how far off it is, and DueSoon whether that's
+// within the period's warning window (see subscription.SoonDays).
 type SubscriptionRow struct {
 	ID            uint   `json:"id"`
 	Name          string `json:"name"`
 	Currency      string `json:"currency"`
+	IsBase        bool   `json:"isBase"`
 	AmountCents   int64  `json:"amountCents"`
 	BaseCents     int64  `json:"baseCents"`
 	HasRate       bool   `json:"hasRate"`
@@ -28,10 +35,11 @@ type SubscriptionRow struct {
 	Type          string `json:"type"`
 	PaymentMethod string `json:"paymentMethod"`
 	IsActive      bool   `json:"isActive"`
-	// PaymentDate is the yearly payment date as YYYY-MM-DD, or "".
-	PaymentDate string `json:"paymentDate"`
-	// PaymentDay is the monthly payment day, or "".
-	PaymentDay string `json:"paymentDay"`
+	// Anchor is the payment date set for the schedule, as YYYY-MM-DD.
+	Anchor      string `json:"anchor"`
+	NextPayment string `json:"nextPayment"`
+	DueInDays   int    `json:"dueInDays"`
+	DueSoon     bool   `json:"dueSoon"`
 }
 
 type SubscriptionTotals struct {
@@ -55,38 +63,29 @@ type SubscriptionsView struct {
 	Options       SubscriptionOptions `json:"options"`
 }
 
-type NewSubscriptionInput struct {
+// SubscriptionInput is a subscription as typed into the form; ID is zero
+// for a new one. Every field can be changed. NextPayment is YYYY-MM-DD, as
+// <input type="date"> sends it, or empty for no schedule.
+type SubscriptionInput struct {
+	ID            uint   `json:"id"`
 	Name          string `json:"name"`
+	Type          string `json:"type"`
 	Currency      string `json:"currency"`
 	Amount        string `json:"amount"`
 	Period        string `json:"period"`
 	PaymentMethod string `json:"paymentMethod"`
-	Type          string `json:"type"`
-	IsActive      bool   `json:"isActive"`
-	// PaymentDate is YYYY-MM-DD, as <input type="date"> sends it.
-	PaymentDate string `json:"paymentDate"`
-	PaymentDay  string `json:"paymentDay"`
-}
-
-type SubscriptionUpdateInput struct {
-	ID            uint   `json:"id"`
-	Amount        string `json:"amount"`
-	PaymentMethod string `json:"paymentMethod"`
+	NextPayment   string `json:"nextPayment"`
 	IsActive      bool   `json:"isActive"`
 }
 
 // Subscriptions lists active subscriptions, or all of them when mode is
-// "all", largest amount first. Totals cover active and inactive ones
-// separately, in the base currency.
+// "all", next payment first (ones without a schedule last, largest
+// first). Totals cover active and inactive ones separately, in the base
+// currency.
 func (a *API) Subscriptions(mode string) (SubscriptionsView, error) {
-	storage, err := a.currentStorage()
+	storage, stts, err := a.storageAndSettings()
 	if err != nil {
 		return SubscriptionsView{}, err
-	}
-
-	stts, err := storage.LoadAppSettings()
-	if err != nil {
-		return SubscriptionsView{}, fmt.Errorf("failed to load settings: %w", err)
 	}
 
 	subs, err := storage.LoadSubscriptions()
@@ -98,11 +97,17 @@ func (a *API) Subscriptions(mode string) (SubscriptionsView, error) {
 		mode = subscriptionsActive
 	}
 
-	subs = subscription.SortByAmount(subs)
 	active, inactive := subscription.SplitByActivity(subs)
 	listed := subs
 	if mode == subscriptionsActive {
 		listed = active
+	}
+
+	types := subscription.TypeSuggestions()
+	for _, sub := range subs {
+		if sub.Type != "" && !containsFold(types, sub.Type) {
+			types = append(types, sub.Type)
+		}
 	}
 
 	result := SubscriptionsView{
@@ -112,89 +117,38 @@ func (a *API) Subscriptions(mode string) (SubscriptionsView, error) {
 		Options: SubscriptionOptions{
 			Currencies:     stts.CurrencyOptions(),
 			PaymentMethods: stts.PaymentMethodOptions(),
-			Periods:        subscription.PeriodOptions(),
-			Types:          subscription.TypeOptions(),
+			Periods:        subscription.AllPeriods(),
+			Types:          types,
 		},
 	}
 
 	result.Active.MonthlyCents, result.Active.YearlyCents = subscription.TotalsInBaseCents(active, stts)
 	result.Inactive.MonthlyCents, result.Inactive.YearlyCents = subscription.TotalsInBaseCents(inactive, stts)
 
-	for _, sub := range listed {
-		baseCents, ok := stts.ConvertToBaseCents(sub.Currency, sub.AmountCents)
-		row := SubscriptionRow{
-			ID:            sub.ID,
-			Name:          sub.Name,
-			Currency:      sub.Currency,
-			AmountCents:   sub.AmountCents,
-			BaseCents:     baseCents,
-			HasRate:       ok,
-			Period:        sub.Period,
-			Type:          sub.Type,
-			PaymentMethod: sub.PaymentMethod,
-			IsActive:      sub.IsActive,
-			PaymentDate:   sub.PaymentDateYearly,
-		}
-
-		if day, err := time.Parse(subscription.PaymentDateLayout, sub.PaymentDateYearly); err == nil {
-			row.PaymentDate = day.Format(logDateLayout)
-		}
-
-		if sub.PaymentDayMonthly != nil {
-			row.PaymentDay = strconv.Itoa(*sub.PaymentDayMonthly)
-		}
-
-		result.Subscriptions = append(result.Subscriptions, row)
+	today := time.Now()
+	for _, sub := range subscription.SortByAmount(listed) {
+		result.Subscriptions = append(result.Subscriptions, subscriptionRow(sub, stts, today))
 	}
+
+	sort.SliceStable(result.Subscriptions, func(i, j int) bool {
+		left, right := result.Subscriptions[i], result.Subscriptions[j]
+		if (left.NextPayment == "") != (right.NextPayment == "") {
+			return left.NextPayment != ""
+		}
+
+		return left.NextPayment < right.NextPayment
+	})
 
 	return result, nil
 }
 
-func (a *API) CreateSubscription(input NewSubscriptionInput) error {
-	storage, err := a.currentStorage()
-	if err != nil {
-		return err
-	}
-
-	stts, err := storage.LoadAppSettings()
-	if err != nil {
-		return fmt.Errorf("failed to load settings: %w", err)
-	}
-
-	currency := strings.TrimSpace(input.Currency)
-	if currency != "" {
-		var ok bool
-		if currency, ok = matchOption(stts.CurrencyOptions(), currency); !ok {
-			return fmt.Errorf("unknown currency %q: add it in settings first", input.Currency)
-		}
-	}
-
-	// Stored the way the TUI stores it.
-	paymentDate := strings.TrimSpace(input.PaymentDate)
-	if paymentDate != "" {
-		day, err := time.Parse(logDateLayout, paymentDate)
-		if err != nil {
-			return errors.New("yearly date must use YYYY-MM-DD format")
-		}
-
-		paymentDate = day.Format(subscription.PaymentDateLayout)
-	}
-
-	entry, err := subscription.New(input.Name, currency, input.Amount, input.Period, input.PaymentMethod, input.Type, input.IsActive, paymentDate, input.PaymentDay, time.Now())
-	if err != nil {
-		return err
-	}
-
-	if err := storage.CreateSubscription(&entry); err != nil {
-		return fmt.Errorf("save failed: %w", err)
-	}
-
-	return nil
+func (a *API) CreateSubscription(input SubscriptionInput) error {
+	return a.saveSubscription(input, nil)
 }
 
-// UpdateSubscription changes what the TUI lets you edit: amount, payment
-// method and whether the subscription is active.
-func (a *API) UpdateSubscription(input SubscriptionUpdateInput) error {
+// UpdateSubscription changes every field of a subscription. A new next
+// payment date (or period) starts its schedule over.
+func (a *API) UpdateSubscription(input SubscriptionInput) error {
 	storage, err := a.currentStorage()
 	if err != nil {
 		return err
@@ -205,9 +159,77 @@ func (a *API) UpdateSubscription(input SubscriptionUpdateInput) error {
 		return err
 	}
 
-	updated, err := current.Edit(input.Amount, input.PaymentMethod, input.IsActive, time.Now())
+	return a.saveSubscription(input, &current)
+}
+
+// MarkSubscriptionPaid marks the next payment paid (for paying early), so
+// the one after it shows as next. It returns the subscription as it is now.
+func (a *API) MarkSubscriptionPaid(id uint) (SubscriptionRow, error) {
+	storage, stts, err := a.storageAndSettings()
+	if err != nil {
+		return SubscriptionRow{}, err
+	}
+
+	current, err := findSubscription(storage, id)
+	if err != nil {
+		return SubscriptionRow{}, err
+	}
+
+	now := time.Now()
+	paid, err := current.MarkPaid(now, now)
+	if err != nil {
+		return SubscriptionRow{}, err
+	}
+
+	if err := storage.SaveSubscription(&paid); err != nil {
+		return SubscriptionRow{}, fmt.Errorf("save failed: %w", err)
+	}
+
+	return subscriptionRow(paid, stts, now), nil
+}
+
+func (a *API) saveSubscription(input SubscriptionInput, current *subscription.Subscription) error {
+	storage, stts, err := a.storageAndSettings()
 	if err != nil {
 		return err
+	}
+
+	// An edited subscription may keep a currency no longer in settings.
+	currencies := stts.CurrencyOptions()
+	record := subscription.Subscription{}
+	if current != nil {
+		record = *current
+		currencies = append(currencies, current.Currency)
+	}
+
+	currency := strings.TrimSpace(input.Currency)
+	if currency != "" {
+		var ok bool
+		if currency, ok = matchOption(currencies, currency); !ok {
+			return fmt.Errorf("unknown currency %q: add it in settings first", input.Currency)
+		}
+	}
+
+	updated, err := record.Update(subscription.Fields{
+		Name:          input.Name,
+		Type:          input.Type,
+		Currency:      currency,
+		Amount:        input.Amount,
+		Period:        input.Period,
+		PaymentMethod: input.PaymentMethod,
+		NextPayment:   input.NextPayment,
+		IsActive:      input.IsActive,
+	}, dates.ISO, time.Now())
+	if err != nil {
+		return err
+	}
+
+	if current == nil {
+		if err := storage.CreateSubscription(&updated); err != nil {
+			return fmt.Errorf("save failed: %w", err)
+		}
+
+		return nil
 	}
 
 	if err := storage.SaveSubscription(&updated); err != nil {
@@ -215,6 +237,45 @@ func (a *API) UpdateSubscription(input SubscriptionUpdateInput) error {
 	}
 
 	return nil
+}
+
+func subscriptionRow(sub subscription.Subscription, stts settings.AppSettings, today time.Time) SubscriptionRow {
+	baseCents, ok := stts.ConvertToBaseCents(sub.Currency, sub.AmountCents)
+	row := SubscriptionRow{
+		ID:            sub.ID,
+		Name:          sub.Name,
+		Currency:      sub.Currency,
+		IsBase:        stts.IsBase(sub.Currency),
+		AmountCents:   sub.AmountCents,
+		BaseCents:     baseCents,
+		HasRate:       ok,
+		Period:        sub.Period,
+		Type:          sub.Type,
+		PaymentMethod: sub.PaymentMethod,
+		IsActive:      sub.IsActive,
+	}
+
+	if anchor, ok := sub.Anchor(today); ok {
+		row.Anchor = anchor.Format(logDateLayout)
+	}
+
+	if next, days, soon, ok := sub.DueIn(today); ok {
+		row.NextPayment = next.Format(logDateLayout)
+		row.DueInDays = days
+		row.DueSoon = soon
+	}
+
+	return row
+}
+
+func containsFold(values []string, value string) bool {
+	for _, v := range values {
+		if strings.EqualFold(strings.TrimSpace(v), strings.TrimSpace(value)) {
+			return true
+		}
+	}
+
+	return false
 }
 
 func (a *API) DeleteSubscription(id uint) error {

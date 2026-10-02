@@ -840,3 +840,20 @@ th[aria-sort="descending"] .sort-button::after {
   content: " ▼";
   font-size: 10px;
 }
+
+/* A payment that's due soon. */
+.badge.badge-soon {
+  color: var(--bg);
+  background: var(--negative);
+}
+
+.due-box {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  padding: 8px 12px;
+  border: 1px solid var(--row-border);
+  border-radius: 6px;
+}

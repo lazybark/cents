@@ -19,6 +19,13 @@ type Subscription struct {
 	IsActive          bool
 	PaymentDateYearly string
 	PaymentDayMonthly *int
+	// NextPaymentDate is a payment date the schedule repeats from, every
+	// period. Without one, PaymentDateYearly or PaymentDayMonthly (what the
+	// TUI sets) stand in for it; see Anchor.
+	NextPaymentDate *time.Time
+	// LastPaidDate is the payment last marked paid (early, say), so the next
+	// one comes after it.
+	LastPaidDate *time.Time
 }
 
 const (
