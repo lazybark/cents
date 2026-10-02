@@ -2,10 +2,7 @@
 
 ## Plans
 
-
-Add button "add new" when creating a new entry. So all inputs retain their values, new record added and user can instanly add several more records there.
-
-If user uses comma - auto-replace it with a dot for decimal values.
+Subscriptions should be more than just software & domains
 
 
 - Export to CSV (specific account, expense, history, etc.)

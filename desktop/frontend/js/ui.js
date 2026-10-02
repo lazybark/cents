@@ -1,5 +1,20 @@
 // Formatting and DOM helpers shared by every view.
 
+// Decimal fields (inputmode="decimal") use a dot as the decimal separator,
+// so a typed or pasted comma turns into one as it's entered: "12,5" reads
+// "12.5" right away. It's done here, visibly, rather than guessed when
+// saving, where "1,000" could mean a thousand or one.
+document.addEventListener("input", (event) => {
+  const input = event.target;
+  if (!(input instanceof HTMLInputElement) || input.inputMode !== "decimal" || !input.value.includes(",")) return;
+
+  // Same length, so the caret stays where it was.
+  const start = input.selectionStart;
+  const end = input.selectionEnd;
+  input.value = input.value.replaceAll(",", ".");
+  input.setSelectionRange(start, end);
+});
+
 // Mirrors renderMoneyWithCurrency in app/render.go: "-$ 12.34".
 export function formatMoney(currency, cents) {
   const sign = cents < 0 ? "-" : "";
