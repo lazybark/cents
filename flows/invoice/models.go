@@ -26,6 +26,9 @@ type Invoice struct {
 	TargetAccount   string
 	URL             string
 	Description     string
+	// CashflowEntryID is the expense (or income) added when the invoice was
+	// marked paid, 0 for none; unmarking or deleting it deletes that too.
+	CashflowEntryID uint `gorm:"not null;default:0"`
 }
 
 const (

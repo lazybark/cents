@@ -2,6 +2,7 @@
 // the unpaid totals. Every field can be edited, like in the TUI; one dialog
 // adds and edits.
 import { api } from "../api.js";
+import { cashflowInput, setupCashflow, showCashflow } from "../payment-cashflow.js";
 import {
   badge,
   busy,
@@ -38,6 +39,7 @@ const el = {
   dialogTitle: $("invoice-dialog-title"),
   form: $("invoice-form"),
   openURL: $("invoice-open-url"),
+  linked: $("invoice-linked"),
   delete: $("invoice-delete"),
 };
 
@@ -64,6 +66,11 @@ export function init() {
   el.add.addEventListener("click", () => openDialog(null));
   el.form.addEventListener("submit", save);
   el.form.elements.currency.addEventListener("change", currencyPicked);
+  el.form.elements.paid.addEventListener("change", syncPaid);
+  el.form.elements.direction.addEventListener("change", () => {
+    setupPaidBox();
+    syncPaid();
+  });
   el.openURL.addEventListener("click", openURL);
   el.delete.addEventListener("click", askDelete);
 }
@@ -135,6 +142,34 @@ function render(view) {
 
 // --- add and edit ----------------------------------------------------------
 
+// setupPaidBox readies "Also add as …" for the invoice's direction: an
+// expense when I pay it, an income when it's paid to me, from the target
+// account when that's one of the accounts.
+function setupPaidBox() {
+  const form = el.form;
+  const options = state.view?.cashflow;
+  setupCashflow(form, { isIncome: form.elements.direction.value === "outgoing", options });
+
+  const target = form.elements.targetAccount.value.trim().toLowerCase();
+  const match = (options?.accounts ?? []).find((a) => a.toLowerCase() === target);
+  if (match) form.elements.cashflowAccount.value = match;
+}
+
+// syncPaid shows the box while Paid is ticked on an invoice not yet in
+// incomes and expenses, and says what happens to one that is.
+function syncPaid() {
+  const form = el.form;
+  const invoice = state.current;
+  const paid = form.elements.paid.checked;
+  const linked = Boolean(invoice?.cashflowId);
+
+  showCashflow(form, paid && !linked);
+  el.linked.hidden = !linked;
+  el.linked.textContent = paid
+    ? "It's in Incomes & expenses. Unticking Paid or deleting the invoice deletes it there too."
+    : "Saving deletes its entry in Incomes & expenses.";
+}
+
 // currencyPicked shows the rate for the picked currency: the invoice's own
 // while it stays in its recorded currency, else the one in settings now.
 function currencyPicked() {
@@ -188,6 +223,10 @@ function openDialog(invoice) {
     currencyPicked();
   }
 
+  form.paidOn.value = localDate(new Date());
+  setupPaidBox();
+  syncPaid();
+
   el.openURL.hidden = !invoice?.url;
   el.delete.hidden = !invoice;
   formError(el.form, "");
@@ -212,21 +251,24 @@ async function save(event) {
     targetAccount: form.targetAccount.value,
     url: form.url.value,
     description: form.description.value,
+    cashflow: cashflowInput(el.form),
+    paidOn: form.paidOn.value,
   };
 
   try {
     const saved = await busy(el.form, () => (editing ? api.UpdateInvoice(input) : api.CreateInvoice(input)));
     el.dialog.close();
     const name = input.title.trim();
+    const added = input.cashflow.add ? ` and added it as an ${input.isIncoming ? "expense" : "income"}` : "";
 
     if (saved.mode === state.mode) {
-      await show(`${editing ? "updated" : "saved"} invoice ${name}`);
+      await show(`${editing ? "updated" : "saved"} invoice ${name}${added}`);
       return;
     }
 
     // It belongs to another list now (new, marked paid, or flipped): go there.
     state.mode = saved.mode;
-    await show(`${editing ? "updated" : "saved"} invoice ${name}, now under “${TAB_LABELS[saved.mode]}”`);
+    await show(`${editing ? "updated" : "saved"} invoice ${name}${added}, now under “${TAB_LABELS[saved.mode]}”`);
   } catch (err) {
     formError(el.form, String(err));
   }
@@ -244,7 +286,8 @@ async function openURL() {
 function askDelete() {
   const invoice = state.current;
 
-  confirmDelete("Delete invoice?", `The invoice “${invoice.title}” will be deleted. This can't be undone.`, async () => {
+  const linked = invoice.cashflowId ? ` Its ${invoice.isIncoming ? "expense" : "income"} in Incomes & expenses is deleted too.` : "";
+  confirmDelete("Delete invoice?", `The invoice “${invoice.title}” will be deleted.${linked} This can't be undone.`, async () => {
     await api.DeleteInvoice(invoice.id);
     el.dialog.close();
     await show(`deleted invoice ${invoice.title}`);

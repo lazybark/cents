@@ -429,13 +429,48 @@ func (s *SQLiteStorage) SaveInvoice(entry *invoice.Invoice) error {
 	return nil
 }
 
+// DeleteInvoice deletes an invoice and the expense or income added when it
+// was marked paid, if there is one.
 func (s *SQLiteStorage) DeleteInvoice(id uint) error {
-	err := s.db.Delete(&invoice.Invoice{}, id).Error
-	if err != nil {
-		return fmt.Errorf("failed to delete invoice entry: %w", err)
-	}
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		var entry invoice.Invoice
+		if err := tx.First(&entry, id).Error; err == nil {
+			if err := deleteLinkedCashflow(tx, entry.CashflowEntryID); err != nil {
+				return err
+			}
+		}
 
-	return nil
+		if err := tx.Delete(&invoice.Invoice{}, id).Error; err != nil {
+			return fmt.Errorf("failed to delete invoice entry: %w", err)
+		}
+
+		return nil
+	})
+}
+
+// SaveInvoicePaid saves an invoice (a new one too) with the cashflow entry
+// made for it, if any, and deletes unlink, the entry of an invoice no longer
+// paid (0 for none), all together.
+func (s *SQLiteStorage) SaveInvoicePaid(entry *invoice.Invoice, cash *cashflow.CashflowEntry, unlink uint) error {
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		if err := deleteLinkedCashflow(tx, unlink); err != nil {
+			return err
+		}
+
+		if cash != nil {
+			if err := tx.Create(cash).Error; err != nil {
+				return fmt.Errorf("failed to create cashflow entry: %w", err)
+			}
+
+			entry.CashflowEntryID = cash.ID
+		}
+
+		if err := tx.Save(entry).Error; err != nil {
+			return fmt.Errorf("failed to save invoice entry: %w", err)
+		}
+
+		return nil
+	})
 }
 
 // ErrLogNotFound is returned when a log entry to delete doesn't exist or

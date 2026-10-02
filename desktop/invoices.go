@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/lazybark/cents/dates"
+	"github.com/lazybark/cents/flows/cashflow"
 	"github.com/lazybark/cents/flows/invoice"
 	"github.com/lazybark/cents/flows/settings"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
@@ -35,6 +36,8 @@ type InvoiceRow struct {
 	TargetAccount string  `json:"targetAccount"`
 	URL           string  `json:"url"`
 	Description   string  `json:"description"`
+	// CashflowID is the expense or income added when it was marked paid.
+	CashflowID uint `json:"cashflowId"`
 }
 
 // InvoicesView is one invoice list. The unpaid totals cover every unpaid
@@ -50,6 +53,8 @@ type InvoicesView struct {
 	NotCounted      int            `json:"notCounted"`
 	Currencies      []CurrencyRate `json:"currencies"`
 	Accounts        []string       `json:"accounts"`
+	// Cashflow is what an entry made for a paid invoice can use.
+	Cashflow CashflowOptions `json:"cashflow"`
 }
 
 // InvoiceInput is an invoice as typed into the form; ID is zero for a new
@@ -70,6 +75,11 @@ type InvoiceInput struct {
 	TargetAccount string `json:"targetAccount"`
 	URL           string `json:"url"`
 	Description   string `json:"description"`
+	// Cashflow adds an invoice being marked paid to incomes and expenses,
+	// paid on PaidOn (YYYY-MM-DD, empty for today): as an expense when I
+	// pay it, an income when it's paid to me.
+	Cashflow PaymentCashflow `json:"cashflow"`
+	PaidOn   string          `json:"paidOn"`
 }
 
 // Invoices lists one of the TUI's invoice lists: "outgoing" (unpaid, paid
@@ -108,6 +118,7 @@ func (a *API) Invoices(mode string) (InvoicesView, error) {
 		UnpaidByMeCents: byMe,
 		Currencies:      currencyRates(stts),
 		Accounts:        accountNames(accounts),
+		Cashflow:        cashflowOptions(stts, accounts),
 	}
 
 	for _, m := range []invoice.ListMode{invoice.ListOutgoing, invoice.ListIncoming, invoice.ListPaid} {
@@ -138,13 +149,19 @@ func (a *API) CreateInvoice(input InvoiceInput) (CreatedIn, error) {
 		return CreatedIn{}, err
 	}
 
-	entry, err := invoice.New(fields, stts, dates.ISO, time.Now())
+	now := time.Now()
+	entry, err := invoice.New(fields, stts, dates.ISO, now)
 	if err != nil {
 		return CreatedIn{}, err
 	}
 
-	if err := storage.CreateInvoice(&entry); err != nil {
-		return CreatedIn{}, fmt.Errorf("save failed: %w", err)
+	cash, unlink, err := a.invoiceCashflow(storage, stts, nil, &entry, input, now)
+	if err != nil {
+		return CreatedIn{}, err
+	}
+
+	if err := storage.SaveInvoicePaid(&entry, cash, unlink); err != nil {
+		return CreatedIn{}, err
 	}
 
 	return CreatedIn{Mode: string(entry.Mode())}, nil
@@ -168,13 +185,19 @@ func (a *API) UpdateInvoice(input InvoiceInput) (CreatedIn, error) {
 		return CreatedIn{}, err
 	}
 
-	updated, err := current.Edit(fields, stts, dates.ISO, time.Now())
+	now := time.Now()
+	updated, err := current.Edit(fields, stts, dates.ISO, now)
 	if err != nil {
 		return CreatedIn{}, err
 	}
 
-	if err := storage.SaveInvoice(&updated); err != nil {
-		return CreatedIn{}, fmt.Errorf("save failed: %w", err)
+	cash, unlink, err := a.invoiceCashflow(storage, stts, &current, &updated, input, now)
+	if err != nil {
+		return CreatedIn{}, err
+	}
+
+	if err := storage.SaveInvoicePaid(&updated, cash, unlink); err != nil {
+		return CreatedIn{}, err
 	}
 
 	return CreatedIn{Mode: string(updated.Mode())}, nil
@@ -251,6 +274,52 @@ func invoiceFields(input InvoiceInput, stts settings.AppSettings, current string
 	}, nil
 }
 
+// invoiceCashflow works out what saving an invoice does to incomes and
+// expenses: cash is the entry to add for one just marked paid (when asked
+// for), unlink the entry to delete for one no longer paid. current is nil
+// for a new invoice.
+func (a *API) invoiceCashflow(storage StorageWorker, stts settings.AppSettings, current, updated *invoice.Invoice, input InvoiceInput, now time.Time) (*cashflow.CashflowEntry, uint, error) {
+	var unlink uint
+	if current != nil && current.CashflowEntryID != 0 && !updated.Paid {
+		unlink = current.CashflowEntryID
+		updated.CashflowEntryID = 0
+	}
+
+	req := input.Cashflow
+	if !req.Add {
+		return nil, unlink, nil
+	}
+
+	switch {
+	case !updated.Paid:
+		return nil, 0, errors.New("only a paid invoice can be added to incomes and expenses")
+	case updated.CashflowEntryID != 0:
+		return nil, 0, errors.New("this invoice is already in incomes and expenses")
+	case updated.Currency == "":
+		return nil, 0, errors.New("an invoice without a currency can't be added to incomes and expenses: pick one")
+	case updated.AmountCents <= 0:
+		return nil, 0, errors.New("an invoice without an amount can't be added to incomes and expenses")
+	}
+
+	accounts, err := storage.LoadAccounts()
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to load accounts: %w", err)
+	}
+
+	comment := fmt.Sprintf("Invoice %q", updated.Title)
+	if updated.Peer != "" {
+		comment += " (" + updated.Peer + ")"
+	}
+
+	// An invoice I pay is an expense; one paid to me, an income.
+	cash, err := paymentEntry(req, stts, accounts, !updated.IsIncoming, updated.Currency, updated.AmountCents, input.PaidOn, comment, now)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	return cash, unlink, nil
+}
+
 func findInvoice(storage StorageWorker, id uint) (invoice.Invoice, error) {
 	items, err := storage.LoadInvoices()
 	if err != nil {
@@ -287,5 +356,6 @@ func invoiceRow(item invoice.Invoice, stts settings.AppSettings, now time.Time) 
 		TargetAccount: item.TargetAccount,
 		URL:           item.URL,
 		Description:   item.Description,
+		CashflowID:    item.CashflowEntryID,
 	}
 }

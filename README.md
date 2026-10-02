@@ -6,7 +6,7 @@
 - Import is the other way around: import via join, replacing existing data where necessary
 - Automatic currency exchange update, with writing down the latest time in config, noting it in the interface and refreshing in case it was outdated
 
-invoice could be linked to an income or expense, but it needs some smart filtering, because there will be a lot of invoices for some users. And we need to sort them in this dropdown reversed by date. So that user can easily create invoice and then proceed to adding some related transactions.
+
 
 
 

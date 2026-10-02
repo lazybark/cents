@@ -158,3 +158,29 @@ func TestOlderPaymentLogsHaveNoCashflowEntry(t *testing.T) {
 		t.Fatalf("older credit logs should load without an entry: %+v %v", creditLogs, err)
 	}
 }
+
+func TestOlderInvoicesHaveNoCashflowEntry(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "cents.db")
+	db, _, err := OpenDatabase(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, stmt := range []string{
+		"INSERT INTO invoices (title, amount_cents, paid) VALUES ('old', 100, 1)",
+		"ALTER TABLE invoices DROP COLUMN cashflow_entry_id",
+	} {
+		if err := db.Exec(stmt).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if db, _, err = OpenDatabase(path); err != nil {
+		t.Fatal(err)
+	}
+
+	items, err := NewSQLiteStorage(db).LoadInvoices()
+	if err != nil || len(items) != 1 || items[0].CashflowEntryID != 0 {
+		t.Fatalf("older invoices should load without an entry: %+v %v", items, err)
+	}
+}

@@ -75,6 +75,7 @@ type StorageWorker interface {
 	CreateInvoice(entry *invoice.Invoice) error
 	SaveInvoice(entry *invoice.Invoice) error
 	DeleteInvoice(id uint) error
+	SaveInvoicePaid(entry *invoice.Invoice, cash *cashflow.CashflowEntry, unlink uint) error
 	LoadAssets() ([]asset.Asset, error)
 	CreateAsset(entry *asset.Asset) error
 	SaveAsset(entry *asset.Asset) error

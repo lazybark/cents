@@ -1217,6 +1217,30 @@
         <input type="checkbox" name="paid">
         <span>Paid</span>
       </label>
+      <!-- Shown while Paid is ticked on an invoice not yet in incomes and
+           expenses: an expense when I pay it, an income when it's paid to me. -->
+      <div class="cashflow-box" hidden>
+        <label class="check">
+          <input type="checkbox" name="addCashflow">
+          <span class="cashflow-label">Also add as an expense</span>
+        </label>
+        <div class="field-row cashflow-fields" hidden>
+          <label class="field">
+            <span class="field-label">Paid on</span>
+            <input type="date" name="paidOn">
+          </label>
+          <label class="field">
+            <span class="field-label">Category</span>
+            <select name="cashflowCategory"></select>
+          </label>
+          <label class="field">
+            <span class="field-label">Account (optional)</span>
+            <select name="cashflowAccount"></select>
+          </label>
+        </div>
+        <p class="hint cashflow-none" hidden></p>
+      </div>
+      <p id="invoice-linked" class="hint" hidden></p>
       <div class="field-row">
         <label class="field">
           <span class="field-label">Invoice date (optional)</span>
