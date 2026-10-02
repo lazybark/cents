@@ -29,8 +29,10 @@ type CashflowRow struct {
 	BaseCents   int64   `json:"baseCents"`
 	HasRate     bool    `json:"hasRate"`
 	Category    string  `json:"category"`
-	Account     string  `json:"account"`
-	Comment     string  `json:"comment"`
+	// CategoryArchived marks entries whose category is archived now.
+	CategoryArchived bool   `json:"categoryArchived"`
+	Account          string `json:"account"`
+	Comment          string `json:"comment"`
 }
 
 // CashflowOptions are the choices the income/expense form offers.
@@ -62,10 +64,13 @@ type CashflowOverviewRow struct {
 	HasPrev      bool   `json:"hasPrev"`
 }
 
+// CashflowOverview totals months. For statistics, ArchivedLeftOut counts
+// the entries in archived categories that were left out.
 type CashflowOverview struct {
-	BaseCurrency string                `json:"baseCurrency"`
-	Rows         []CashflowOverviewRow `json:"rows"`
-	MissingRates int                   `json:"missingRates"`
+	BaseCurrency    string                `json:"baseCurrency"`
+	Rows            []CashflowOverviewRow `json:"rows"`
+	MissingRates    int                   `json:"missingRates"`
+	ArchivedLeftOut int                   `json:"archivedLeftOut"`
 }
 
 // NewCashflowInput is a new entry. Rate is the currency's rate to the base
@@ -142,26 +147,38 @@ func (a *API) CashflowMonth(month string) (CashflowMonth, error) {
 	for _, entry := range items {
 		baseCents, ok := entry.BaseCents()
 		result.Entries = append(result.Entries, CashflowRow{
-			ID:          entry.ID,
-			IsIncome:    entry.IsIncome,
-			Date:        entry.EntryDate.Local().Format(logDateLayout),
-			Currency:    entry.Currency,
-			IsBase:      stts.IsBase(entry.Currency),
-			RateToBase:  entry.RateToBase,
-			AmountCents: entry.AmountCents,
-			BaseCents:   baseCents,
-			HasRate:     ok,
-			Category:    entry.Category,
-			Account:     entry.AccountName,
-			Comment:     entry.Comment,
+			ID:               entry.ID,
+			IsIncome:         entry.IsIncome,
+			Date:             entry.EntryDate.Local().Format(logDateLayout),
+			Currency:         entry.Currency,
+			IsBase:           stts.IsBase(entry.Currency),
+			RateToBase:       entry.RateToBase,
+			AmountCents:      entry.AmountCents,
+			BaseCents:        baseCents,
+			HasRate:          ok,
+			Category:         entry.Category,
+			CategoryArchived: stts.IsArchivedCategory(entry.IsIncome, entry.Category),
+			Account:          entry.AccountName,
+			Comment:          entry.Comment,
 		})
 	}
 
 	return result, nil
 }
 
-// CashflowOverview totals every month, newest first.
+// CashflowOverview totals every month, newest first, with every entry.
 func (a *API) CashflowOverview() (CashflowOverview, error) {
+	return a.cashflowOverview(true)
+}
+
+// CashflowStats totals every month like CashflowOverview, for the
+// statistics charts: entries in archived categories are left out unless
+// includeArchived is set.
+func (a *API) CashflowStats(includeArchived bool) (CashflowOverview, error) {
+	return a.cashflowOverview(includeArchived)
+}
+
+func (a *API) cashflowOverview(includeArchived bool) (CashflowOverview, error) {
 	storage, stts, err := a.storageAndSettings()
 	if err != nil {
 		return CashflowOverview{}, err
@@ -172,11 +189,17 @@ func (a *API) CashflowOverview() (CashflowOverview, error) {
 		return CashflowOverview{}, fmt.Errorf("failed to load cashflows: %w", err)
 	}
 
+	left := 0
+	if !includeArchived {
+		entries, left = cashflow.WithoutArchived(entries, stts)
+	}
+
 	rows, missing := cashflow.MonthlyOverview(entries)
 	result := CashflowOverview{
-		BaseCurrency: stts.BaseCurrencyLabel(),
-		Rows:         make([]CashflowOverviewRow, 0, len(rows)),
-		MissingRates: missing,
+		BaseCurrency:    stts.BaseCurrencyLabel(),
+		Rows:            make([]CashflowOverviewRow, 0, len(rows)),
+		MissingRates:    missing,
+		ArchivedLeftOut: left,
 	}
 
 	for i := len(rows) - 1; i >= 0; i-- {
@@ -358,23 +381,26 @@ func (a *API) DeleteCashflow(id uint) error {
 // CategoryStat is one category's amounts month by month (aligned with
 // CashflowCategories.Months), in the base currency, with entry counts.
 type CategoryStat struct {
-	Name    string  `json:"name"`
-	Values  []int64 `json:"values"`
-	Entries []int   `json:"entries"`
+	Name     string  `json:"name"`
+	Archived bool    `json:"archived"`
+	Values   []int64 `json:"values"`
+	Entries  []int   `json:"entries"`
 }
 
 type CashflowCategories struct {
-	BaseCurrency string         `json:"baseCurrency"`
-	IsIncome     bool           `json:"isIncome"`
-	Months       []string       `json:"months"`
-	Categories   []CategoryStat `json:"categories"`
-	MissingRates int            `json:"missingRates"`
+	BaseCurrency    string         `json:"baseCurrency"`
+	IsIncome        bool           `json:"isIncome"`
+	Months          []string       `json:"months"`
+	Categories      []CategoryStat `json:"categories"`
+	MissingRates    int            `json:"missingRates"`
+	ArchivedLeftOut int            `json:"archivedLeftOut"`
 }
 
 // CashflowCategories splits expenses ("expense") or incomes ("income") by
 // category, month by month from the oldest month with an entry to the
-// newest, largest category first.
-func (a *API) CashflowCategories(kind string) (CashflowCategories, error) {
+// newest, largest category first. Archived categories are left out unless
+// includeArchived is set; ArchivedLeftOut counts their entries.
+func (a *API) CashflowCategories(kind string, includeArchived bool) (CashflowCategories, error) {
 	var isIncome bool
 	switch kind {
 	case "income":
@@ -394,13 +420,29 @@ func (a *API) CashflowCategories(kind string) (CashflowCategories, error) {
 		return CashflowCategories{}, fmt.Errorf("failed to load cashflows: %w", err)
 	}
 
+	// Only this kind's entries, so the count left out is this kind's too.
+	ofKind := make([]cashflow.CashflowEntry, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsIncome == isIncome {
+			ofKind = append(ofKind, entry)
+		}
+	}
+
+	left := 0
+	if !includeArchived {
+		ofKind, left = cashflow.WithoutArchived(ofKind, stts)
+	}
+
+	entries = ofKind
+
 	months, series, missing := cashflow.ByCategory(entries, isIncome)
 	result := CashflowCategories{
-		BaseCurrency: stts.BaseCurrencyLabel(),
-		IsIncome:     isIncome,
-		Months:       make([]string, 0, len(months)),
-		Categories:   make([]CategoryStat, 0, len(series)),
-		MissingRates: missing,
+		BaseCurrency:    stts.BaseCurrencyLabel(),
+		IsIncome:        isIncome,
+		Months:          make([]string, 0, len(months)),
+		Categories:      make([]CategoryStat, 0, len(series)),
+		MissingRates:    missing,
+		ArchivedLeftOut: left,
 	}
 
 	for _, month := range months {
@@ -408,7 +450,7 @@ func (a *API) CashflowCategories(kind string) (CashflowCategories, error) {
 	}
 
 	for _, s := range series {
-		result.Categories = append(result.Categories, CategoryStat{Name: s.Category, Values: s.Values, Entries: s.Entries})
+		result.Categories = append(result.Categories, CategoryStat{Name: s.Category, Archived: stts.IsArchivedCategory(isIncome, s.Category), Values: s.Values, Entries: s.Entries})
 	}
 
 	return result, nil

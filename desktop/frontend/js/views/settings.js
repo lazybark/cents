@@ -108,12 +108,16 @@ function categoryList(kind, title, noun, isIncome) {
     items,
     label: (c) => c.name,
     columns: () => [
-      ["Name", (c) => c.name],
+      ["Name", (c) => (c.archived ? withBadge(c.name, "archived") : c.name)],
       ["Used by", usedBy, "num muted"],
     ],
-    fields: () => [{ name: "name", label: "Name", placeholder: isIncome ? "Salary" : "Groceries", maxlength: 80 }],
-    values: (c) => ({ name: c.name }),
-    save: (id, f) => api.SaveCategory({ isIncome, id, name: f.name }),
+    fields: () => [
+      { name: "name", label: "Name", placeholder: isIncome ? "Salary" : "Groceries", maxlength: 80 },
+      // For something temporary, like a side gig or buying a car.
+      { name: "archived", label: "Archived: not offered for new entries and hidden in the Categories chart", checkbox: true },
+    ],
+    values: (c) => ({ name: c.name, archived: c.archived }),
+    save: (id, f) => api.SaveCategory({ isIncome, id, name: f.name, archived: f.archived }),
     warn: (c, action) =>
       c.usedBy === 0
         ? ""

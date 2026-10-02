@@ -634,7 +634,9 @@ func (m TheApplication) updateSettings(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.status = "income category edit cancelled"
 			return m, nil
 		case "enter":
-			record, err := settings.SettingIncomeCategory{ID: m.settingsIncomeCategoryEditingID}.Apply(m.settingsIncomeCategoryNameInput.Value(), time.Now())
+			// Start from the stored category, so editing keeps its archived
+			// flag (set in the desktop app) and when it was created.
+			record, err := storedIncomeCategory(m.settings, m.settingsIncomeCategoryEditingID).Apply(m.settingsIncomeCategoryNameInput.Value(), time.Now())
 			if err != nil {
 				m.status = err.Error()
 				return m, nil
@@ -672,7 +674,7 @@ func (m TheApplication) updateSettings(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.status = "expense category edit cancelled"
 			return m, nil
 		case "enter":
-			record, err := settings.SettingExpenseCategory{ID: m.settingsExpenseCategoryEditingID}.Apply(m.settingsExpenseCategoryNameInput.Value(), time.Now())
+			record, err := storedExpenseCategory(m.settings, m.settingsExpenseCategoryEditingID).Apply(m.settingsExpenseCategoryNameInput.Value(), time.Now())
 			if err != nil {
 				m.status = err.Error()
 				return m, nil
@@ -1011,4 +1013,28 @@ func (m TheApplication) focusPaymentMethodFormField() TheApplication {
 	}
 
 	return m
+}
+
+// storedIncomeCategory is the income category with id as stored, or a new
+// one for id 0.
+func storedIncomeCategory(stts settings.AppSettings, id uint) settings.SettingIncomeCategory {
+	for _, category := range stts.IncomeCategories {
+		if id != 0 && category.ID == id {
+			return category
+		}
+	}
+
+	return settings.SettingIncomeCategory{ID: id}
+}
+
+// storedExpenseCategory is the expense category with id as stored, or a new
+// one for id 0.
+func storedExpenseCategory(stts settings.AppSettings, id uint) settings.SettingExpenseCategory {
+	for _, category := range stts.ExpenseCategories {
+		if id != 0 && category.ID == id {
+			return category
+		}
+	}
+
+	return settings.SettingExpenseCategory{ID: id}
 }

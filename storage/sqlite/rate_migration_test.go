@@ -71,3 +71,30 @@ func TestOlderRecordsGetARate(t *testing.T) {
 		}
 	}
 }
+
+func TestOlderCategoriesAreNotArchived(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "cents.db")
+	db, _, err := OpenDatabase(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// A database from before archiving had no such column.
+	for _, stmt := range []string{
+		"INSERT INTO setting_income_categories (category_name) VALUES ('Salary')",
+		"ALTER TABLE setting_income_categories DROP COLUMN archived",
+	} {
+		if err := db.Exec(stmt).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if db, _, err = OpenDatabase(path); err != nil {
+		t.Fatal(err)
+	}
+
+	stts, err := LoadAppSettings(db)
+	if err != nil || len(stts.IncomeCategories) != 1 || stts.IncomeCategories[0].Archived {
+		t.Fatalf("older categories should load as not archived: %+v %v", stts.IncomeCategories, err)
+	}
+}

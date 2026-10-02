@@ -101,7 +101,7 @@ func TestCashflowCategories(t *testing.T) {
 		}
 	}
 
-	stats, err := api.CashflowCategories("expense")
+	stats, err := api.CashflowCategories("expense", false)
 	if err != nil || stats.IsIncome || len(stats.Months) != 3 || stats.Months[0] != "2026-01" || len(stats.Categories) != 1 {
 		t.Fatalf("unexpected stats %+v %v", stats, err)
 	}
@@ -110,11 +110,11 @@ func TestCashflowCategories(t *testing.T) {
 		t.Fatalf("unexpected rent %+v", rent)
 	}
 
-	if stats, _ := api.CashflowCategories("income"); !stats.IsIncome || len(stats.Categories) != 1 || stats.Categories[0].Name != "Salary" {
+	if stats, _ := api.CashflowCategories("income", false); !stats.IsIncome || len(stats.Categories) != 1 || stats.Categories[0].Name != "Salary" {
 		t.Fatalf("unexpected incomes %+v", stats)
 	}
 
-	if _, err := api.CashflowCategories("gifts"); err == nil {
+	if _, err := api.CashflowCategories("gifts", false); err == nil {
 		t.Fatal("expected unknown kind")
 	}
 }

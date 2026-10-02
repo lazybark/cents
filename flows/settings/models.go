@@ -43,11 +43,16 @@ type SettingTaxType struct {
 	URL           string
 }
 
+// Archived categories (for something temporary, like a side gig or buying
+// a car) can't be picked for new entries and are hidden in the categories
+// chart unless asked for; entries made with them stay as they are and still
+// count in the totals.
 type SettingIncomeCategory struct {
 	ID            uint `gorm:"primaryKey"`
 	CreatedAt     time.Time
 	LastUpdatedAt time.Time
 	CategoryName  string `gorm:"not null;uniqueIndex"`
+	Archived      bool   `gorm:"not null;default:false"`
 }
 
 type SettingExpenseCategory struct {
@@ -55,4 +60,5 @@ type SettingExpenseCategory struct {
 	CreatedAt     time.Time
 	LastUpdatedAt time.Time
 	CategoryName  string `gorm:"not null;uniqueIndex"`
+	Archived      bool   `gorm:"not null;default:false"`
 }

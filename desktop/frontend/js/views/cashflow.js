@@ -6,6 +6,7 @@ import { api } from "../api.js";
 import { chart, legend, monthLabel } from "../charts.js";
 import { initCategories, loadCategories } from "./cashflow-categories.js";
 import {
+  badge,
   busy,
   cell,
   clickableRow,
@@ -60,6 +61,8 @@ const el = {
   statsLegend: $("stats-legend"),
   statsEmpty: $("stats-empty"),
   statsMissing: $("stats-missing"),
+  statsArchived: $("stats-archived"),
+  statsArchivedNote: $("stats-archived-note"),
   statsFigures: $("stats-figures-panel"),
   statsAverage: $("stats-average"),
   statsTotal: $("stats-total"),
@@ -184,6 +187,7 @@ export function init() {
   el.form.elements.currency.addEventListener("change", () => syncRate(el.form, state.options.rates));
   el.rateForm.addEventListener("submit", saveRate);
   el.statsRange.addEventListener("change", () => show());
+  el.statsArchived.addEventListener("change", () => show());
   for (const button of el.monthSortButtons) {
     const key = button.dataset.sort;
     button.addEventListener("click", () => {
@@ -295,7 +299,7 @@ function entryRow(entry, baseCurrency) {
 
   row.append(
     cell(entry.date, "nowrap"),
-    cell(entry.category),
+    cell(entry.categoryArchived ? withBadge(entry.category, "archived") : entry.category),
     cell(entry.account || "—", entry.account ? "" : "muted"),
     cell(entry.comment, "muted wrap"),
     cell(signed(entry.currency, entry.amountCents), amountClass),
@@ -333,6 +337,12 @@ async function saveRate(event) {
   } catch (err) {
     formError(el.rateForm, String(err));
   }
+}
+
+function withBadge(text, label) {
+  const span = document.createElement("span");
+  span.append(text, badge(label));
+  return span;
 }
 
 function askDelete(entry) {
@@ -380,9 +390,10 @@ async function loadMonths() {
 // --- statistics ------------------------------------------------------------
 
 // loadStats charts the net result of the chosen months, with income and
-// expense as lines behind it, and sums them up below.
+// expense as lines behind it, and sums them up below. Entries in archived
+// categories count unless "Include archived" is unticked.
 async function loadStats() {
-  const data = await api.CashflowOverview();
+  const data = await api.CashflowStats(el.statsArchived.checked);
   const base = data.baseCurrency;
   const money = (cents) => formatMoney(base, cents);
   const signed = (cents) => (cents > 0 ? "+" : "") + money(cents);
@@ -396,6 +407,8 @@ async function loadStats() {
   el.statsFigures.hidden = rows.length === 0;
   el.statsMissing.hidden = data.missingRates === 0;
   el.statsMissing.textContent = `${data.missingRates} record(s) have no rate and aren't counted. Open their month to add one.`;
+  el.statsArchivedNote.hidden = data.archivedLeftOut === 0;
+  el.statsArchivedNote.textContent = `${data.archivedLeftOut} entr${data.archivedLeftOut === 1 ? "y" : "ies"} in archived categories left out. They still count in each month's entries and totals.`;
 
   chart(el.statsChart, {
     months: rows.map((r) => r.month),

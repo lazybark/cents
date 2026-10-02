@@ -3,7 +3,7 @@
 // with its figures. Part of the incomes & expenses view.
 import { api } from "../api.js";
 import { chart, legend, monthLabel } from "../charts.js";
-import { cell, clickableRow, fillSelect, formatMoney } from "../ui.js";
+import { badge, cell, clickableRow, fillSelect, formatMoney } from "../ui.js";
 
 const TOP = 10;
 
@@ -18,6 +18,8 @@ const el = {
   legend: $("cat-legend"),
   empty: $("cat-empty"),
   note: $("cat-note"),
+  archived: $("cat-archived"),
+  archivedNote: $("cat-archived-note"),
   figures: $("cat-figures-panel"),
   total: $("cat-total"),
   average: $("cat-average"),
@@ -42,6 +44,7 @@ export function initCategories() {
     loadCategories();
   });
   el.range.addEventListener("change", () => render());
+  el.archived.addEventListener("change", () => loadCategories());
   el.pick.addEventListener("change", () => {
     state.picked = el.pick.value;
     render();
@@ -49,7 +52,7 @@ export function initCategories() {
 }
 
 export async function loadCategories() {
-  state.data = await api.CashflowCategories(el.kind.value);
+  state.data = await api.CashflowCategories(el.kind.value, el.archived.checked);
   render();
 }
 
@@ -69,7 +72,7 @@ function inRange(data) {
     .map((c) => {
       const values = c.values.slice(start);
       const entries = c.entries.slice(start);
-      return { name: c.name, values, entries, total: values.reduce((a, b) => a + b, 0), count: entries.reduce((a, b) => a + b, 0) };
+      return { name: c.name, archived: c.archived, values, entries, total: values.reduce((a, b) => a + b, 0), count: entries.reduce((a, b) => a + b, 0) };
     })
     .filter((c) => c.count > 0)
     .sort((a, b) => b.total - a.total || a.name.localeCompare(b.name));
@@ -105,6 +108,8 @@ function render() {
   el.figures.hidden = empty || !state.picked;
   el.note.textContent = data.missingRates > 0 ? `${data.missingRates} record(s) have no rate and aren't counted. Open their month to add one.` : "";
   el.note.hidden = data.missingRates === 0;
+  el.archivedNote.hidden = data.archivedLeftOut === 0;
+  el.archivedNote.textContent = `${data.archivedLeftOut} entr${data.archivedLeftOut === 1 ? "y" : "ies"} in archived categories left out.`;
 
   if (empty) {
     el.title.textContent = `${data.isIncome ? "Incomes" : "Expenses"} by category`;
@@ -127,6 +132,7 @@ function render() {
         name.append(dot);
       }
       name.append(c.name);
+      if (c.archived) name.append(badge("archived"));
 
       row.append(
         cell(name),
@@ -158,11 +164,11 @@ function renderTop(top, months, money, kind, color, base) {
     ],
     label: `Largest ${kind} by month in ${base}`,
   });
-  legend(el.legend, top.map((c) => [color.get(c.name), c.name]));
+  legend(el.legend, top.map((c) => [color.get(c.name), c.archived ? `${c.name} (archived)` : c.name]));
 }
 
 function renderOne(category, months, all, money, kind, isIncome) {
-  el.title.textContent = category.name;
+  el.title.textContent = category.archived ? `${category.name} (archived)` : category.name;
 
   chart(el.chart, {
     months,

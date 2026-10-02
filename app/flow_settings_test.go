@@ -96,3 +96,29 @@ func TestSettingsListFormsUseSharedRules(t *testing.T) {
 		}
 	}
 }
+
+func TestEditingACategoryKeepsItArchived(t *testing.T) {
+	m := newTestApp(t)
+
+	m.settingsCursor = settingsExpenseCategoryAddCursor(m.settings)
+	m = press(t, m, "enter", "Car", "enter")
+
+	// Archived in the desktop app.
+	car := m.settings.ExpenseCategories[0]
+	car.Archived = true
+	if err := m.storage.SaveSettingExpenseCategory(&car); err != nil {
+		t.Fatal(err)
+	}
+
+	m.settings.ExpenseCategories[0] = car
+	m.settingsCursor = settingsExpenseCategoryStartCursor(m.settings)
+	m = press(t, m, "enter", "s", "enter")
+	if m.status != "saved expense category Cars" {
+		t.Fatalf("unexpected status %q", m.status)
+	}
+
+	stts, err := m.storage.LoadAppSettings()
+	if err != nil || len(stts.ExpenseCategories) != 1 || stts.ExpenseCategories[0].CategoryName != "Cars" || !stts.ExpenseCategories[0].Archived || !stts.ExpenseCategories[0].CreatedAt.Equal(car.CreatedAt) {
+		t.Fatalf("renaming should keep the category archived and its creation time: %+v %v", stts.ExpenseCategories, err)
+	}
+}

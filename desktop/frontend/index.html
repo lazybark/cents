@@ -264,20 +264,29 @@
           <section class="panel">
             <div class="panel-head">
               <h3 class="section-title">Net result by month</h3>
-              <label class="inline-field">
-                <span class="field-label">Show</span>
-                <select id="stats-range">
-                  <option value="12">Last 12 months</option>
-                  <option value="24">Last 24 months</option>
-                  <option value="36">Last 36 months</option>
-                  <option value="0">All months</option>
-                </select>
-              </label>
+              <div class="chart-controls">
+                <label class="inline-field">
+                  <span class="field-label">Show</span>
+                  <select id="stats-range">
+                    <option value="12">Last 12 months</option>
+                    <option value="24">Last 24 months</option>
+                    <option value="36">Last 36 months</option>
+                    <option value="0">All months</option>
+                  </select>
+                </label>
+                <label class="check">
+                  <!-- Statistics show the real numbers by default, archived
+                       categories included; Categories leave them out. -->
+                  <input id="stats-archived" type="checkbox" checked>
+                  <span>Include archived</span>
+                </label>
+              </div>
             </div>
             <div id="stats-chart"></div>
             <div id="stats-legend" class="chart-legend"></div>
             <p id="stats-empty" class="muted" hidden>No records yet.</p>
             <p id="stats-missing" class="hint" hidden></p>
+            <p id="stats-archived-note" class="hint" hidden></p>
           </section>
           <section id="stats-figures-panel" class="panel">
             <div class="figures">
@@ -329,12 +338,17 @@
                     <option value="0">All months</option>
                   </select>
                 </label>
+                <label class="check">
+                  <input id="cat-archived" type="checkbox">
+                  <span>Include archived</span>
+                </label>
               </div>
             </div>
             <div id="cat-chart"></div>
             <div id="cat-legend" class="chart-legend"></div>
             <p id="cat-empty" class="muted" hidden></p>
             <p id="cat-note" class="hint"></p>
+            <p id="cat-archived-note" class="hint" hidden></p>
           </section>
 
           <section id="cat-figures-panel" class="panel" hidden>

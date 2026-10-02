@@ -49,9 +49,10 @@ type TaxTypeSetting struct {
 }
 
 type CategorySetting struct {
-	ID     uint   `json:"id"`
-	Name   string `json:"name"`
-	UsedBy int    `json:"usedBy"`
+	ID       uint   `json:"id"`
+	Name     string `json:"name"`
+	Archived bool   `json:"archived"`
+	UsedBy   int    `json:"usedBy"`
 }
 
 type SettingsView struct {
@@ -92,6 +93,8 @@ type CategoryInput struct {
 	IsIncome bool   `json:"isIncome"`
 	ID       uint   `json:"id"`
 	Name     string `json:"name"`
+	// Archived keeps the category off new entries and out of statistics.
+	Archived bool `json:"archived"`
 }
 
 func (a *API) Settings() (SettingsView, error) {
@@ -137,11 +140,11 @@ func (a *API) Settings() (SettingsView, error) {
 	}
 
 	for _, c := range stts.IncomeCategories {
-		view.IncomeCategories = append(view.IncomeCategories, CategorySetting{ID: c.ID, Name: c.CategoryName, UsedBy: usage.incomeCategories[usageKey(c.CategoryName)]})
+		view.IncomeCategories = append(view.IncomeCategories, CategorySetting{ID: c.ID, Name: c.CategoryName, Archived: c.Archived, UsedBy: usage.incomeCategories[usageKey(c.CategoryName)]})
 	}
 
 	for _, c := range stts.ExpenseCategories {
-		view.ExpenseCategories = append(view.ExpenseCategories, CategorySetting{ID: c.ID, Name: c.CategoryName, UsedBy: usage.expenseCategories[usageKey(c.CategoryName)]})
+		view.ExpenseCategories = append(view.ExpenseCategories, CategorySetting{ID: c.ID, Name: c.CategoryName, Archived: c.Archived, UsedBy: usage.expenseCategories[usageKey(c.CategoryName)]})
 	}
 
 	return view, nil
@@ -319,6 +322,8 @@ func (a *API) SaveCategory(input CategoryInput) error {
 			return err
 		}
 
+		record.Archived = input.Archived
+
 		if err := storage.SaveSettingIncomeCategory(&record); err != nil {
 			return fmt.Errorf("income category save failed: %w", err)
 		}
@@ -347,6 +352,8 @@ func (a *API) SaveCategory(input CategoryInput) error {
 	if err := requireUnique("expense category", record.CategoryName, names); err != nil {
 		return err
 	}
+
+	record.Archived = input.Archived
 
 	if err := storage.SaveSettingExpenseCategory(&record); err != nil {
 		return fmt.Errorf("expense category save failed: %w", err)
