@@ -3,9 +3,11 @@ package desktop
 import (
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/lazybark/cents/flows/currency"
 	"github.com/lazybark/cents/flows/settings"
 	"github.com/lazybark/cents/summary"
 )
@@ -24,9 +26,15 @@ var errSettingNotFound = errors.New("setting not found")
 // UsedBy counts the records that refer to a setting by name (or, for tax
 // types, by id), so the frontend can warn before a rename or delete.
 
+// CurrencySetting is a currency; Code is the known currency it's linked to
+// (stored or worked out from its name), and Linked says its rate can be
+// fetched.
 type CurrencySetting struct {
 	ID         uint    `json:"id"`
 	Name       string  `json:"name"`
+	Code       string  `json:"code"`
+	CodeName   string  `json:"codeName"`
+	Linked     bool    `json:"linked"`
 	RateToBase float64 `json:"rateToBase"`
 	UsedBy     int     `json:"usedBy"`
 }
@@ -58,7 +66,10 @@ type CategorySetting struct {
 type SettingsView struct {
 	DBPath             string                 `json:"dbPath"`
 	BaseCurrency       string                 `json:"baseCurrency"`
+	BaseCode           string                 `json:"baseCode"`
+	BaseCodeName       string                 `json:"baseCodeName"`
 	BaseUsedBy         int                    `json:"baseUsedBy"`
+	Rates              RatesStatus            `json:"rates"`
 	Currencies         []CurrencySetting      `json:"currencies"`
 	PaymentMethods     []PaymentMethodSetting `json:"paymentMethods"`
 	PaymentMethodTypes []string               `json:"paymentMethodTypes"`
@@ -67,10 +78,21 @@ type SettingsView struct {
 	ExpenseCategories  []CategorySetting      `json:"expenseCategories"`
 }
 
+// CurrencyInput is a currency to save. Code links it to a known currency
+// (empty: worked out from the name); Name defaults to the code. An empty
+// Rate is fetched for a linked currency.
 type CurrencyInput struct {
 	ID   uint   `json:"id"`
+	Code string `json:"code"`
 	Name string `json:"name"`
 	Rate string `json:"rate"`
+}
+
+// BaseCurrencyInput changes the base currency: Value is what records use,
+// Code the known currency it stands for (empty: worked out from Value).
+type BaseCurrencyInput struct {
+	Value string `json:"value"`
+	Code  string `json:"code"`
 }
 
 type PaymentMethodInput struct {
@@ -118,6 +140,9 @@ func (a *API) Settings() (SettingsView, error) {
 	view := SettingsView{
 		DBPath:             dbPath,
 		BaseCurrency:       stts.BaseCurrencyLabel(),
+		BaseCode:           stts.BaseCurrencyCode,
+		BaseCodeName:       codeName(stts.BaseCurrencyCode),
+		Rates:              a.ratesStatus(stts),
 		BaseUsedBy:         usage.currencies[usageKey(stts.BaseCurrencyLabel())],
 		Currencies:         make([]CurrencySetting, 0, len(stts.Currencies)),
 		PaymentMethods:     make([]PaymentMethodSetting, 0, len(stts.PaymentMethods)),
@@ -128,7 +153,15 @@ func (a *API) Settings() (SettingsView, error) {
 	}
 
 	for _, c := range stts.Currencies {
-		view.Currencies = append(view.Currencies, CurrencySetting{ID: c.ID, Name: c.CurrencyName, RateToBase: c.RateToBase, UsedBy: usage.currencies[usageKey(c.CurrencyName)]})
+		view.Currencies = append(view.Currencies, CurrencySetting{
+			ID:         c.ID,
+			Name:       c.CurrencyName,
+			Code:       c.LinkedCode(),
+			CodeName:   codeName(c.LinkedCode()),
+			Linked:     stts.Linkable(c),
+			RateToBase: c.RateToBase,
+			UsedBy:     usage.currencies[usageKey(c.CurrencyName)],
+		})
 	}
 
 	for _, p := range stts.PaymentMethods {
@@ -150,15 +183,22 @@ func (a *API) Settings() (SettingsView, error) {
 	return view, nil
 }
 
-func (a *API) SaveBaseCurrency(value string) error {
-	storage, err := a.currentStorage()
+// SaveBaseCurrency changes the base currency and its link. With daily
+// updates on, rates are fetched again for the new base.
+func (a *API) SaveBaseCurrency(input BaseCurrencyInput) error {
+	storage, stts, err := a.storageAndSettings()
 	if err != nil {
 		return err
 	}
 
-	stts, err := storage.LoadAppSettings()
+	code, err := knownCode(input.Code)
 	if err != nil {
-		return fmt.Errorf("failed to load settings: %w", err)
+		return err
+	}
+
+	value := strings.TrimSpace(input.Value)
+	if value == "" {
+		value = code
 	}
 
 	record, err := settings.BaseCurrencyRecord(value)
@@ -166,17 +206,55 @@ func (a *API) SaveBaseCurrency(value string) error {
 		return err
 	}
 
+	if code == "" {
+		code = settings.BaseCodeFor(record.SettingValue, "", "")
+	}
+
 	for _, c := range stts.Currencies {
-		if strings.EqualFold(strings.TrimSpace(c.CurrencyName), record.SettingValue) {
-			return fmt.Errorf("%q is in the currency list: delete it there first", record.SettingValue)
+		if strings.EqualFold(strings.TrimSpace(c.CurrencyName), record.SettingValue) || (code != "" && c.LinkedCode() == code) {
+			return fmt.Errorf("%q is in the currency list: delete it there first", c.CurrencyName)
 		}
 	}
 
-	if err := storage.SaveSettingRecord(&record); err != nil {
+	records := []settings.SettingRecord{
+		record,
+		{SettingID: settings.BaseCurrencyCodeID, SettingValue: code},
+		{SettingID: settings.BaseCurrencyCodeForID, SettingValue: record.SettingValue},
+	}
+
+	if err := storage.SaveSettingRecords(records); err != nil {
 		return fmt.Errorf("settings save failed: %w", err)
 	}
 
+	// Rates are relative to the base, so a new base needs new ones.
+	if stts.Rates.Auto && code != "" && code != stts.BaseCurrencyCode {
+		_, _ = a.refreshRates(a.context())
+	}
+
 	return nil
+}
+
+// knownCode checks raw is a known currency's code ("" stays "").
+func knownCode(raw string) (string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", nil
+	}
+
+	c, ok := currency.Find(raw)
+	if !ok {
+		return "", fmt.Errorf("unknown currency %q: pick one from the list", raw)
+	}
+
+	return c.Code, nil
+}
+
+func codeName(code string) string {
+	if c, ok := currency.Find(code); ok {
+		return c.Name
+	}
+
+	return ""
 }
 
 func (a *API) SaveCurrency(input CurrencyInput) error {
@@ -199,10 +277,53 @@ func (a *API) SaveCurrency(input CurrencyInput) error {
 		return errSettingNotFound
 	}
 
-	record, err = record.Apply(input.Name, input.Rate, time.Now())
+	code, err := knownCode(input.Code)
 	if err != nil {
 		return err
 	}
+
+	name := strings.TrimSpace(input.Name)
+	if name == "" {
+		name = code
+	}
+
+	linked := code
+	if linked == "" {
+		linked = settings.SettingCurrency{CurrencyName: name}.LinkedCode()
+	}
+
+	if linked != "" && linked == stts.BaseCurrencyCode {
+		return fmt.Errorf("%s is the base currency", linked)
+	}
+
+	for _, c := range stts.Currencies {
+		if c.ID != record.ID && linked != "" && c.LinkedCode() == linked {
+			return fmt.Errorf("%s is already in the list as %q", linked, c.CurrencyName)
+		}
+	}
+
+	// A linked currency's rate can be left empty: it's fetched now.
+	rate := input.Rate
+	if strings.TrimSpace(rate) == "" && linked != "" && stts.BaseCurrencyCode != "" {
+		quote, err := a.fetch(a.context(), stts.BaseCurrencyCode)
+		if err != nil {
+			return fmt.Errorf("couldn't fetch the rate, so type one: %w", err)
+		}
+
+		value, ok := quote.RateToBase(linked)
+		if !ok {
+			return fmt.Errorf("no rate is known for %s, so type one", linked)
+		}
+
+		rate = strconv.FormatFloat(value, 'g', 8, 64)
+	}
+
+	record, err = record.Apply(name, rate, time.Now())
+	if err != nil {
+		return err
+	}
+
+	record.Code = code
 
 	if strings.EqualFold(record.CurrencyName, stts.BaseCurrencyLabel()) {
 		return fmt.Errorf("%q is the base currency", record.CurrencyName)

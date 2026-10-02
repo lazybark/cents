@@ -1,7 +1,8 @@
 // App shell: database setup, the main menu and switching between views.
 // Each view module exports a title and show(); init() is optional.
 import { api } from "./api.js";
-import { busy, setDBPath } from "./ui.js";
+import { showCurrencySetup } from "./currency-setup.js";
+import { busy, setDBPath, setStatus } from "./ui.js";
 import * as accounts from "./views/accounts.js";
 import * as cashflow from "./views/cashflow.js";
 import * as credits from "./views/credits.js";
@@ -46,11 +47,28 @@ function showSetup(note) {
   el.setupNote.textContent = note;
 }
 
+// showApp opens the app on the default view, resolving once it's shown.
 function showApp(dbPath) {
   setDBPath(dbPath);
   el.setup.hidden = true;
   el.app.hidden = false;
-  navigate(DEFAULT_VIEW);
+  return navigate(DEFAULT_VIEW);
+}
+
+// openDatabase shows the app, after picking currencies for a new database.
+function openDatabase(status) {
+  if (!status.needsCurrencies) {
+    showApp(status.dbPath);
+    return;
+  }
+
+  el.setup.hidden = true;
+  showCurrencySetup(async (rates) => {
+    // Said after the first view loads, which sets the status itself.
+    await showApp(status.dbPath);
+    if (rates?.lastError) setStatus(`Currencies saved; rates couldn't be fetched yet and will be tried again: ${rates.lastError}`);
+    else if (rates) setStatus(`Currencies saved with rates from ${rates.source}`);
+  });
 }
 
 // pick runs a setup dialog; the Go side resolves false when it was cancelled.
@@ -59,10 +77,7 @@ async function pick(choose) {
 
   try {
     const chosen = await busy(el.setup, choose);
-    if (chosen) {
-      const status = await api.Status();
-      showApp(status.dbPath);
-    }
+    if (chosen) openDatabase(await api.Status());
   } catch (err) {
     el.setupError.textContent = String(err);
     el.setupError.hidden = false;
@@ -85,7 +100,7 @@ function navigate(name) {
 
   el.viewTitle.textContent = views[current].title;
   for (const action of el.viewActions) action.hidden = action.dataset.for !== current;
-  refresh();
+  return refresh();
 }
 
 async function refresh() {
@@ -118,8 +133,14 @@ el.refresh.addEventListener("click", refresh);
 
 async function start() {
   const status = await api.Status();
-  if (status.ready) showApp(status.dbPath);
+  if (status.ready) openDatabase(status);
   else showSetup(status.note);
 }
+
+// Rates fetched in the background (once a day) change converted amounts, so
+// the open view is shown again. window.runtime is Wails' event bridge.
+window.runtime?.EventsOn?.("rates-updated", () => {
+  if (!el.app.hidden) refresh();
+});
 
 start();

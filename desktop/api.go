@@ -19,6 +19,7 @@ import (
 	"github.com/lazybark/cents/flows/settings"
 	"github.com/lazybark/cents/flows/subscription"
 	"github.com/lazybark/cents/flows/tax"
+	"github.com/lazybark/cents/rates"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
@@ -51,6 +52,8 @@ type StorageWorker interface {
 	SaveSettingIncomeCategory(entry *settings.SettingIncomeCategory) error
 	SaveSettingExpenseCategory(entry *settings.SettingExpenseCategory) error
 	DeleteSetting(targetType string, id uint) error
+	SaveSettingRecords(records []settings.SettingRecord) error
+	SaveRates(currencies []settings.SettingCurrency, records []settings.SettingRecord) error
 	CreateDebt(entry *debt.Debt) error
 	SaveDebt(entry *debt.Debt) error
 	CreateDebtLog(entry *debt.DebtLog) error
@@ -109,29 +112,47 @@ type API struct {
 	mu      sync.Mutex
 	storage StorageWorker
 	dbPath  string
+
+	// rates fetches exchange rates; refreshing lets one refresh run at a
+	// time, and ratesError is the last one's error.
+	rates      rates.Fetcher
+	refreshing sync.Mutex
+	ratesError string
 }
 
 type Status struct {
 	Ready  bool   `json:"ready"`
 	DBPath string `json:"dbPath"`
 	Note   string `json:"note"`
+	// NeedsCurrencies is set for a new database whose currencies haven't
+	// been picked yet.
+	NeedsCurrencies bool `json:"needsCurrencies"`
 }
 
 var errNoDatabase = errors.New("no database chosen yet")
 
 func newAPI(opts Options) *API {
-	return &API{opts: opts, storage: opts.Storage, dbPath: opts.DBPath}
+	return &API{opts: opts, storage: opts.Storage, dbPath: opts.DBPath, rates: rates.NewHTTP()}
 }
 
 func (a *API) startup(ctx context.Context) {
 	a.ctx = ctx
+	go a.keepRatesFresh(ctx)
 }
 
 func (a *API) Status() Status {
 	a.mu.Lock()
-	defer a.mu.Unlock()
+	status := Status{Ready: a.storage != nil, DBPath: a.dbPath, Note: a.opts.SetupNote}
+	storage := a.storage
+	a.mu.Unlock()
 
-	return Status{Ready: a.storage != nil, DBPath: a.dbPath, Note: a.opts.SetupNote}
+	if storage != nil {
+		if stts, err := storage.LoadAppSettings(); err == nil {
+			status.NeedsCurrencies = !stts.CurrenciesSetUp
+		}
+	}
+
+	return status
 }
 
 // CreateDatabase asks where to create a new database. It reports false when

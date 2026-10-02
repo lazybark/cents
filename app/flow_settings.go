@@ -397,7 +397,9 @@ func (m TheApplication) updateSettings(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 
-			record, err := settings.SettingCurrency{ID: m.settingsCurrencyEditingID}.Apply(m.settingsCurrencyNameInput.Value(), m.settingsCurrencyRateInput.Value(), time.Now())
+			// Start from the stored currency, so editing keeps its link to a
+			// known currency (set in the desktop app) unless it's renamed.
+			record, err := storedCurrency(m.settings, m.settingsCurrencyEditingID).Apply(m.settingsCurrencyNameInput.Value(), m.settingsCurrencyRateInput.Value(), time.Now())
 			if err != nil {
 				m.status = err.Error()
 
@@ -1037,4 +1039,15 @@ func storedExpenseCategory(stts settings.AppSettings, id uint) settings.SettingE
 	}
 
 	return settings.SettingExpenseCategory{ID: id}
+}
+
+// storedCurrency is the currency with id as stored, or a new one for id 0.
+func storedCurrency(stts settings.AppSettings, id uint) settings.SettingCurrency {
+	for _, c := range stts.Currencies {
+		if id != 0 && c.ID == id {
+			return c
+		}
+	}
+
+	return settings.SettingCurrency{ID: id}
 }

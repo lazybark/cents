@@ -39,6 +39,12 @@ func (c SettingCurrency) Apply(name, rate string, now time.Time) (SettingCurrenc
 		return SettingCurrency{}, err
 	}
 
+	// A renamed currency no longer means what it was linked to; the link
+	// is worked out from the new name again (callers can set Code after).
+	if c.ID != 0 && !strings.EqualFold(strings.TrimSpace(c.CurrencyName), name) {
+		c.Code = ""
+	}
+
 	c.CurrencyName = name
 	c.RateToBase = value
 	stamp(&c.CreatedAt, &c.LastUpdatedAt, c.ID, now)

@@ -21,6 +21,41 @@
     </section>
   </main>
 
+  <main id="currency-setup" class="setup" hidden>
+    <h1 class="brand">cents</h1>
+    <section class="panel">
+      <h2 class="section-title">Pick your currencies</h2>
+      <p class="muted">Add the currencies you use and mark the one every total should be shown in. Rates are fetched for you and updated once a day.</p>
+      <form id="currency-pick-form" class="form" novalidate>
+        <div class="field-row">
+          <label class="field">
+            <span class="field-label">Find a currency</span>
+            <input id="currency-search" list="currency-catalog" placeholder="EUR, euro, lari, €…" autocomplete="off" autofocus>
+          </label>
+          <button class="button field-button" type="submit">Add</button>
+        </div>
+        <p class="form-error negative" hidden></p>
+      </form>
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Currency</th>
+            <th>Base</th>
+            <th><span class="visually-hidden">Actions</span></th>
+          </tr>
+        </thead>
+        <tbody id="currency-picked"></tbody>
+      </table>
+      <p id="currency-picked-empty" class="muted">No currencies yet.</p>
+      <p id="currency-setup-error" class="negative" hidden></p>
+      <div class="actions">
+        <button id="currency-save" class="button button-primary" type="button">Save currencies</button>
+        <button id="currency-skip" class="button" type="button">Skip for now</button>
+      </div>
+      <p class="hint">You can add, link or remove currencies later in Settings.</p>
+    </section>
+  </main>
+
   <div id="app" class="app" hidden>
     <nav class="sidebar" aria-label="Main menu">
       <h1 class="brand">cents</h1>
@@ -624,6 +659,7 @@
               <button id="edit-base" class="button" type="button">Change</button>
             </div>
             <div id="settings-base" class="figure"></div>
+            <p id="settings-base-code" class="muted"></p>
             <p class="hint">Every total is converted into this currency.</p>
           </section>
           <section class="panel">
@@ -632,6 +668,20 @@
             <p class="hint">Chosen on first launch and remembered in config.yml.</p>
           </section>
         </div>
+
+        <section class="panel">
+          <div class="panel-head">
+            <h3 class="section-title">Exchange rates</h3>
+            <button id="rates-refresh" class="button" type="button">Update now</button>
+          </div>
+          <p id="rates-status"></p>
+          <label class="check">
+            <input id="rates-auto" type="checkbox">
+            <span>Update rates automatically once a day</span>
+          </label>
+          <p id="rates-note" class="hint"></p>
+          <p id="rates-error" class="negative" hidden></p>
+        </section>
 
         <!-- One panel per settings list, rendered by views/settings.js. -->
         <div id="settings-lists" class="settings-lists"></div>
@@ -1617,6 +1667,7 @@
   <datalist id="payment-methods"></datalist>
   <datalist id="invoice-accounts"></datalist>
   <datalist id="asset-types"></datalist>
+  <datalist id="currency-catalog"></datalist>
   <datalist id="credit-purposes"></datalist>
 
   <!-- Add/edit form for any settings list; views/settings.js fills the fields. -->

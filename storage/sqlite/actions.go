@@ -511,3 +511,36 @@ func (s *SQLiteStorage) SaveCashflows(entries []cashflow.CashflowEntry) error {
 		return nil
 	})
 }
+
+// SaveSettingRecords saves several settings records together.
+func (s *SQLiteStorage) SaveSettingRecords(records []settings.SettingRecord) error {
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		for i := range records {
+			if err := tx.Save(&records[i]).Error; err != nil {
+				return fmt.Errorf("failed to save setting %s: %w", records[i].SettingID, err)
+			}
+		}
+
+		return nil
+	})
+}
+
+// SaveRates saves fetched rates on currencies with the records saying when
+// and where from, together.
+func (s *SQLiteStorage) SaveRates(currencies []settings.SettingCurrency, records []settings.SettingRecord) error {
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		for i := range currencies {
+			if err := tx.Save(&currencies[i]).Error; err != nil {
+				return fmt.Errorf("failed to save rate of %s: %w", currencies[i].CurrencyName, err)
+			}
+		}
+
+		for i := range records {
+			if err := tx.Save(&records[i]).Error; err != nil {
+				return fmt.Errorf("failed to save setting %s: %w", records[i].SettingID, err)
+			}
+		}
+
+		return nil
+	})
+}

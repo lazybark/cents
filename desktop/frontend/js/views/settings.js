@@ -2,13 +2,20 @@
 // list is described once in LISTS; one panel renderer and one dialog serve
 // them all.
 import { api } from "../api.js";
-import { badge, busy, cell, clickableRow, confirmDelete, formError, setStatus } from "../ui.js";
+import { describe, loadCatalog, match } from "../currencies.js";
+import { badge, busy, cell, clickableRow, confirmDelete, formatUpdatedAt, formError, setStatus } from "../ui.js";
 
 const $ = (id) => document.getElementById(id);
 
 const el = {
   base: $("settings-base"),
+  baseCode: $("settings-base-code"),
   editBase: $("edit-base"),
+  ratesRefresh: $("rates-refresh"),
+  ratesStatus: $("rates-status"),
+  ratesAuto: $("rates-auto"),
+  ratesNote: $("rates-note"),
+  ratesError: $("rates-error"),
   db: $("settings-db"),
   lists: $("settings-lists"),
 
@@ -32,21 +39,32 @@ const LISTS = [
     label: (c) => c.name,
     columns: (v) => [
       ["Currency", (c) => c.name],
-      [`1 unit in ${v.baseCurrency}`, (c) => `${v.baseCurrency} ${c.rateToBase}`, "num"],
+      ["Linked to", (c) => (c.code ? `${c.code} · ${c.codeName}` : "not linked"), (c) => (c.code ? "" : "muted")],
+      [`1 unit in ${v.baseCurrency}`, (c) => (c.rateToBase > 0 ? `${v.baseCurrency} ${Number(c.rateToBase.toPrecision(6))}` : "no rate yet"), "num"],
       ["Used by", usedBy, "num muted"],
     ],
     fields: (v) => [
-      { name: "name", label: "Name", placeholder: "EUR", maxlength: 24 },
-      { name: "rate", label: `Value of 1 unit in ${v.baseCurrency}`, placeholder: "1.08", inputmode: "decimal" },
+      { name: "code", label: "Currency", placeholder: "pick from the list: EUR, euro, €…", list: "currency-catalog", currency: true },
+      { name: "name", label: "Name records use (optional: the code)", placeholder: "EUR, €…", maxlength: 24 },
+      {
+        name: "rate",
+        label: v.baseCode ? `Value of 1 unit in ${v.baseCurrency} (optional: fetched for you)` : `Value of 1 unit in ${v.baseCurrency}`,
+        placeholder: "1.08",
+        inputmode: "decimal",
+      },
     ],
-    values: (c) => ({ name: c.name, rate: String(c.rateToBase) }),
-    save: (id, f) => api.SaveCurrency({ id, name: f.name, rate: f.rate }),
-    warn: (c, action) =>
-      c.usedBy === 0
-        ? ""
-        : action === "edit"
-          ? `${c.usedBy} record(s) use ${c.name}. Renaming doesn't update them, so they would lose their conversion rate.`
-          : `${c.usedBy} record(s) use ${c.name}. They will show “no rate” and drop out of totals.`,
+    values: (c) => ({ code: c.code ? describe(c.code) : "", name: c.name, rate: String(c.rateToBase) }),
+    save: (id, f) => api.SaveCurrency({ id, code: f.code, name: f.name, rate: f.rate }),
+    warn: (c, action, v) => {
+      const users =
+        c.usedBy === 0
+          ? ""
+          : action === "edit"
+            ? `${c.usedBy} record(s) use ${c.name}. Renaming doesn't update them, so they would lose their conversion rate.`
+            : `${c.usedBy} record(s) use ${c.name}. They will show “no rate” and drop out of totals.`;
+      const auto = action === "edit" && c.linked && v.rates.auto ? "Its rate is updated once a day, so a typed rate is replaced on the next update." : "";
+      return [users, auto].filter(Boolean).join(" ");
+    },
   },
   {
     kind: "payment_method",
@@ -146,6 +164,9 @@ const state = {
 export const title = "Settings";
 
 export function init() {
+  loadCatalog().catch((err) => setStatus(`Failed to load the currency list: ${err}`));
+  el.ratesRefresh.addEventListener("click", refreshRates);
+  el.ratesAuto.addEventListener("change", setRatesAuto);
   el.editBase.addEventListener("click", openBase);
   el.form.addEventListener("submit", save);
   el.delete.addEventListener("click", askDelete);
@@ -165,6 +186,10 @@ export async function show(message) {
 
 function render(view) {
   el.base.textContent = view.baseCurrency;
+  el.baseCode.textContent = view.baseCode
+    ? `Linked to ${describe(view.baseCode)}`
+    : "Not linked to a known currency, so rates can't be fetched. Use Change to link it.";
+  renderRates(view.rates, view);
   el.db.textContent = view.dbPath;
 
   // Categories pair up side by side; the other lists take the full width.
@@ -211,14 +236,14 @@ function listPanel(list, view) {
   for (const [label, , className] of columns) {
     const th = document.createElement("th");
     th.textContent = label;
-    if (className?.includes("num")) th.className = "num";
+    if (typeof className === "string" && className.includes("num")) th.className = "num";
     headRow.append(th);
   }
 
   const body = document.createElement("tbody");
   for (const item of items) {
     const row = document.createElement("tr");
-    for (const [, value, className] of columns) row.append(cell(value(item), className));
+    for (const [, value, className] of columns) row.append(cell(value(item), typeof className === "function" ? className(item) : className));
     clickableRow(row, () => openItem(list, item));
     body.append(row);
   }
@@ -255,6 +280,7 @@ function buildFields(fields, values) {
         if (field.inputmode) input.inputMode = field.inputmode;
       }
 
+      if (field.list) input.setAttribute("list", field.list);
       input.name = field.name;
       const value = values[field.name];
       if (field.checkbox) input.checked = Boolean(value);
@@ -300,15 +326,66 @@ function openBase() {
   state.editing = { base: true };
 
   const users = view.baseUsedBy ? `${view.baseUsedBy} record(s) are in ${view.baseCurrency}; to keep them in totals, add ${view.baseCurrency} as a currency with a rate afterwards. ` : "";
-  const note = `${users}Existing rates aren't converted: they stay relative to whatever the base currency is.`;
+  const rates = view.rates.auto ? "Linked currencies get new rates for the new base right away; others keep theirs." : "Existing rates aren't converted: they stay relative to whatever the base currency is.";
 
-  openDialog("Change base currency", [{ name: "value", label: "Base currency", placeholder: "€", maxlength: 24 }], { value: view.baseCurrency }, note, false);
+  openDialog(
+    "Change base currency",
+    [
+      { name: "code", label: "Currency", placeholder: "pick from the list: EUR, euro, €…", list: "currency-catalog", currency: true },
+      { name: "value", label: "Name records use (optional: the code)", placeholder: "€", maxlength: 24 },
+    ],
+    { code: view.baseCode ? describe(view.baseCode) : "", value: view.baseCurrency },
+    `${users}${rates}`,
+    false,
+  );
 }
 
+// --- exchange rates --------------------------------------------------------
+
+function renderRates(rates, view) {
+  el.ratesAuto.checked = rates.auto;
+  el.ratesRefresh.disabled = !rates.baseCode;
+  el.ratesStatus.textContent = rates.updatedAt
+    ? `Updated ${formatUpdatedAt(rates.updatedAt)} from ${rates.source} (rates of ${rates.date}).`
+    : "Not updated yet.";
+
+  const notes = [];
+  if (!rates.baseCode) notes.push(`Link the base currency ${view.baseCurrency} to a known currency to fetch rates.`);
+  else notes.push(`${rates.linked} currenc${rates.linked === 1 ? "y gets its rate" : "ies get their rates"} fetched in ${rates.baseCode}.`);
+  if (rates.unlinked.length) notes.push(`Not linked, so they keep the rates you typed: ${rates.unlinked.join(", ")}.`);
+  el.ratesNote.textContent = notes.join(" ");
+
+  el.ratesError.hidden = !rates.lastError;
+  el.ratesError.textContent = rates.lastError ? `Last update failed: ${rates.lastError}` : "";
+}
+
+async function refreshRates() {
+  try {
+    await busy(el.ratesRefresh.closest(".panel"), () => api.RefreshRates());
+    await show("rates updated");
+  } catch (err) {
+    await show();
+    setStatus(`Rates not updated: ${err}`);
+  }
+}
+
+async function setRatesAuto() {
+  try {
+    await api.SetRatesAuto(el.ratesAuto.checked);
+    await show(el.ratesAuto.checked ? "rates update daily" : "rates kept as they are");
+  } catch (err) {
+    setStatus(`Failed to change rate updates: ${err}`);
+  }
+}
+
+// formValues reads the dialog; currency pickers give the picked code (or
+// the text as typed, for the Go side to reject).
 function formValues() {
   const values = {};
   for (const input of el.fields.querySelectorAll("input, select")) {
-    values[input.name] = input.type === "checkbox" ? input.checked : input.value;
+    if (input.type === "checkbox") values[input.name] = input.checked;
+    else if (input.getAttribute("list") === "currency-catalog") values[input.name] = input.value.trim() ? (match(input.value)?.code ?? input.value.trim()) : "";
+    else values[input.name] = input.value;
   }
 
   return values;
@@ -322,12 +399,12 @@ async function save(event) {
   try {
     let message;
     if (editing.base) {
-      await busy(el.form, () => api.SaveBaseCurrency(values.value));
+      await busy(el.form, () => api.SaveBaseCurrency({ value: values.value, code: values.code }));
       message = "saved base currency";
     } else {
       const { list, item } = editing;
       await busy(el.form, () => list.save(item?.id ?? 0, values));
-      message = `saved ${list.noun} ${(values.name ?? values.country ?? "").trim()}`;
+      message = `saved ${list.noun} ${(values.name || values.code || values.country || "").trim()}`;
     }
 
     el.dialog.close();

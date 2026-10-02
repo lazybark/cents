@@ -1,6 +1,8 @@
 package desktop
 
 import (
+	"context"
+	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -8,6 +10,7 @@ import (
 
 	"github.com/lazybark/cents/flows/account"
 	"github.com/lazybark/cents/flows/settings"
+	"github.com/lazybark/cents/rates"
 	storage "github.com/lazybark/cents/storage/sqlite"
 )
 
@@ -30,7 +33,30 @@ func newTestAPI(t *testing.T) *API {
 		}
 	}
 
-	return newAPI(Options{Storage: storage.NewSQLiteStorage(db)})
+	api := newAPI(Options{Storage: storage.NewSQLiteStorage(db)})
+	// Tests never reach the network: rates come from fakeRates.
+	api.rates = &fakeRates{err: errors.New("offline in tests")}
+
+	return api
+}
+
+// fakeRates answers rate fetches with quote (or err), counting them.
+type fakeRates struct {
+	quote rates.Quote
+	err   error
+	calls int
+}
+
+func (f *fakeRates) Fetch(_ context.Context, base string) (rates.Quote, error) {
+	f.calls++
+	if f.err != nil {
+		return rates.Quote{}, f.err
+	}
+
+	quote := f.quote
+	quote.Base = strings.ToUpper(base)
+
+	return quote, nil
 }
 
 func mustCreate(t *testing.T, api *API, input NewAccountInput) AccountRow {

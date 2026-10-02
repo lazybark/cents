@@ -25,7 +25,8 @@ func TestSettingsCurrencies(t *testing.T) {
 
 	for want, input := range map[string]CurrencyInput{
 		"rate must be greater than zero":        {Name: "CHF", Rate: "0"},
-		`a currency named "eur" already exists`: {Name: "eur", Rate: "1"},
+		`EUR is already in the list as "EUR"`:   {Name: "eur", Rate: "1"},
+		`a currency named "eur" already exists`: {Name: "eur", Code: "CHF", Rate: "1"},
 		`"$" is the base currency`:              {Name: "$", Rate: "1"},
 		"setting not found":                     {ID: 999, Name: "X", Rate: "1"},
 	} {
@@ -72,20 +73,37 @@ func TestSettingsCurrencies(t *testing.T) {
 func TestSettingsBaseCurrency(t *testing.T) {
 	api := newTestAPI(t)
 
-	if err := api.SaveBaseCurrency(" "); err == nil || err.Error() != "base currency cannot be empty" {
+	if err := api.SaveBaseCurrency(BaseCurrencyInput{Value: " "}); err == nil || err.Error() != "base currency cannot be empty" {
 		t.Fatalf("unexpected %v", err)
 	}
 
-	if err := api.SaveBaseCurrency("eur"); err == nil || !strings.Contains(err.Error(), "currency list") {
+	if err := api.SaveBaseCurrency(BaseCurrencyInput{Value: "eur"}); err == nil || !strings.Contains(err.Error(), "currency list") {
 		t.Fatalf("expected refusal for listed currency, got %v", err)
 	}
 
-	if err := api.SaveBaseCurrency("€"); err != nil {
+	// € stands for EUR, which is already in the list as "EUR".
+	if err := api.SaveBaseCurrency(BaseCurrencyInput{Value: "€"}); err == nil || !strings.Contains(err.Error(), "currency list") {
+		t.Fatalf("expected refusal for a currency linked like a listed one, got %v", err)
+	}
+
+	if err := api.SaveBaseCurrency(BaseCurrencyInput{Value: "₾"}); err != nil {
 		t.Fatal(err)
 	}
 
-	if view := mustSettings(t, api); view.BaseCurrency != "€" {
-		t.Fatalf("expected € base, got %q", view.BaseCurrency)
+	if view := mustSettings(t, api); view.BaseCurrency != "₾" || view.BaseCode != "GEL" || view.BaseCodeName != "Georgian Lari" {
+		t.Fatalf("expected ₾ base linked to GEL, got %+v", view)
+	}
+
+	if err := api.SaveBaseCurrency(BaseCurrencyInput{Value: "$", Code: "usd"}); err != nil {
+		t.Fatal(err)
+	}
+
+	if view := mustSettings(t, api); view.BaseCurrency != "$" || view.BaseCode != "USD" {
+		t.Fatalf("expected $ base linked to USD, got %+v", view)
+	}
+
+	if err := api.SaveBaseCurrency(BaseCurrencyInput{Value: "$", Code: "dollars"}); err == nil || !strings.Contains(err.Error(), "unknown currency") {
+		t.Fatalf("expected unknown code error, got %v", err)
 	}
 }
 

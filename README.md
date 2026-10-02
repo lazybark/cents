@@ -27,12 +27,4 @@ Data importer (CSV, JSON)
 
 Credits: loaner (bank, other org), from date, due date, amount, currency, logs
 
-How to make historical data NOT updated with currency changes? Need to store the resulting value at the moment of closing the debt
-
 Page with historical account data, where all accounts are aggregated historically
-
-Fix: account log update enter does not work on checkbox, only when user is back to Amount input
-
-Make Update log on save by default as true
-
-Fix: account list has a ? placeholders on unicode symbols in account names, though the actual name is OK

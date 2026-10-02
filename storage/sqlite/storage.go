@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/lazybark/cents/flows/account"
 	"github.com/lazybark/cents/flows/asset"
@@ -55,6 +56,10 @@ func OpenDatabase(dbPath string) (*gorm.DB, bool, error) {
 
 	if err := backfillRecordedRates(db); err != nil {
 		return nil, false, fmt.Errorf("failed to set rates of older records: %w", err)
+	}
+
+	if err := markCurrenciesSetUp(db); err != nil {
+		return nil, false, fmt.Errorf("failed to check currency setup: %w", err)
 	}
 
 	return db, created, nil
@@ -177,6 +182,28 @@ func backfillRecordedRates(db *gorm.DB) error {
 	})
 }
 
+// markCurrenciesSetUp treats a database that already has currencies or
+// records as set up, so only a new, empty one asks to pick currencies.
+func markCurrenciesSetUp(db *gorm.DB) error {
+	var marked int64
+	if err := db.Model(&settings.SettingRecord{}).Where("setting_id = ?", settings.CurrenciesSetUpID).Count(&marked).Error; err != nil || marked > 0 {
+		return err
+	}
+
+	for _, model := range []any{&settings.SettingCurrency{}, &account.Account{}, &cashflow.CashflowEntry{}, &debt.Debt{}, &invoice.Invoice{}, &tax.Tax{}} {
+		var count int64
+		if err := db.Model(model).Count(&count).Error; err != nil {
+			return err
+		}
+
+		if count > 0 {
+			return db.Save(&settings.SettingRecord{SettingID: settings.CurrenciesSetUpID, SettingValue: "1"}).Error
+		}
+	}
+
+	return nil
+}
+
 func EnsureSettingsDefaults(db *gorm.DB) error {
 	var count int64
 
@@ -256,14 +283,32 @@ func LoadAppSettings(db *gorm.DB) (settings.AppSettings, error) {
 	}
 
 	stts := settings.AppSettings{BaseCurrency: "$"}
+	var baseCode, baseCodeFor string
 	for _, row := range rows {
+		value := strings.TrimSpace(row.SettingValue)
 		switch row.SettingID {
-		case "base_currency":
-			if strings.TrimSpace(row.SettingValue) != "" {
+		case settings.BaseCurrencySettingID:
+			if value != "" {
 				stts.BaseCurrency = row.SettingValue
 			}
+		case settings.BaseCurrencyCodeID:
+			baseCode = value
+		case settings.BaseCurrencyCodeForID:
+			baseCodeFor = value
+		case settings.RatesAutoID:
+			stts.Rates.Auto = value == "1"
+		case settings.RatesUpdatedAtID:
+			stts.Rates.UpdatedAt, _ = time.Parse(time.RFC3339, value)
+		case settings.RatesSourceID:
+			stts.Rates.Source = value
+		case settings.RatesDateID:
+			stts.Rates.Date = value
+		case settings.CurrenciesSetUpID:
+			stts.CurrenciesSetUp = value == "1"
 		}
 	}
+
+	stts.BaseCurrencyCode = settings.BaseCodeFor(stts.BaseCurrency, baseCode, baseCodeFor)
 
 	var currencies []settings.SettingCurrency
 
