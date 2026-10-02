@@ -5,6 +5,8 @@
 
 Add button "add new" when creating a new entry. So all inputs retain their values, new record added and user can instanly add several more records there.
 
+If user uses comma - auto-replace it with a dot for decimal values.
+
 
 - Export to CSV (specific account, expense, history, etc.)
 - Import is the other way around: import via join, replacing existing data where necessary

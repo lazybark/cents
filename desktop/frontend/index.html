@@ -945,11 +945,15 @@
         <span class="field-label">Comment</span>
         <input name="comment" maxlength="140" placeholder="optional comment" autocomplete="off">
       </label>
+      <p id="cashflow-saved" class="positive" hidden></p>
       <p class="form-error negative" hidden></p>
       <div class="dialog-actions">
         <button type="button" class="button" data-close>Cancel</button>
+        <!-- Adding only: saves and keeps every value for the next entry. -->
+        <button id="cashflow-save-more" type="submit" class="button button-accent" title="⌘ / Ctrl + Enter">Save &amp; add another</button>
         <button type="submit" class="button button-primary">Save</button>
       </div>
+      <p id="cashflow-save-more-hint" class="hint">⌘ / Ctrl + Enter saves and keeps the dialog open with the same values.</p>
     </form>
   </dialog>
 

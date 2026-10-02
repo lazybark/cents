@@ -78,6 +78,9 @@ const el = {
   formTitle: $("cashflow-title"),
   noCategories: $("cashflow-no-categories"),
   kindField: $("cashflow-kind-field"),
+  saveMore: $("cashflow-save-more"),
+  saveMoreHint: $("cashflow-save-more-hint"),
+  saved: $("cashflow-saved"),
 
   rateDialog: $("cashflow-rate-dialog"),
   rateForm: $("cashflow-rate-form"),
@@ -170,6 +173,8 @@ const state = {
   rated: null,
   // The entry open in the dialog for editing, or null when adding one.
   editing: null,
+  // How many entries "Save & add another" saved since the dialog opened.
+  savedCount: 0,
 };
 
 export const title = "Incomes & expenses";
@@ -189,6 +194,13 @@ export function init() {
   el.addExpense.addEventListener("click", () => openAdd(false));
   el.form.addEventListener("submit", save);
   el.form.elements.currency.addEventListener("change", currencyPicked);
+  // ⌘ / Ctrl + Enter saves and keeps the dialog open, while adding.
+  el.form.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && (event.metaKey || event.ctrlKey) && !el.saveMore.hidden) {
+      event.preventDefault();
+      el.form.requestSubmit(el.saveMore);
+    }
+  });
   el.form.elements.kind.addEventListener("change", () => fillCategories(el.form.elements.kind.value === "income"));
   el.rateForm.addEventListener("submit", saveRate);
   el.statsRange.addEventListener("change", () => show());
@@ -544,9 +556,11 @@ async function openAdd(isIncome) {
 
   state.editing = null;
   state.isIncome = isIncome;
+  state.savedCount = 0;
   form.reset();
   el.formTitle.textContent = isIncome ? "Add income" : "Add expense";
   el.kindField.hidden = true;
+  showSaveMore(true);
   fillSelect(form.elements.currency, options.currencies);
   fillCategories(isIncome);
   fillSelect(form.elements.account, ["", ...options.accounts], ["— none —", ...options.accounts]);
@@ -568,6 +582,7 @@ async function openEdit(entry) {
   form.reset();
   el.formTitle.textContent = entry.isIncome ? "Edit income" : "Edit expense";
   el.kindField.hidden = false;
+  showSaveMore(false);
   fields.kind.value = entry.isIncome ? "income" : "expense";
 
   const currencies = withKept(options.currencies, entry.currency);
@@ -587,10 +602,20 @@ async function openEdit(entry) {
   el.dialog.showModal();
 }
 
+// showSaveMore shows "Save & add another" (and its hint) while adding.
+function showSaveMore(adding) {
+  el.saveMore.hidden = !adding;
+  el.saveMoreHint.hidden = !adding;
+  el.saved.hidden = true;
+}
+
 async function save(event) {
   event.preventDefault();
   const form = el.form.elements;
   const editing = state.editing;
+  // "Save & add another" keeps the dialog open with the same values, so
+  // a run of entries (old ones, especially) only needs what changes.
+  const keepOpen = !editing && event.submitter === el.saveMore;
   const isIncome = editing ? form.kind.value === "income" : state.isIncome;
   const input = {
     isIncome,
@@ -611,11 +636,26 @@ async function save(event) {
 
   try {
     const result = await busy(el.form, () => (editing ? api.UpdateCashflow({ id: editing.id, ...input }) : api.CreateCashflow(input)));
-    el.dialog.close();
-    state.editing = null;
+    const kind = isIncome ? "income" : "expense";
     state.month = result.month;
     state.tab = "month";
-    const kind = isIncome ? "income" : "expense";
+
+    if (keepOpen) {
+      state.savedCount += 1;
+      const amount = formatMoney(input.currency, Math.round(Number(input.amount) * 100));
+      const count = state.savedCount === 1 ? `Saved 1 ${kind}` : `Saved ${state.savedCount} ${kind}s`;
+      el.saved.textContent = `${count}. Last: ${amount} on ${input.date} · ${input.category}.`;
+      el.saved.hidden = false;
+      formError(el.form, "");
+      // The list behind shows the saved entry's month; the dialog stays.
+      await show(`saved ${kind}`);
+      form.amount.focus();
+      form.amount.select();
+      return;
+    }
+
+    el.dialog.close();
+    state.editing = null;
     await show(editing ? `updated ${kind}` : `saved ${kind}`);
   } catch (err) {
     formError(el.form, String(err));
