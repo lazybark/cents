@@ -31,6 +31,9 @@ type DebtLog struct {
 	DebtID         uint `gorm:"index;not null"`
 	DeltaPaidCents int64
 	Note           string
+	// CashflowEntryID is the expense (or income) added with this payment,
+	// 0 for none; deleting the payment deletes it too.
+	CashflowEntryID uint `gorm:"not null;default:0"`
 }
 
 const (

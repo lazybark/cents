@@ -50,6 +50,8 @@ type CreditsView struct {
 	Counts       map[string]int `json:"counts"`
 	Currencies   []CurrencyRate `json:"currencies"`
 	Purposes     []string       `json:"purposes"`
+	// Cashflow is what a payment added as an expense can use.
+	Cashflow CashflowOptions `json:"cashflow"`
 }
 
 // CreditInput is a credit as typed into the form; ID is zero for a new one.
@@ -78,6 +80,8 @@ type CreditLogRow struct {
 	Kind       string `json:"kind"`
 	DeltaCents int64  `json:"deltaCents"`
 	Note       string `json:"note"`
+	// CashflowID is the expense added with the payment, 0 for none.
+	CashflowID uint `json:"cashflowId"`
 }
 
 // CreditLogInput logs a "payment" or an "addition" of Amount on Date
@@ -88,6 +92,8 @@ type CreditLogInput struct {
 	Amount string `json:"amount"`
 	Date   string `json:"date"`
 	Note   string `json:"note"`
+	// Cashflow adds a payment to expenses too, on its day.
+	Cashflow PaymentCashflow `json:"cashflow"`
 }
 
 // Credits lists "active" credits (still being paid) or "paid" ones.
@@ -107,6 +113,11 @@ func (a *API) Credits(mode string) (CreditsView, error) {
 		listMode = credit.ListActive
 	}
 
+	accounts, err := storage.LoadAccounts()
+	if err != nil {
+		return CreditsView{}, fmt.Errorf("failed to load accounts: %w", err)
+	}
+
 	listed := credit.Filter(items, listMode)
 	paid, total := credit.ProgressInBaseCents(listed)
 	now := time.Now()
@@ -123,6 +134,7 @@ func (a *API) Credits(mode string) (CreditsView, error) {
 		},
 		Currencies: currencyRates(stts),
 		Purposes:   credit.PurposeOptions(),
+		Cashflow:   cashflowOptions(stts, accounts),
 	}
 
 	for _, item := range listed {
@@ -229,7 +241,7 @@ func (a *API) CreditLogs(id uint) ([]CreditLogRow, error) {
 			delta = entry.DeltaTotalCents
 		}
 
-		result = append(result, CreditLogRow{ID: entry.ID, When: entry.CreatedAt.Local().Format("2006-01-02 15:04"), Kind: string(entry.Kind()), DeltaCents: delta, Note: entry.Note})
+		result = append(result, CreditLogRow{ID: entry.ID, When: entry.CreatedAt.Local().Format("2006-01-02 15:04"), Kind: string(entry.Kind()), DeltaCents: delta, Note: entry.Note, CashflowID: entry.CashflowEntryID})
 	}
 
 	return result, nil
@@ -254,7 +266,23 @@ func (a *API) AddCreditLog(input CreditLogInput) (CreditRow, error) {
 		return CreditRow{}, err
 	}
 
-	if err := storage.AddCreditLog(&updated, &entry); err != nil {
+	// Only a payment is money spent; an addition grows the credit.
+	req := input.Cashflow
+	if entry.Kind() != credit.LogPayment && req.Add {
+		return CreditRow{}, errors.New("only a payment can be added as an expense")
+	}
+
+	accounts, err := storage.LoadAccounts()
+	if err != nil {
+		return CreditRow{}, fmt.Errorf("failed to load accounts: %w", err)
+	}
+
+	cash, err := paymentEntry(req, stts, accounts, false, current.Currency, entry.DeltaPaidCents, input.Date, paymentComment("Payment on credit "+current.Name, input.Note), now)
+	if err != nil {
+		return CreditRow{}, err
+	}
+
+	if err := storage.AddCreditLog(&updated, &entry, cash); err != nil {
 		return CreditRow{}, err
 	}
 

@@ -2,9 +2,6 @@
 
 ## Plans
 
-Subscriptions should be more than just software & domains
-
-
 - Export to CSV (specific account, expense, history, etc.)
 - Import is the other way around: import via join, replacing existing data where necessary
 - Automatic currency exchange update, with writing down the latest time in config, noting it in the interface and refreshing in case it was outdated

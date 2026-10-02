@@ -37,4 +37,7 @@ type CreditLog struct {
 	DeltaPaidCents  int64
 	DeltaTotalCents int64
 	Note            string
+	// CashflowEntryID is the expense added with this payment, 0 for none;
+	// deleting the payment deletes it too.
+	CashflowEntryID uint `gorm:"not null;default:0"`
 }

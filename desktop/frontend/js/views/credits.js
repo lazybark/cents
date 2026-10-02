@@ -3,7 +3,9 @@
 // again, undoing them) and be deleted. A credit keeps the rate to the base
 // currency it was recorded with, like debts.
 import { api } from "../api.js";
+import { cashflowInput, setupCashflow, showCashflow } from "../payment-cashflow.js";
 import {
+  badge,
   busy,
   cell,
   clickableRow,
@@ -76,6 +78,8 @@ export function init() {
   el.addForm.elements.currency.addEventListener("change", () => syncRate(el.addForm, state.view.currencies));
   el.editForm.addEventListener("submit", saveEdit);
   el.logForm.addEventListener("submit", logEntry);
+  // Only a payment is money spent; an addition grows the credit.
+  el.logForm.elements.kind.addEventListener("change", () => showCashflow(el.logForm, el.logForm.elements.kind.value === "payment"));
   el.delete.addEventListener("click", askDelete);
 }
 
@@ -210,6 +214,8 @@ function openEdit(credit) {
 
   el.logForm.reset();
   el.logForm.elements.date.value = localDate(new Date());
+  setupCashflow(el.logForm, { isIncome: false, options: state.view.cashflow });
+  showCashflow(el.logForm, true);
   formError(el.logForm, "");
 
   showHeader(credit);
@@ -243,7 +249,7 @@ async function loadLogs() {
         row.append(
           cell(entry.when, "nowrap"),
           cell(KIND_LABELS[entry.kind] ?? entry.kind),
-          cell(entry.note, "muted wrap"),
+          cell(noteWithLink(entry), "muted wrap"),
           cell(`${isPayment ? "−" : "+"}${formatMoney(credit.currency, entry.deltaCents)}`, `num ${isPayment ? "positive" : "negative"}`),
           cell(rowAction("Delete", () => askDeleteLog(entry)), "num"),
         );
@@ -253,6 +259,13 @@ async function loadLogs() {
   } catch (err) {
     formError(el.logForm, `Failed to load the log: ${err}`);
   }
+}
+
+function noteWithLink(entry) {
+  const note = document.createElement("span");
+  note.append(entry.note);
+  if (entry.cashflowId) note.append(badge("in incomes & expenses"));
+  return note;
 }
 
 async function saveEdit(event) {
@@ -286,13 +299,13 @@ async function changed(updated, message) {
 async function logEntry(event) {
   event.preventDefault();
   const fields = el.logForm.elements;
-  const input = { id: state.current.id, kind: fields.kind.value, amount: fields.amount.value, date: fields.date.value, note: fields.note.value };
+  const input = { id: state.current.id, kind: fields.kind.value, amount: fields.amount.value, date: fields.date.value, note: fields.note.value, cashflow: cashflowInput(el.logForm) };
 
   try {
     const updated = await busy(el.logForm, () => api.AddCreditLog(input));
     fields.amount.value = "";
     fields.note.value = "";
-    await changed(updated, input.kind === "payment" ? "logged payment" : "logged addition");
+    await changed(updated, input.kind !== "payment" ? "logged addition" : input.cashflow.add ? "logged payment and added it as an expense" : "logged payment");
   } catch (err) {
     formError(el.logForm, String(err));
   }
@@ -306,8 +319,9 @@ function askDeleteLog(entry) {
   const change = isPayment
     ? `Amount paid goes from ${money(credit.paidCents)} to ${money(credit.paidCents - entry.deltaCents)}.`
     : `The amount goes from ${money(credit.totalCents)} to ${money(credit.totalCents - entry.deltaCents)}.`;
+  const linked = entry.cashflowId ? " Its expense in Incomes & expenses is deleted too." : "";
 
-  confirmDelete(`Delete ${isPayment ? "payment" : "addition"}?`, `The ${money(entry.deltaCents)} ${isPayment ? "payment" : "addition"} from ${entry.when} will be deleted. ${change}`, async () => {
+  confirmDelete(`Delete ${isPayment ? "payment" : "addition"}?`, `The ${money(entry.deltaCents)} ${isPayment ? "payment" : "addition"} from ${entry.when} will be deleted. ${change}${linked}`, async () => {
     await changed(await api.DeleteCreditLog(credit.id, entry.id), `deleted ${isPayment ? "payment" : "addition"}`);
   });
 }

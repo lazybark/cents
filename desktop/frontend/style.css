@@ -857,3 +857,10 @@ th[aria-sort="descending"] .sort-button::after {
   border: 1px solid var(--row-border);
   border-radius: 6px;
 }
+
+/* "Also add as an expense" in a payment form. */
+.cashflow-box {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}

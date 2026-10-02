@@ -46,6 +46,8 @@ type DebtsView struct {
 	Progress     Progress       `json:"progress"`
 	Counts       map[string]int `json:"counts"`
 	Currencies   []CurrencyRate `json:"currencies"`
+	// Cashflow is what a payment added to incomes and expenses can use.
+	Cashflow CashflowOptions `json:"cashflow"`
 }
 
 // NewDebtInput is a new debt. Rate is the currency's rate to the base
@@ -93,6 +95,11 @@ func (a *API) Debts(mode string) (DebtsView, error) {
 		listMode = debt.ListOutgoing
 	}
 
+	accounts, err := storage.LoadAccounts()
+	if err != nil {
+		return DebtsView{}, fmt.Errorf("failed to load accounts: %w", err)
+	}
+
 	listed := debt.Filter(items, listMode)
 	paid, total := debt.ProgressInBaseCents(listed)
 	now := time.Now()
@@ -104,6 +111,7 @@ func (a *API) Debts(mode string) (DebtsView, error) {
 		Progress:     Progress{PaidCents: paid, TotalCents: total},
 		Counts:       map[string]int{},
 		Currencies:   currencyRates(stts),
+		Cashflow:     cashflowOptions(stts, accounts),
 	}
 
 	for _, m := range []debt.ListMode{debt.ListOutgoing, debt.ListIncoming, debt.ListPaid} {
@@ -213,14 +221,15 @@ func (a *API) DebtLogs(id uint) ([]PaymentLog, error) {
 
 	result := make([]PaymentLog, 0, len(logs))
 	for _, entry := range logs {
-		result = append(result, PaymentLog{ID: entry.ID, When: entry.CreatedAt.Local().Format("2006-01-02 15:04"), DeltaCents: entry.DeltaPaidCents, Note: entry.Note})
+		result = append(result, PaymentLog{ID: entry.ID, When: entry.CreatedAt.Local().Format("2006-01-02 15:04"), DeltaCents: entry.DeltaPaidCents, Note: entry.Note, CashflowID: entry.CashflowEntryID})
 	}
 
 	return result, nil
 }
 
 // AddDebtPayment logs a payment and moves the amount paid by it, returning
-// the debt as it is now.
+// the debt as it is now. With Cashflow.Add the payment is also added as an
+// expense (an income, for a debt owed to the user), all together.
 func (a *API) AddDebtPayment(input PaymentInput) (DebtRow, error) {
 	storage, stts, err := a.storageAndSettings()
 	if err != nil {
@@ -238,12 +247,23 @@ func (a *API) AddDebtPayment(input PaymentInput) (DebtRow, error) {
 		return DebtRow{}, err
 	}
 
-	if err := storage.SaveDebt(&updated); err != nil {
-		return DebtRow{}, fmt.Errorf("debt update failed: %w", err)
+	accounts, err := storage.LoadAccounts()
+	if err != nil {
+		return DebtRow{}, fmt.Errorf("failed to load accounts: %w", err)
 	}
 
-	if err := storage.CreateDebtLog(&entry); err != nil {
-		return DebtRow{}, fmt.Errorf("log save failed: %w", err)
+	what := "Payment to " + current.Peer
+	if current.IsOwedToUser {
+		what = "Repayment from " + current.Peer
+	}
+
+	cash, err := paymentEntry(input.Cashflow, stts, accounts, current.IsOwedToUser, current.Currency, entry.DeltaPaidCents, input.Date, paymentComment(what, input.Note), now)
+	if err != nil {
+		return DebtRow{}, err
+	}
+
+	if err := storage.AddDebtPayment(&updated, &entry, cash); err != nil {
+		return DebtRow{}, err
 	}
 
 	return debtRow(updated, stts, now), nil

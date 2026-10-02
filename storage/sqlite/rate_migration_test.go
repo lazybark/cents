@@ -124,3 +124,37 @@ func TestOlderAccountsAreNotArchived(t *testing.T) {
 		t.Fatalf("older accounts should load as not archived: %+v %v", accounts, err)
 	}
 }
+
+func TestOlderPaymentLogsHaveNoCashflowEntry(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "cents.db")
+	db, _, err := OpenDatabase(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, stmt := range []string{
+		"INSERT INTO debt_logs (debt_id, delta_paid_cents, note) VALUES (1, 100, 'old')",
+		"ALTER TABLE debt_logs DROP COLUMN cashflow_entry_id",
+		"INSERT INTO credit_logs (credit_id, delta_paid_cents, note) VALUES (1, 100, 'old')",
+		"ALTER TABLE credit_logs DROP COLUMN cashflow_entry_id",
+	} {
+		if err := db.Exec(stmt).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if db, _, err = OpenDatabase(path); err != nil {
+		t.Fatal(err)
+	}
+
+	store := NewSQLiteStorage(db)
+	debtLogs, err := store.LoadDebtLogs(1)
+	if err != nil || len(debtLogs) != 1 || debtLogs[0].CashflowEntryID != 0 {
+		t.Fatalf("older debt logs should load without an entry: %+v %v", debtLogs, err)
+	}
+
+	creditLogs, err := store.LoadCreditLogs(1)
+	if err != nil || len(creditLogs) != 1 || creditLogs[0].CashflowEntryID != 0 {
+		t.Fatalf("older credit logs should load without an entry: %+v %v", creditLogs, err)
+	}
+}

@@ -181,9 +181,14 @@ export function renderPaymentLogs(tbody, empty, logs, currency, onDelete) {
   tbody.replaceChildren(
     ...logs.map((entry) => {
       const row = document.createElement("tr");
+      // A payment that also made an expense or income says so.
+      const note = document.createElement("span");
+      note.append(entry.note);
+      if (entry.cashflowId) note.append(badge("in incomes & expenses"));
+
       row.append(
         cell(entry.when, "nowrap"),
-        cell(entry.note, "muted wrap"),
+        cell(note, "muted wrap"),
         cell(signedMoney(currency, entry.deltaCents), `num ${signClass(entry.deltaCents)}`),
       );
       if (onDelete) row.append(cell(rowAction("Delete", () => onDelete(entry)), "num"));

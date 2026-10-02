@@ -2,6 +2,7 @@
 // Each debt can be edited, take logged payments and be deleted, like in the
 // TUI. A debt keeps the rate to the base currency it was recorded with.
 import { api } from "../api.js";
+import { cashflowInput, setupCashflow } from "../payment-cashflow.js";
 import {
   badge,
   busy,
@@ -195,6 +196,8 @@ function openEdit(debt) {
 
   el.paymentForm.reset();
   el.paymentForm.elements.date.value = localDate(new Date());
+  // A payment on a debt owed to me is money in: an income.
+  setupCashflow(el.paymentForm, { isIncome: debt.isOwedToUser, options: state.view.cashflow });
   formError(el.paymentForm, "");
 
   showDebtHeader(debt);
@@ -250,7 +253,7 @@ async function saveEdit(event) {
 async function logPayment(event) {
   event.preventDefault();
   const form = el.paymentForm.elements;
-  const input = { id: state.current.id, delta: form.delta.value, date: form.date.value, note: form.note.value };
+  const input = { id: state.current.id, delta: form.delta.value, date: form.date.value, note: form.note.value, cashflow: cashflowInput(el.paymentForm) };
 
   try {
     const updated = await busy(el.paymentForm, () => api.AddDebtPayment(input));
@@ -261,7 +264,7 @@ async function logPayment(event) {
     form.note.value = "";
     formError(el.paymentForm, "");
     await loadLogs();
-    await show("logged payment");
+    await show(input.cashflow.add ? `logged payment and added it as an ${state.current.isOwedToUser ? "income" : "expense"}` : "logged payment");
   } catch (err) {
     formError(el.paymentForm, String(err));
   }
@@ -271,7 +274,8 @@ async function logPayment(event) {
 function askDeletePayment(entry) {
   const debt = state.current;
   const money = (cents) => formatMoney(debt.currency, cents);
-  const change = `Amount paid goes from ${money(debt.paidCents)} to ${money(debt.paidCents - entry.deltaCents)}.`;
+  const linked = entry.cashflowId ? ` Its ${debt.isOwedToUser ? "income" : "expense"} in Incomes & expenses is deleted too.` : "";
+  const change = `Amount paid goes from ${money(debt.paidCents)} to ${money(debt.paidCents - entry.deltaCents)}.${linked}`;
 
   confirmDelete("Delete payment?", `The ${signedMoney(debt.currency, entry.deltaCents)} payment from ${entry.when} will be deleted. ${change}`, async () => {
     const updated = await api.DeleteDebtPayment(debt.id, entry.id);

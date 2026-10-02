@@ -59,6 +59,7 @@ type StorageWorker interface {
 	CreateDebtLog(entry *debt.DebtLog) error
 	LoadDebtLogs(debtID uint) ([]debt.DebtLog, error)
 	DeleteDebtLog(entry *debt.Debt, logID uint) error
+	AddDebtPayment(entry *debt.Debt, log *debt.DebtLog, cash *cashflow.CashflowEntry) error
 	DeleteDebt(id uint) error
 	CreateTax(entry *tax.Tax) error
 	SaveTax(entry *tax.Tax) error
@@ -86,7 +87,7 @@ type StorageWorker interface {
 	SaveCredit(entry *credit.Credit) error
 	DeleteCredit(id uint) error
 	LoadCreditLogs(creditID uint) ([]credit.CreditLog, error)
-	AddCreditLog(entry *credit.Credit, log *credit.CreditLog) error
+	AddCreditLog(entry *credit.Credit, log *credit.CreditLog, cash *cashflow.CashflowEntry) error
 	DeleteCreditLog(entry *credit.Credit, logID uint) error
 }
 

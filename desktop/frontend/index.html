@@ -1139,6 +1139,23 @@
         </label>
         <button type="submit" class="button field-button">Log payment</button>
       </div>
+      <div class="cashflow-box">
+        <label class="check">
+          <input type="checkbox" name="addCashflow">
+          <span class="cashflow-label">Also add as an expense</span>
+        </label>
+        <div class="field-row cashflow-fields" hidden>
+          <label class="field">
+            <span class="field-label">Category</span>
+            <select name="cashflowCategory"></select>
+          </label>
+          <label class="field">
+            <span class="field-label">Account (optional)</span>
+            <select name="cashflowAccount"></select>
+          </label>
+        </div>
+        <p class="hint cashflow-none" hidden></p>
+      </div>
       <p class="hint">Logged payments move “Amount paid”; a minus sign takes one back.</p>
       <p class="form-error negative" hidden></p>
     </form>
@@ -1505,6 +1522,23 @@
           <input name="note" maxlength="140" placeholder="monthly payment, interest, fee…" autocomplete="off">
         </label>
         <button type="submit" class="button field-button">Log it</button>
+      </div>
+      <div class="cashflow-box">
+        <label class="check">
+          <input type="checkbox" name="addCashflow">
+          <span class="cashflow-label">Also add as an expense</span>
+        </label>
+        <div class="field-row cashflow-fields" hidden>
+          <label class="field">
+            <span class="field-label">Category</span>
+            <select name="cashflowCategory"></select>
+          </label>
+          <label class="field">
+            <span class="field-label">Account (optional)</span>
+            <select name="cashflowAccount"></select>
+          </label>
+        </div>
+        <p class="hint cashflow-none" hidden></p>
       </div>
       <p class="hint">Payments move “Amount paid”; additions (more drawn, interest, fees) grow the amount. Deleting an entry undoes it.</p>
       <p class="form-error negative" hidden></p>

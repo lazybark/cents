@@ -19,6 +19,8 @@ type PaymentLog struct {
 	When       string `json:"when"`
 	DeltaCents int64  `json:"deltaCents"`
 	Note       string `json:"note"`
+	// CashflowID is the expense or income added with the payment, 0 for none.
+	CashflowID uint `json:"cashflowId"`
 }
 
 // PaymentInput adds Delta (signed, like "-10") to an amount paid on Date
@@ -28,6 +30,8 @@ type PaymentInput struct {
 	Delta string `json:"delta"`
 	Date  string `json:"date"`
 	Note  string `json:"note"`
+	// Cashflow adds the payment to incomes and expenses too (debts only).
+	Cashflow PaymentCashflow `json:"cashflow"`
 }
 
 // CurrencyRate is a currency a new record can use, with its rate to the

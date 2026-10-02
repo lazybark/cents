@@ -3,6 +3,7 @@ package sqlite
 import (
 	"fmt"
 
+	"github.com/lazybark/cents/flows/cashflow"
 	"github.com/lazybark/cents/flows/credit"
 	"gorm.io/gorm"
 )
@@ -60,9 +61,18 @@ func (s *SQLiteStorage) LoadCreditLogs(creditID uint) ([]credit.CreditLog, error
 }
 
 // AddCreditLog saves entry (the credit with the log applied) and the log
-// in the same transaction, so the two can't disagree.
-func (s *SQLiteStorage) AddCreditLog(entry *credit.Credit, log *credit.CreditLog) error {
+// in the same transaction, so the two can't disagree, with cash, the
+// expense made for a payment, when there is one.
+func (s *SQLiteStorage) AddCreditLog(entry *credit.Credit, log *credit.CreditLog, cash *cashflow.CashflowEntry) error {
 	return s.db.Transaction(func(tx *gorm.DB) error {
+		if cash != nil {
+			if err := tx.Create(cash).Error; err != nil {
+				return fmt.Errorf("failed to create cashflow entry: %w", err)
+			}
+
+			log.CashflowEntryID = cash.ID
+		}
+
 		if err := tx.Save(entry).Error; err != nil {
 			return fmt.Errorf("failed to save credit: %w", err)
 		}
@@ -79,6 +89,13 @@ func (s *SQLiteStorage) AddCreditLog(entry *credit.Credit, log *credit.CreditLog
 // that entry undone) in the same transaction.
 func (s *SQLiteStorage) DeleteCreditLog(entry *credit.Credit, logID uint) error {
 	return s.db.Transaction(func(tx *gorm.DB) error {
+		var log credit.CreditLog
+		if err := tx.Where("id = ? AND credit_id = ?", logID, entry.ID).First(&log).Error; err == nil {
+			if err := deleteLinkedCashflow(tx, log.CashflowEntryID); err != nil {
+				return err
+			}
+		}
+
 		result := tx.Where("id = ? AND credit_id = ?", logID, entry.ID).Delete(&credit.CreditLog{})
 		if result.Error != nil {
 			return fmt.Errorf("failed to delete credit log: %w", result.Error)

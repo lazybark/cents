@@ -460,6 +460,13 @@ func (s *SQLiteStorage) DeleteAccountValueLog(accountID uint, logID uint) error 
 // that payment undone) in the same transaction, so the two can't disagree.
 func (s *SQLiteStorage) DeleteDebtLog(entry *debt.Debt, logID uint) error {
 	return s.db.Transaction(func(tx *gorm.DB) error {
+		var log debt.DebtLog
+		if err := tx.Where("id = ? AND debt_id = ?", logID, entry.ID).First(&log).Error; err == nil {
+			if err := deleteLinkedCashflow(tx, log.CashflowEntryID); err != nil {
+				return err
+			}
+		}
+
 		result := tx.Where("id = ? AND debt_id = ?", logID, entry.ID).Delete(&debt.DebtLog{})
 		if result.Error != nil {
 			return fmt.Errorf("failed to delete debt log: %w", result.Error)
@@ -543,4 +550,43 @@ func (s *SQLiteStorage) SaveRates(currencies []settings.SettingCurrency, records
 
 		return nil
 	})
+}
+
+// AddDebtPayment saves entry (the debt with the payment applied) and the
+// payment's log together, with cash, the expense or income made for it,
+// when there is one.
+func (s *SQLiteStorage) AddDebtPayment(entry *debt.Debt, log *debt.DebtLog, cash *cashflow.CashflowEntry) error {
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		if cash != nil {
+			if err := tx.Create(cash).Error; err != nil {
+				return fmt.Errorf("failed to create cashflow entry: %w", err)
+			}
+
+			log.CashflowEntryID = cash.ID
+		}
+
+		if err := tx.Save(entry).Error; err != nil {
+			return fmt.Errorf("failed to save debt: %w", err)
+		}
+
+		if err := tx.Create(log).Error; err != nil {
+			return fmt.Errorf("failed to create debt log: %w", err)
+		}
+
+		return nil
+	})
+}
+
+// deleteLinkedCashflow deletes the expense or income a payment made, if it
+// made one (and it's still there).
+func deleteLinkedCashflow(tx *gorm.DB, id uint) error {
+	if id == 0 {
+		return nil
+	}
+
+	if err := tx.Delete(&cashflow.CashflowEntry{}, id).Error; err != nil {
+		return fmt.Errorf("failed to delete the payment's cashflow entry: %w", err)
+	}
+
+	return nil
 }
