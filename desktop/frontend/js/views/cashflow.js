@@ -41,6 +41,7 @@ const el = {
   monthMissing: $("month-missing"),
   monthBaseHeading: $("month-base-heading"),
   monthEntries: $("month-entries"),
+  monthSortButtons: document.querySelectorAll("#month-table .sort-button"),
   monthEmpty: $("month-empty"),
 
   monthsPane: $("cashflow-months"),
@@ -79,12 +80,86 @@ const el = {
   rateMonth: $("cashflow-rate-month"),
 };
 
+// --- sorting the month's entries ------------------------------------------
+
+const SORT_KEY = "cents.cashflowSort";
+
+// How each column sorts. first is the direction a column starts with when
+// picked; value gives what to compare, with null (nothing to compare) last.
+const text = (pick) => (entry) => pick(entry)?.trim() || null;
+const signedBase = (entry) => (entry.hasRate ? (entry.isIncome ? 1 : -1) * entry.baseCents : null);
+const SORTS = {
+  date: { first: "desc", value: (entry) => entry.date },
+  category: { first: "asc", value: text((entry) => entry.category) },
+  account: { first: "asc", value: text((entry) => entry.account) },
+  comment: { first: "asc", value: text((entry) => entry.comment) },
+  // Amounts in different currencies don't compare, so group by currency.
+  amount: { first: "desc", value: (entry) => [entry.currency, (entry.isIncome ? 1 : -1) * entry.amountCents] },
+  base: { first: "desc", value: signedBase },
+};
+const DEFAULT_SORT = { key: "category", dir: "asc" };
+
+function readSort() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(SORT_KEY) ?? "null");
+    if (saved && SORTS[saved.key] && (saved.dir === "asc" || saved.dir === "desc")) return saved;
+  } catch {
+    // No storage (or a bad value): use the default.
+  }
+
+  return DEFAULT_SORT;
+}
+
+function writeSort(sort) {
+  try {
+    localStorage.setItem(SORT_KEY, JSON.stringify(sort));
+  } catch {
+    // The choice just isn't remembered.
+  }
+}
+
+function compareValues(a, b) {
+  if (Array.isArray(a)) {
+    for (let i = 0; i < a.length; i++) {
+      const order = compareValues(a[i], b[i]);
+      if (order !== 0) return order;
+    }
+    return 0;
+  }
+
+  if (typeof a === "number") return a - b;
+  return String(a).localeCompare(String(b), undefined, { sensitivity: "base", numeric: true });
+}
+
+// sortEntries orders entries by the chosen column; ties fall back to the
+// newest date first, then the newest entry.
+function sortEntries(entries, { key, dir }) {
+  const { value } = SORTS[key];
+  const sign = dir === "asc" ? 1 : -1;
+
+  return [...entries].sort((a, b) => {
+    const va = value(a);
+    const vb = value(b);
+    if (va === null || vb === null) {
+      if (va !== vb) return va === null ? 1 : -1;
+    } else {
+      const order = compareValues(va, vb) * sign;
+      if (order !== 0) return order;
+    }
+
+    return b.date.localeCompare(a.date) || b.id - a.id;
+  });
+}
+
 const state = {
   tab: "month",
   // "YYYY-MM"; empty until the first load picks the current month.
   month: "",
   options: null,
   isIncome: true,
+  sort: readSort(),
+  // The month's entries as loaded, to sort without loading them again.
+  entries: [],
   baseCurrency: "",
   // The entry whose rate is being set.
   rated: null,
@@ -109,6 +184,15 @@ export function init() {
   el.form.elements.currency.addEventListener("change", () => syncRate(el.form, state.options.rates));
   el.rateForm.addEventListener("submit", saveRate);
   el.statsRange.addEventListener("change", () => show());
+  for (const button of el.monthSortButtons) {
+    const key = button.dataset.sort;
+    button.addEventListener("click", () => {
+      const same = state.sort.key === key;
+      state.sort = { key, dir: same ? (state.sort.dir === "asc" ? "desc" : "asc") : SORTS[key].first };
+      writeSort(state.sort);
+      renderEntries();
+    });
+  }
   initCategories();
 }
 
@@ -173,7 +257,18 @@ async function loadMonth() {
 
   el.monthBaseHeading.textContent = `In ${data.baseCurrency}`;
   el.monthEmpty.hidden = data.entries.length > 0;
-  el.monthEntries.replaceChildren(...data.entries.map((entry) => entryRow(entry, data.baseCurrency)));
+  state.entries = data.entries;
+  renderEntries();
+}
+
+function renderEntries() {
+  for (const button of el.monthSortButtons) {
+    const header = button.closest("th");
+    if (button.dataset.sort === state.sort.key) header.setAttribute("aria-sort", state.sort.dir === "asc" ? "ascending" : "descending");
+    else header.removeAttribute("aria-sort");
+  }
+
+  el.monthEntries.replaceChildren(...sortEntries(state.entries, state.sort).map((entry) => entryRow(entry, state.baseCurrency)));
 }
 
 function entryRow(entry, baseCurrency) {

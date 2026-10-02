@@ -800,3 +800,30 @@ input[type="checkbox"] {
 tr.selected td {
   background: rgba(231, 201, 109, 0.08);
 }
+
+/* Sortable table headers: the header is a button; th[aria-sort] marks the
+   column the table is sorted by. */
+.sort-button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.sort-button:hover,
+.sort-button:focus-visible {
+  outline: none;
+  text-decoration: underline;
+}
+
+th[aria-sort="ascending"] .sort-button::after {
+  content: " ▲";
+  font-size: 10px;
+}
+
+th[aria-sort="descending"] .sort-button::after {
+  content: " ▼";
+  font-size: 10px;
+}

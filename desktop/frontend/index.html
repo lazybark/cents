@@ -222,15 +222,15 @@
           </section>
 
           <section class="panel">
-            <table class="table">
+            <table id="month-table" class="table">
               <thead>
                 <tr>
-                  <th>Date</th>
-                  <th>Category</th>
-                  <th>Account</th>
-                  <th>Comment</th>
-                  <th class="num">Amount</th>
-                  <th id="month-base-heading" class="num">In base</th>
+                  <th><button class="sort-button" type="button" data-sort="date">Date</button></th>
+                  <th><button class="sort-button" type="button" data-sort="category">Category</button></th>
+                  <th><button class="sort-button" type="button" data-sort="account">Account</button></th>
+                  <th><button class="sort-button" type="button" data-sort="comment">Comment</button></th>
+                  <th class="num"><button class="sort-button" type="button" data-sort="amount">Amount</button></th>
+                  <th class="num"><button class="sort-button" type="button" data-sort="base"><span id="month-base-heading">In base</span></button></th>
                   <th><span class="visually-hidden">Actions</span></th>
                 </tr>
               </thead>
