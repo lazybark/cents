@@ -43,7 +43,7 @@ func OpenDatabase(dbPath string) (*gorm.DB, bool, error) {
 		return nil, false, fmt.Errorf("failed to open SQLite database: %w", err)
 	}
 
-	if err := db.AutoMigrate(&account.Account{}, &account.AccountValueLog{}, &subscription.Subscription{}, &debt.Debt{}, &debt.DebtLog{}, &goal.Goal{}, &goal.GoalLog{}, &tax.Tax{}, &tax.TaxLog{}, &invoice.Invoice{}, &cashflow.CashflowEntry{}, &settings.SettingRecord{}, &settings.SettingCurrency{}, &settings.SettingPaymentMethod{}, &settings.SettingTaxType{}, &settings.SettingIncomeCategory{}, &settings.SettingExpenseCategory{}, &asset.Asset{}, &asset.AssetValueLog{}, &credit.Credit{}, &credit.CreditLog{}, &subscription.SubscriptionPayment{}, &analytics.NetWorthSnapshot{}); err != nil {
+	if err := db.AutoMigrate(&account.Account{}, &account.AccountValueLog{}, &subscription.Subscription{}, &debt.Debt{}, &debt.DebtLog{}, &goal.Goal{}, &goal.GoalLog{}, &tax.Tax{}, &tax.TaxLog{}, &invoice.Invoice{}, &cashflow.CashflowEntry{}, &settings.SettingRecord{}, &settings.SettingCurrency{}, &settings.SettingPaymentMethod{}, &settings.SettingTaxType{}, &settings.SettingIncomeCategory{}, &settings.SettingExpenseCategory{}, &asset.Asset{}, &asset.AssetValueLog{}, &credit.Credit{}, &credit.CreditLog{}, &subscription.SubscriptionPayment{}, &analytics.NetWorthSnapshot{}, &settings.RateRecord{}); err != nil {
 		return nil, false, fmt.Errorf("failed to auto-migrate SQLite database: %w", err)
 	}
 
@@ -65,6 +65,11 @@ func OpenDatabase(dbPath string) (*gorm.DB, bool, error) {
 
 	if err := sortOutObligations(db); err != nil {
 		return nil, false, fmt.Errorf("failed to sort out obligations: %w", err)
+	}
+
+	// Today's rates start (or continue) the rate history.
+	if err := recordRates(db, nil, time.Now()); err != nil {
+		return nil, false, fmt.Errorf("failed to keep rate history: %w", err)
 	}
 
 	if err := recordPaidMarks(db); err != nil {

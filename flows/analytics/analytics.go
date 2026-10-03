@@ -231,10 +231,7 @@ func Average(window []cashflow.CashflowMonthlyOverviewRow) Averages {
 
 	a.IncomeCents = income / int64(a.Months)
 	a.ExpenseCents = expense / int64(a.Months)
-	if income > 0 {
-		a.SavingsRate = float64(income-expense) / float64(income) * 100
-		a.HasRate = true
-	}
+	a.SavingsRate, a.HasRate = SavingsRate(income, expense)
 
 	return a
 }

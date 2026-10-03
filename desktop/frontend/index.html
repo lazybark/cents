@@ -126,89 +126,208 @@
       </section>
 
       <section id="view-analytics" class="view" hidden>
-        <section class="panel">
-          <div class="figures">
-            <div>
-              <div class="label">Savings rate</div>
-              <div id="an-savings" class="figure"></div>
-              <div id="an-savings-note" class="hint"></div>
-            </div>
-            <div>
-              <div class="label">Runway</div>
-              <div id="an-runway" class="figure"></div>
-              <div id="an-runway-note" class="hint"></div>
-            </div>
-            <div>
-              <div class="label">Fixed costs</div>
-              <div id="an-fixed" class="figure"></div>
-              <div id="an-fixed-note" class="hint"></div>
-            </div>
-            <div>
-              <div class="label">Net worth this year</div>
-              <div id="an-change" class="figure"></div>
-              <div id="an-change-note" class="hint"></div>
-            </div>
+        <div class="analytics-head">
+          <div id="an-tabs" class="tabs" role="tablist">
+            <button class="tab" type="button" role="tab" data-tab="summary">Summary</button>
+            <button class="tab" type="button" role="tab" data-tab="spending">Spending</button>
+            <button class="tab" type="button" role="tab" data-tab="currencies">Currencies</button>
+            <button class="tab" type="button" role="tab" data-tab="assets">Assets &amp; goals</button>
           </div>
-          <p id="an-averages" class="hint"></p>
-        </section>
+          <label id="an-range-field" class="inline-field">
+            <span class="field-label">Show</span>
+            <select id="an-range">
+              <option value="3">Last 3 months</option>
+              <option value="6">Last 6 months</option>
+              <option value="12" selected>Last 12 months</option>
+              <option value="24">Last 24 months</option>
+              <option value="0">All months</option>
+            </select>
+          </label>
+        </div>
 
-        <section class="panel">
-          <div class="panel-head">
-            <h3 class="section-title">Net worth over time</h3>
-            <button id="an-networth-edit" type="button" class="button">Edit history</button>
-          </div>
-          <div id="an-networth-chart"></div>
-          <div id="an-networth-legend" class="chart-legend"></div>
-          <p id="an-networth-note" class="hint"></p>
-        </section>
+        <div id="an-pane-summary" class="pane">
+          <section class="panel">
+            <div class="figures">
+              <div>
+                <div class="label">Savings rate</div>
+                <div id="an-savings" class="figure"></div>
+                <div id="an-savings-note" class="hint"></div>
+              </div>
+              <div>
+                <div class="label">Runway</div>
+                <div id="an-runway" class="figure"></div>
+                <div id="an-runway-note" class="hint"></div>
+              </div>
+              <div>
+                <div class="label">Fixed costs</div>
+                <div id="an-fixed" class="figure"></div>
+                <div id="an-fixed-note" class="hint"></div>
+              </div>
+              <div>
+                <div class="label">Commitments</div>
+                <div id="an-commitments" class="figure"></div>
+                <div id="an-commitments-note" class="hint"></div>
+              </div>
+              <div>
+                <div class="label">Net worth this year</div>
+                <div id="an-change" class="figure"></div>
+                <div id="an-change-note" class="hint"></div>
+              </div>
+            </div>
+            <p id="an-averages" class="hint"></p>
+          </section>
 
-        <section class="panel">
-          <div class="panel-head">
-            <h3 class="section-title">Where the money goes</h3>
-            <div class="chart-controls">
-              <label class="inline-field">
-                <span class="field-label">Show</span>
-                <select id="an-range">
-                  <option value="3">Last 3 months</option>
-                  <option value="6">Last 6 months</option>
-                  <option value="12" selected>Last 12 months</option>
-                  <option value="24">Last 24 months</option>
-                  <option value="0">All months</option>
-                </select>
-              </label>
+          <section class="panel">
+            <div class="panel-head">
+              <h3 class="section-title">Net worth over time</h3>
+              <button id="an-networth-edit" type="button" class="button">Edit history</button>
             </div>
-          </div>
-          <div id="an-monthly-chart"></div>
-          <div id="an-monthly-legend" class="chart-legend"></div>
-          <h4 class="subsection-title">By category</h4>
-          <div id="an-spending" class="share-list"></div>
-          <p id="an-spending-empty" class="muted" hidden>No expenses in this range.</p>
-          <p class="hint">In the base currency, the running month included. Archived categories count, like in Statistics.</p>
-        </section>
+            <div id="an-networth-chart"></div>
+            <div id="an-networth-legend" class="chart-legend"></div>
+            <p id="an-networth-note" class="hint"></p>
+          </section>
 
-        <section class="panel">
-          <h3 id="an-forecast-title" class="section-title">Next 90 days</h3>
-          <div class="figures">
-            <div>
-              <div class="label">Going out</div>
-              <div id="an-out" class="figure"></div>
+          <section class="panel">
+            <h3 id="an-forecast-title" class="section-title">Next 90 days</h3>
+            <div class="figures">
+              <div>
+                <div class="label">Going out</div>
+                <div id="an-out" class="figure"></div>
+              </div>
+              <div>
+                <div class="label">Coming in, known</div>
+                <div id="an-in" class="figure"></div>
+              </div>
+              <div>
+                <div class="label">Usual income</div>
+                <div id="an-typical" class="figure"></div>
+              </div>
             </div>
-            <div>
-              <div class="label">Coming in, known</div>
-              <div id="an-in" class="figure"></div>
+            <table id="an-forecast-table" class="table clickable">
+              <tbody id="an-forecast-rows"></tbody>
+            </table>
+            <p id="an-forecast-empty" class="muted" hidden>Nothing with a date is due.</p>
+            <p id="an-forecast-missing" class="hint" hidden></p>
+            <p class="hint">Active subscriptions and obligations, plus unpaid debts, credits, taxes and invoices with a due date, overdue ones first. Click one to go to its list.</p>
+          </section>
+        </div>
+
+        <div id="an-pane-spending" class="pane" hidden>
+          <section class="panel">
+            <h3 class="section-title">Savings rate by month</h3>
+            <div id="an-rate-chart"></div>
+            <div id="an-rate-legend" class="chart-legend"></div>
+            <p class="hint">The part of each month's income that wasn't spent. Months without income have no rate; the chart stops at −100%.</p>
+          </section>
+
+          <section class="panel">
+            <h3 class="section-title">Fixed and flexible spending</h3>
+            <div id="an-monthly-chart"></div>
+            <div id="an-monthly-legend" class="chart-legend"></div>
+            <p class="hint">Fixed is what your subscriptions and obligations cost a month now (no more than the month's spending), flexible is everything else. In the base currency; archived categories count, like in Statistics.</p>
+            <h4 class="subsection-title">By category</h4>
+            <div id="an-spending" class="share-list"></div>
+            <p id="an-spending-empty" class="muted" hidden>No expenses in this range.</p>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <h3 class="section-title">Compared with your usual</h3>
+              <div id="an-usual-tabs" class="tabs" role="tablist">
+                <button class="tab" type="button" role="tab" data-which="this">This month</button>
+                <button class="tab" type="button" role="tab" data-which="last">Last month</button>
+              </div>
             </div>
-            <div>
-              <div class="label">Usual income</div>
-              <div id="an-typical" class="figure"></div>
+            <p id="an-usual-summary" class="muted"></p>
+            <table id="an-usual-table" class="table">
+              <thead>
+                <tr>
+                  <th>Category</th>
+                  <th class="num" id="an-usual-month-head">This month</th>
+                  <th class="num">Usual</th>
+                  <th class="num">Difference</th>
+                </tr>
+              </thead>
+              <tbody id="an-usual-rows"></tbody>
+            </table>
+            <p id="an-usual-empty" class="muted" hidden></p>
+            <p class="hint">Usual is the average a month over the 12 months before (fewer when your records start later). Marked are changes of 30% or more either way that are also at least 2% of your usual monthly spending.</p>
+          </section>
+        </div>
+
+        <div id="an-pane-currencies" class="pane" hidden>
+          <section class="panel">
+            <h3 class="section-title">Currency exposure</h3>
+            <div id="an-exposure" class="share-list"></div>
+            <table id="an-exposure-table" class="table">
+              <thead>
+                <tr>
+                  <th>Currency</th>
+                  <th class="num">Owned</th>
+                  <th class="num">Owed to me</th>
+                  <th class="num">I owe</th>
+                  <th class="num">Net</th>
+                </tr>
+              </thead>
+              <tbody id="an-exposure-rows"></tbody>
+            </table>
+            <p id="an-exposure-empty" class="muted" hidden>Nothing held yet.</p>
+            <p id="an-exposure-missing" class="hint" hidden></p>
+            <p class="hint">Owned is accounts counted in summaries plus property and investments counted in net worth; the bars split it by currency in the base currency at today's rates. Owed is what's left on debts, invoices, credits and taxes.</p>
+          </section>
+
+          <section class="panel">
+            <h3 class="section-title">Effect of exchange rates</h3>
+            <div class="figures">
+              <div>
+                <div class="label">Over the range</div>
+                <div id="an-fx-total" class="figure"></div>
+                <div id="an-fx-since" class="hint"></div>
+              </div>
             </div>
-          </div>
-          <table id="an-forecast-table" class="table clickable">
-            <tbody id="an-forecast-rows"></tbody>
-          </table>
-          <p id="an-forecast-empty" class="muted" hidden>Nothing with a date is due.</p>
-          <p id="an-forecast-missing" class="hint" hidden></p>
-          <p class="hint">Active subscriptions and obligations, plus unpaid debts, credits, taxes and invoices with a due date, overdue ones first. Click one to go to its list.</p>
-        </section>
+            <div id="an-fx-chart"></div>
+            <p id="an-fx-none" class="muted" hidden>Rates didn't change the value of anything you held in other currencies in this range, or nothing in them had a value logged before it.</p>
+            <dl id="an-fx-currencies" class="stats"></dl>
+            <p id="an-fx-missing" class="hint" hidden></p>
+            <p class="hint">How much what you held in other currencies at the start of each month gained or lost in the base currency from rate changes alone. Holdings go by the value history of accounts and assets; past rates by the rates recorded with your entries and, from now on, the rates the app keeps every day.</p>
+          </section>
+        </div>
+
+        <div id="an-pane-assets" class="pane" hidden>
+          <section class="panel">
+            <h3 class="section-title">Investments</h3>
+            <div id="an-investments-figures" class="figures"></div>
+            <div id="an-investments-chart"></div>
+            <div id="an-investments-legend" class="chart-legend"></div>
+            <p id="an-investments-empty" class="muted" hidden>No investments counted in net worth.</p>
+          </section>
+
+          <section class="panel">
+            <h3 class="section-title">Property</h3>
+            <div id="an-property-figures" class="figures"></div>
+            <div id="an-property-chart"></div>
+            <div id="an-property-legend" class="chart-legend"></div>
+            <p id="an-property-empty" class="muted" hidden>No property counted in net worth.</p>
+          </section>
+          <p class="hint">Value goes by each one's value history, in the base currency at today's rates so rate changes don't count as gains. Gain is value minus what was paid, for those with a cost given.</p>
+
+          <section class="panel">
+            <h3 class="section-title">Goals pace</h3>
+            <table id="an-goals-table" class="table clickable">
+              <thead>
+                <tr>
+                  <th>Goal</th>
+                  <th class="num">Left</th>
+                  <th class="num">Lately a month</th>
+                  <th>At this pace</th>
+                </tr>
+              </thead>
+              <tbody id="an-goals-rows"></tbody>
+            </table>
+            <p id="an-goals-empty" class="muted" hidden>No goals in progress.</p>
+            <p class="hint">The pace is what was added over the last 6 months (or since the goal started). Click one to go to Goals.</p>
+          </section>
+        </div>
       </section>
 
       <section id="view-accounts" class="view" hidden>

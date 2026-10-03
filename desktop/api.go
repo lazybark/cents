@@ -100,6 +100,9 @@ type StorageWorker interface {
 	DeleteNetWorthSnapshot(month time.Time) error
 	LoadAllAccountValueLogs() ([]account.AccountValueLog, error)
 	LoadAllAssetValueLogs() ([]asset.AssetValueLog, error)
+	LoadAllGoalLogs() ([]goal.GoalLog, error)
+	LoadAllCreditLogs() ([]credit.CreditLog, error)
+	LoadRateRecords() ([]settings.RateRecord, error)
 }
 
 // Options configure the desktop app. Storage is nil when no database has

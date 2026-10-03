@@ -88,8 +88,10 @@ func TestAnalytics(t *testing.T) {
 	}
 
 	all, err := api.Analytics(0)
-	if err != nil || len(all.Monthly) != 3 || len(all.Spending) != 1 {
-		t.Fatalf("all time covers every month with entries: %+v %v", all.Monthly, err)
+	// All time starts at the oldest entry or value logged: the log 14
+	// months back.
+	if err != nil || len(all.Monthly) != 15 || all.RangeStart != monthsAgo(14)[:7] || len(all.Spending) != 1 {
+		t.Fatalf("all time covers every month since the first log: %+v %v", all.Monthly, err)
 	}
 
 	if _, err := api.Analytics(-1); err == nil {

@@ -425,12 +425,13 @@ func (s *SQLiteStorage) SaveSettingRecord(entry *settings.SettingRecord) error {
 }
 
 func (s *SQLiteStorage) SaveSettingCurrency(entry *settings.SettingCurrency) error {
-	err := s.db.Save(entry).Error
-	if err != nil {
-		return fmt.Errorf("failed to save setting currency: %w", err)
-	}
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Save(entry).Error; err != nil {
+			return fmt.Errorf("failed to save setting currency: %w", err)
+		}
 
-	return nil
+		return recordRates(tx, []settings.SettingCurrency{*entry}, time.Now())
+	})
 }
 
 func (s *SQLiteStorage) SaveSettingPaymentMethod(entry *settings.SettingPaymentMethod) error {
@@ -648,7 +649,8 @@ func (s *SQLiteStorage) SaveRates(currencies []settings.SettingCurrency, records
 			}
 		}
 
-		return nil
+		// After the records, which may have changed the base currency.
+		return recordRates(tx, currencies, time.Now())
 	})
 }
 

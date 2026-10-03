@@ -943,3 +943,35 @@ th[aria-sort="descending"] .sort-button::after {
   height: 10px;
   background: var(--negative);
 }
+
+/* Analytics tabs, with the range picker on the right. */
+.analytics-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+}
+
+.bar-fixed {
+  fill: var(--table-header);
+}
+
+.chart-swatch.bar-fixed {
+  height: 10px;
+  background: var(--table-header);
+}
+
+/* Currency shares are neither good nor bad. */
+.share-bar-neutral > div {
+  background: var(--headline);
+}
+
+#an-exposure-table {
+  margin-top: 12px;
+}
+
+/* Five headline figures fit on one row. */
+#an-pane-summary .figures {
+  grid-template-columns: repeat(auto-fit, minmax(125px, 1fr));
+}

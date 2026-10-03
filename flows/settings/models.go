@@ -86,3 +86,16 @@ type SettingExpenseCategory struct {
 	CategoryName  string `gorm:"not null;uniqueIndex"`
 	Archived      bool   `gorm:"not null;default:false"`
 }
+
+// RateRecord is a currency's rate to the base currency (Base) on a day, kept
+// whenever rates are saved, so analytics can tell how much rate changes
+// moved what's held in other currencies. A day keeps its last rate.
+type RateRecord struct {
+	ID         uint `gorm:"primaryKey"`
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
+	Day        time.Time `gorm:"not null;uniqueIndex:idx_rate_record"`
+	Currency   string    `gorm:"not null;uniqueIndex:idx_rate_record"`
+	Base       string    `gorm:"not null;uniqueIndex:idx_rate_record"`
+	RateToBase float64   `gorm:"not null"`
+}

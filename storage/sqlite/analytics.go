@@ -8,6 +8,8 @@ import (
 	"github.com/lazybark/cents/flows/account"
 	"github.com/lazybark/cents/flows/analytics"
 	"github.com/lazybark/cents/flows/asset"
+	"github.com/lazybark/cents/flows/credit"
+	"github.com/lazybark/cents/flows/goal"
 	"gorm.io/gorm/clause"
 )
 
@@ -83,6 +85,28 @@ func (s *SQLiteStorage) LoadAllAssetValueLogs() ([]asset.AssetValueLog, error) {
 
 	if err := s.db.Order("log_date asc, id asc").Find(&logs).Error; err != nil {
 		return nil, fmt.Errorf("failed to load asset value logs: %w", err)
+	}
+
+	return logs, nil
+}
+
+// LoadAllGoalLogs returns every goal's log, oldest first.
+func (s *SQLiteStorage) LoadAllGoalLogs() ([]goal.GoalLog, error) {
+	var logs []goal.GoalLog
+
+	if err := s.db.Order("created_at asc, id asc").Find(&logs).Error; err != nil {
+		return nil, fmt.Errorf("failed to load goal logs: %w", err)
+	}
+
+	return logs, nil
+}
+
+// LoadAllCreditLogs returns every credit's log, oldest first.
+func (s *SQLiteStorage) LoadAllCreditLogs() ([]credit.CreditLog, error) {
+	var logs []credit.CreditLog
+
+	if err := s.db.Order("created_at asc, id asc").Find(&logs).Error; err != nil {
+		return nil, fmt.Errorf("failed to load credit logs: %w", err)
 	}
 
 	return logs, nil

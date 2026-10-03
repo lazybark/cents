@@ -70,6 +70,18 @@ type Analytics struct {
 	ForecastIn      int64 `json:"forecastInCents"`
 	TypicalIncome   int64 `json:"typicalIncomeCents"`
 	ForecastMissing int   `json:"forecastMissing"`
+
+	// RangeStart is the picked range's first month.
+	RangeStart  string      `json:"rangeStart"`
+	Commitments Commitments `json:"commitments"`
+	// This month so far and last month against the usual.
+	ThisMonth   UsualComparison `json:"thisMonth"`
+	LastMonth   UsualComparison `json:"lastMonth"`
+	Exposure    []ExposureRow   `json:"exposure"`
+	FX          FXView          `json:"fx"`
+	Property    AssetGrowthView `json:"property"`
+	Investments AssetGrowthView `json:"investments"`
+	Goals       []GoalPaceRow   `json:"goals"`
 }
 
 // NetWorthPoint is a month of net worth history. Source says where its
@@ -100,10 +112,17 @@ type CategorySpending struct {
 	Share    float64 `json:"share"`
 }
 
+// MonthTotals is a month's income and expense with the part of income
+// kept, and the expense split into fixed (what subscriptions and
+// obligations cost a month now, at most the whole expense) and flexible.
 type MonthTotals struct {
-	Month        string `json:"month"`
-	IncomeCents  int64  `json:"incomeCents"`
-	ExpenseCents int64  `json:"expenseCents"`
+	Month          string  `json:"month"`
+	IncomeCents    int64   `json:"incomeCents"`
+	ExpenseCents   int64   `json:"expenseCents"`
+	SavingsRate    float64 `json:"savingsRate"`
+	HasSavingsRate bool    `json:"hasSavingsRate"`
+	FixedCents     int64   `json:"fixedCents"`
+	FlexibleCents  int64   `json:"flexibleCents"`
 }
 
 type ForecastItem struct {
@@ -142,13 +161,16 @@ func (a *API) Analytics(months int) (Analytics, error) {
 		return Analytics{}, err
 	}
 
-	history, err := netWorthHistory(storage, data, now)
+	h, err := loadHistory(storage, data)
 	if err != nil {
 		return Analytics{}, err
 	}
 
+	history := analytics.NetWorthHistory(h, now)
+
 	// Like Statistics, real numbers: archived categories count.
 	rows, _ := cashflow.MonthlyOverview(data.Cashflows)
+	first := rangeStart(months, now, rows, h)
 	avg := analytics.Average(analytics.Window(rows, now, headlineMonths))
 	stts := data.Settings
 
@@ -165,7 +187,8 @@ func (a *API) Analytics(months int) (Analytics, error) {
 		NetWorth:        sum.NetWorthCents(),
 		NetWorthHistory: make([]NetWorthPoint, 0, len(history)),
 		Spending:        make([]CategorySpending, 0),
-		Monthly:         monthTotals(rows, now, months),
+		Monthly:         monthTotals(rows, first, now),
+		RangeStart:      first.Format(monthLayout),
 		Forecast:        make([]ForecastItem, 0),
 		ForecastDays:    forecastDays,
 		TypicalIncome:   avg.IncomeCents * forecastDays / 30,
@@ -229,6 +252,10 @@ func (a *API) Analytics(months int) (Analytics, error) {
 		}
 	}
 
+	if err := addMore(&result, storage, data, h, rows, first, now); err != nil {
+		return Analytics{}, err
+	}
+
 	return result, nil
 }
 
@@ -275,23 +302,24 @@ func keepSnapshot(storage StorageWorker, sum summary.Summary, now time.Time) err
 	return nil
 }
 
-func netWorthHistory(storage StorageWorker, data summary.Data, now time.Time) ([]analytics.MonthValue, error) {
+// loadHistory loads what net worth history and holdings over time go by.
+func loadHistory(storage StorageWorker, data summary.Data) (analytics.History, error) {
 	h := analytics.History{Accounts: data.Accounts, Assets: data.Assets, Settings: data.Settings}
 
 	var err error
 	if h.Snapshots, err = storage.LoadNetWorthSnapshots(); err != nil {
-		return nil, err
+		return h, err
 	}
 
 	if h.AccountLogs, err = storage.LoadAllAccountValueLogs(); err != nil {
-		return nil, err
+		return h, err
 	}
 
 	if h.AssetLogs, err = storage.LoadAllAssetValueLogs(); err != nil {
-		return nil, err
+		return h, err
 	}
 
-	return analytics.NetWorthHistory(h, now), nil
+	return h, nil
 }
 
 // yearStart is net worth as the year began: last December's, else the first
@@ -313,21 +341,15 @@ func yearStart(history []analytics.MonthValue, now time.Time) (analytics.MonthVa
 	return analytics.MonthValue{}, false
 }
 
-// monthTotals is income and expense for each of the last months months (all
-// since the first entry when 0), the running one included, oldest first.
-func monthTotals(rows []cashflow.CashflowMonthlyOverviewRow, now time.Time, months int) []MonthTotals {
+// monthTotals is income and expense for each month from first to the
+// running one, oldest first.
+func monthTotals(rows []cashflow.CashflowMonthlyOverviewRow, first, now time.Time) []MonthTotals {
 	byMonth := map[string]cashflow.CashflowMonthlyOverviewRow{}
 	for _, row := range rows {
 		byMonth[row.Month.Format(monthLayout)] = row
 	}
 
 	last := cashflow.MonthStart(now)
-	first := last
-	if months > 0 {
-		first = last.AddDate(0, -(months - 1), 0)
-	} else if len(rows) > 0 && rows[0].Month.Before(last) {
-		first = rows[0].Month
-	}
 
 	totals := make([]MonthTotals, 0)
 	for month := first; !month.After(last); month = month.AddDate(0, 1, 0) {

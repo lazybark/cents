@@ -1,5 +1,7 @@
-// Analytics: headline figures, net worth over time, where the money goes,
-// and what's coming due. Everything is in the base currency.
+// Analytics, in tabs: Summary (headline figures, net worth over time and
+// what's coming due), Spending, Currencies, and Assets & goals. Money is in
+// the base currency unless said otherwise. The range picker applies to the
+// month-by-month charts outside Summary.
 import { api } from "../api.js";
 import { chart, legend, monthLabel, monthRange } from "../charts.js";
 import { badge, busy, cell, clickableRow, confirmDelete, formatAmount, formatMoney, formError, rowAction, setStatus, signClass, signedMoney, withBase } from "../ui.js";
@@ -36,6 +38,33 @@ const el = {
   forecastEmpty: $("an-forecast-empty"),
   forecastMissing: $("an-forecast-missing"),
 
+  tabs: document.querySelectorAll("#an-tabs .tab"),
+  rangeField: $("an-range-field"),
+  commitments: $("an-commitments"),
+  commitmentsNote: $("an-commitments-note"),
+  rateChart: $("an-rate-chart"),
+  rateLegend: $("an-rate-legend"),
+  usualTabs: document.querySelectorAll("#an-usual-tabs .tab"),
+  usualSummary: $("an-usual-summary"),
+  usualTable: $("an-usual-table"),
+  usualMonthHead: $("an-usual-month-head"),
+  usualRows: $("an-usual-rows"),
+  usualEmpty: $("an-usual-empty"),
+  exposure: $("an-exposure"),
+  exposureTable: $("an-exposure-table"),
+  exposureRows: $("an-exposure-rows"),
+  exposureEmpty: $("an-exposure-empty"),
+  exposureMissing: $("an-exposure-missing"),
+  fxTotal: $("an-fx-total"),
+  fxSince: $("an-fx-since"),
+  fxChart: $("an-fx-chart"),
+  fxCurrencies: $("an-fx-currencies"),
+  fxMissing: $("an-fx-missing"),
+  fxNone: $("an-fx-none"),
+  goalsTable: $("an-goals-table"),
+  goalsRows: $("an-goals-rows"),
+  goalsEmpty: $("an-goals-empty"),
+
   editHistory: $("an-networth-edit"),
   historyDialog: $("networth-dialog"),
   historyForm: $("networth-form"),
@@ -46,7 +75,13 @@ const el = {
 const state = {
   // The analytics last shown, for the history dialog.
   data: null,
+  tab: "summary",
+  // Which month "Compared with your usual" shows: this or last.
+  usual: "this",
 };
+
+// The Summary tab doesn't go by the range.
+const RANGED_TABS = new Set(["spending", "currencies", "assets"]);
 
 const SOURCE_LABELS = { entered: "Entered", saved: "Kept by the app", estimated: "Estimated" };
 
@@ -60,6 +95,21 @@ export const title = "Analytics";
 
 export function init() {
   el.range.addEventListener("change", () => show());
+  for (const tab of el.tabs) {
+    tab.addEventListener("click", () => {
+      state.tab = tab.dataset.tab;
+      showTab();
+    });
+  }
+
+  for (const tab of el.usualTabs) {
+    tab.addEventListener("click", () => {
+      state.usual = tab.dataset.which;
+      if (state.data) renderUsual(state.data, (cents) => formatMoney(state.data.baseCurrency, cents));
+    });
+  }
+
+  showTab();
   el.editHistory.addEventListener("click", openHistory);
   el.historyForm.addEventListener("submit", saveHistory);
 
@@ -83,9 +133,28 @@ function render(a) {
   const money = (cents) => formatMoney(a.baseCurrency, cents);
   renderFigures(a, money);
   renderNetWorth(a, money);
+  renderForecast(a, money);
+  renderSavingsRate(a, money);
   renderMonthly(a, money);
   renderSpending(a, money);
-  renderForecast(a, money);
+  renderUsual(a, money);
+  renderExposure(a, money);
+  renderFX(a, money);
+  renderAssets(a.investments, "investments", money);
+  renderAssets(a.property, "property", money);
+  renderGoals(a);
+}
+
+// showTab shows the picked tab, with the range picker where it applies.
+// Charts are drawn while their tab is hidden; they're sized by viewBox, so
+// they show right away.
+function showTab() {
+  for (const tab of el.tabs) {
+    tab.setAttribute("aria-selected", String(tab.dataset.tab === state.tab));
+    $(`an-pane-${tab.dataset.tab}`).hidden = tab.dataset.tab !== state.tab;
+  }
+
+  el.rangeField.hidden = !RANGED_TABS.has(state.tab);
 }
 
 // --- headline figures --------------------------------------------------------
@@ -116,6 +185,16 @@ function renderFigures(a, money) {
     figure(el.runway, "—", "muted");
     el.runwayNote.textContent = "needs a month with expenses";
   }
+
+  const c = a.commitments;
+  if (c.hasShare) {
+    figure(el.commitments, `${c.share.toFixed(0)}%`, c.share >= 40 ? "negative" : "");
+    el.commitmentsNote.textContent = `of income: ${money(c.obligationsCents)} obligations + ${money(c.creditPaymentsCents)} credit payments a month`;
+  } else {
+    figure(el.commitments, money(c.totalCents));
+    el.commitmentsNote.textContent = "a month in obligations and credit payments; needs a month with income for the share";
+  }
+  el.commitmentsNote.title = "Credit payments are the average logged over the last 6 full months. A loan also kept as an obligation counts twice.";
 
   figure(el.fixed, money(a.committedCents));
   el.fixedNote.textContent = a.hasFixedShare
@@ -288,22 +367,23 @@ function renderMonthly(a, money) {
   const months = a.monthly.map((m) => m.month);
   chart(el.monthlyChart, {
     months,
-    label: "Expenses by month",
+    stacked: true,
+    label: "Fixed and flexible spending by month",
     series: [
-      { type: "bar", values: a.monthly.map((m) => m.expenseCents), className: "bar-negative" },
+      { type: "bar", values: a.monthly.map((m) => m.fixedCents), className: "bar-fixed" },
+      { type: "bar", values: a.monthly.map((m) => m.flexibleCents), className: "bar-negative" },
       { type: "line", values: a.monthly.map((m) => m.incomeCents), className: "line-income" },
-      { type: "line", values: months.map(() => a.committedCents), className: "line-committed" },
     ],
     tooltip: (i) => {
       const m = a.monthly[i];
-      return [monthLabel(m.month, true), `out ${money(m.expenseCents)}`, `in ${money(m.incomeCents)}`, `subscriptions and obligations ${money(a.committedCents)}`];
+      return [monthLabel(m.month, true), `out ${money(m.expenseCents)}`, `fixed ${money(m.fixedCents)}`, `flexible ${money(m.flexibleCents)}`, `in ${money(m.incomeCents)}`];
     },
   });
 
   legend(el.monthlyLegend, [
-    ["bar-negative", "Expenses"],
+    ["bar-fixed", "Fixed: subscriptions and obligations"],
+    ["bar-negative", "Flexible"],
     ["line-income", "Income"],
-    ["line-committed", "Subscriptions and obligations a month"],
   ]);
 }
 
@@ -380,6 +460,262 @@ function renderForecast(a, money) {
         cell(withBase(record, item.cents, a.baseCurrency, item.baseCents, signed), `num ${item.incoming ? "positive" : ""}`),
       );
       clickableRow(row, () => window.dispatchEvent(new CustomEvent("cents:open-view", { detail: KIND_VIEWS[item.kind] })));
+      return row;
+    }),
+  );
+}
+
+// --- spending ----------------------------------------------------------------
+
+// The savings rate chart stops here, so a month with little income doesn't
+// squash the rest.
+const RATE_FLOOR = -100;
+
+function renderSavingsRate(a, money) {
+  const months = a.monthly.map((m) => m.month);
+  chart(el.rateChart, {
+    months,
+    label: "Savings rate by month",
+    axis: (value) => `${value}%`,
+    series: [{ type: "bar", values: a.monthly.map((m) => (m.hasSavingsRate ? Math.max(Math.round(m.savingsRate), RATE_FLOOR) : null)) }],
+    tooltip: (i) => {
+      const m = a.monthly[i];
+      const rate = m.hasSavingsRate ? `${m.savingsRate.toFixed(0)}% kept` : "no income";
+      return [monthLabel(m.month, true), rate, `in ${money(m.incomeCents)}`, `out ${money(m.expenseCents)}`];
+    },
+  });
+
+  legend(el.rateLegend, [["bar-positive", "Kept (green) or overspent (red), as a part of income"]]);
+}
+
+function renderUsual(a, money) {
+  const c = state.usual === "this" ? a.thisMonth : a.lastMonth;
+  for (const tab of el.usualTabs) tab.setAttribute("aria-selected", String(tab.dataset.which === state.usual));
+  el.usualMonthHead.textContent = state.usual === "this" ? "This month" : monthLabel(c.month, true);
+
+  const sofar = state.usual === "this" ? `, ${c.daysIn} of ${c.daysInMonth} days in (only spending above usual is marked until the month is over)` : "";
+  const unusual = c.items.filter((item) => item.unusual).length;
+  el.usualSummary.textContent =
+    c.usualMonths === 0
+      ? `${monthLabel(c.month, true)}: nothing before it to compare with yet.`
+      : `${monthLabel(c.month, true)}${sofar}: ${money(c.totalCents)} spent against a usual ${money(c.usualTotalCents)}` +
+        (unusual > 0 ? `; ${unusual === 1 ? "one category stands" : `${unusual} categories stand`} out.` : ".");
+
+  el.usualTable.hidden = c.items.length === 0;
+  el.usualEmpty.hidden = c.items.length > 0;
+  el.usualEmpty.textContent = "No expenses in that month or the months before.";
+
+  el.usualRows.replaceChildren(
+    ...c.items.map((item) => {
+      const row = document.createElement("tr");
+      const name = document.createElement("span");
+      name.textContent = item.category || "(no category)";
+      if (item.unusual) name.append(badge(item.usualCents === 0 ? "new" : item.diffCents > 0 ? "more than usual" : "less than usual"));
+
+      let diff = c.usualMonths === 0 ? "—" : signedMoney(a.baseCurrency, item.diffCents);
+      if (item.usualCents > 0) diff += ` (${item.diffPercent > 0 ? "+" : ""}${item.diffPercent.toFixed(0)}%)`;
+      // Spending more than usual is the one to watch.
+      const tone = item.unusual ? (item.diffCents > 0 ? "negative" : "positive") : "";
+
+      row.append(
+        cell(name),
+        cell(money(item.cents), "num"),
+        cell(c.usualMonths === 0 ? "—" : money(item.usualCents), "num muted"),
+        cell(diff, `num ${tone}`),
+      );
+      return row;
+    }),
+  );
+}
+
+// --- currencies --------------------------------------------------------------
+
+function renderExposure(a, money) {
+  const rows = a.exposure;
+  const owned = rows.filter((e) => e.hasRate && e.ownedBaseCents > 0);
+  el.exposureEmpty.hidden = rows.length > 0;
+  el.exposureTable.hidden = rows.length === 0;
+  el.exposure.hidden = owned.length === 0;
+
+  const largest = Math.max(...owned.map((e) => e.share), 1);
+  el.exposure.replaceChildren(
+    ...owned.flatMap((e) => {
+      const name = document.createElement("div");
+      name.textContent = e.currency;
+
+      const bar = document.createElement("div");
+      bar.className = "share-bar share-bar-neutral";
+      const fill = document.createElement("div");
+      fill.style.width = `${(e.share / largest) * 100}%`;
+      bar.append(fill);
+
+      const amount = document.createElement("div");
+      amount.className = "num";
+      amount.textContent = money(e.ownedBaseCents);
+
+      const share = document.createElement("div");
+      share.className = "num muted";
+      share.textContent = `${e.share.toFixed(e.share < 10 ? 1 : 0)}%`;
+
+      return [name, bar, amount, share];
+    }),
+  );
+
+  // Each amount in its currency, with the base amount below for others.
+  const both = (e, cents, baseCents) => withBase({ currency: e.currency, isBase: e.isBase, hasRate: e.hasRate }, cents, a.baseCurrency, baseCents);
+  el.exposureRows.replaceChildren(
+    ...rows.map((e) => {
+      const row = document.createElement("tr");
+      row.append(
+        cell(e.currency),
+        cell(both(e, e.ownedCents, e.ownedBaseCents), "num"),
+        cell(formatMoney(e.currency, e.owedToMeCents), `num ${e.owedToMeCents ? "" : "muted"}`),
+        cell(formatMoney(e.currency, e.owedByMeCents), `num ${e.owedByMeCents ? "negative" : "muted"}`),
+        cell(both(e, e.netCents, e.netBaseCents), `num ${signClass(e.netCents)}`),
+      );
+      return row;
+    }),
+  );
+
+  const missing = rows.filter((e) => !e.hasRate).map((e) => e.currency);
+  el.exposureMissing.hidden = missing.length === 0;
+  el.exposureMissing.textContent = `${missing.join(", ")} ${missing.length === 1 ? "has" : "have"} no rate to the base currency, so ${missing.length === 1 ? "it isn't" : "they aren't"} in the shares.`;
+}
+
+function renderFX(a, money) {
+  const fx = a.fx;
+  const months = fx.months.map((m) => m.month);
+  figure(el.fxTotal, signedMoney(a.baseCurrency, fx.totalCents), signClass(fx.totalCents));
+  el.fxSince.textContent = months.length > 0 ? `since the start of ${monthLabel(months[0], true)}` : "";
+
+  // Nothing moved: say so rather than draw a flat line.
+  const moved = fx.months.some((m) => m.cents !== 0);
+  el.fxChart.hidden = !moved;
+  el.fxNone.hidden = moved;
+
+  chart(el.fxChart, {
+    months,
+    label: "Effect of exchange rates by month",
+    series: [{ type: "bar", values: fx.months.map((m) => m.cents) }],
+    tooltip: (i) => [monthLabel(months[i], true), `${signedMoney(a.baseCurrency, fx.months[i].cents)} from rates`],
+  });
+
+  el.fxCurrencies.replaceChildren(
+    ...fx.byCurrency.flatMap((c) => {
+      const dt = document.createElement("dt");
+      dt.textContent = c.currency;
+      const dd = document.createElement("dd");
+      dd.textContent = signedMoney(a.baseCurrency, c.cents);
+      dd.className = signClass(c.cents);
+      return [dt, dd];
+    }),
+  );
+
+  el.fxMissing.hidden = fx.missing.length === 0;
+  el.fxMissing.textContent = `No rate was known for ${fx.missing.join(", ")} in some of these months, so those months leave ${fx.missing.length === 1 ? "it" : "them"} out.`;
+}
+
+// --- assets and goals ----------------------------------------------------------
+
+function renderAssets(view, kind, money) {
+  const chartEl = $(`an-${kind}-chart`);
+  const figures = $(`an-${kind}-figures`);
+  const legendEl = $(`an-${kind}-legend`);
+  const empty = view.count === 0;
+  $(`an-${kind}-empty`).hidden = !empty;
+  for (const node of [chartEl, figures, legendEl]) node.hidden = empty;
+  if (empty) return;
+
+  // The change needs a value in an earlier month to go from.
+  const last = view.months.at(-1);
+  const first = view.months.find((m) => m.valueCents > 0 && m !== last);
+  const change = first ? view.valueCents - first.valueCents : 0;
+  const gainPercent = view.costCents > 0 ? ` (${view.gainCents > 0 ? "+" : ""}${((view.gainCents / view.costCents) * 100).toFixed(1)}%)` : "";
+  const items = [
+    ["Value now", money(view.valueCents), ""],
+    [first ? `Change since ${monthLabel(first.month)}` : "Change", first ? signedMoney(state.data.baseCurrency, change) : "—", first ? signClass(change) : "muted"],
+    ["Gain over cost", view.hasCost ? signedMoney(state.data.baseCurrency, view.gainCents) + gainPercent : "no cost given", view.hasCost ? signClass(view.gainCents) : "muted"],
+  ];
+  figures.replaceChildren(
+    ...items.map(([label, value, className]) => {
+      const box = document.createElement("div");
+      const labelEl = document.createElement("div");
+      labelEl.className = "label";
+      labelEl.textContent = label;
+      const valueEl = document.createElement("div");
+      valueEl.className = `figure ${className}`.trim();
+      valueEl.textContent = value;
+      box.append(labelEl, valueEl);
+      return box;
+    }),
+  );
+
+  const months = view.months.map((m) => m.month);
+  const known = (m) => m.valueCents !== 0 || m.costCents !== 0;
+  chart(chartEl, {
+    months,
+    zero: false,
+    label: `${kind} value by month`,
+    series: [
+      { type: "line", values: view.months.map((m) => (known(m) ? m.valueCents : null)), className: "line-value" },
+      { type: "line", values: view.months.map((m) => (known(m) && m.hasCost ? m.costCents : null)), className: "series-1" },
+    ],
+    tooltip: (i) => {
+      const m = view.months[i];
+      if (!known(m)) return [monthLabel(m.month, true), "no value logged yet"];
+      const lines = [monthLabel(m.month, true), `value ${money(m.valueCents)}`];
+      if (m.hasCost) lines.push(`paid ${money(m.costCents)}`, `gain ${signedMoney(state.data.baseCurrency, m.gainCents)}`);
+      return lines;
+    },
+  });
+
+  legend(legendEl, [
+    ["line-value", "Value"],
+    ["series-1", "What was paid (those with a cost given)"],
+  ]);
+}
+
+const PACE_TEXT = {
+  "on-track": (g) => `on track: ${g.projected}${g.monthsLate < 0 ? `, ${-g.monthsLate} month${g.monthsLate === -1 ? "" : "s"} early` : ""}`,
+  behind: (g) => `${g.projected}, ${g.monthsLate} month${g.monthsLate === 1 ? "" : "s"} after the target`,
+  "no-target": (g) => `reached around ${g.projected}`,
+  stalled: () => "nothing added lately",
+};
+
+function renderGoals(a) {
+  el.goalsTable.hidden = a.goals.length === 0;
+  el.goalsEmpty.hidden = a.goals.length > 0;
+
+  el.goalsRows.replaceChildren(
+    ...a.goals.map((g) => {
+      const row = document.createElement("tr");
+
+      const name = document.createElement("div");
+      name.className = "account-name";
+      name.textContent = g.name;
+      const details = document.createElement("div");
+      details.className = "account-description";
+      details.textContent = g.targetDate ? `target ${g.targetDate}` : "no target date";
+      const nameCell = document.createElement("div");
+      nameCell.append(name, details);
+
+      const pace = document.createElement("div");
+      pace.textContent = PACE_TEXT[g.status](g);
+      if (g.status === "behind" && g.neededPerMonthCents > 0) {
+        const needed = document.createElement("div");
+        needed.className = "account-description";
+        needed.textContent = `needs ${formatMoney(g.currency, g.neededPerMonthCents)} a month to make it`;
+        pace.append(needed);
+      }
+
+      const tone = g.status === "behind" || g.status === "stalled" ? "negative" : g.status === "on-track" ? "positive" : "";
+      row.append(
+        cell(nameCell),
+        cell(formatMoney(g.currency, g.leftCents), "num"),
+        cell(formatMoney(g.currency, g.perMonthCents), `num ${g.perMonthCents > 0 ? "" : "muted"}`),
+        cell(pace, tone),
+      );
+      clickableRow(row, () => window.dispatchEvent(new CustomEvent("cents:open-view", { detail: "goals" })));
       return row;
     }),
   );

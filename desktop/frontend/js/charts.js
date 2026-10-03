@@ -50,6 +50,8 @@ export function compact(cents) {
 
   if (abs >= 1e6) return short(value / 1e6, "M");
   if (abs >= 1e3) return short(value / 1e3, "k");
+  // Small values keep their cents, so close ticks don't read the same.
+  if (abs > 0 && abs < 10) return String(Number(value.toFixed(2)));
   return String(Math.round(value));
 }
 
@@ -78,14 +80,22 @@ function niceTicks(min, max, count = 5) {
 //            Bars get "positive"/"negative" classes by sign unless they have
 //            a className.
 //   zero:    whether the value axis always includes 0 (true for bars).
+//   stacked: bars stack on each other in one column instead of sitting
+//            side by side (for parts of a whole, all positive).
 //   axis:    (cents) => label on the value axis.
 //   tooltip: (index) => lines of text for that month.
 //   label:   what the chart shows, for screen readers.
-export function chart(container, { months, series, zero = true, axis = compact, tooltip, label }) {
+export function chart(container, { months, series, zero = true, stacked = false, axis = compact, tooltip, label }) {
   container.replaceChildren();
   container.classList.add("chart");
 
-  const values = series.flatMap((s) => s.values).filter((v) => v !== null && v !== undefined);
+  const present = (v) => v !== null && v !== undefined;
+  const values = series.flatMap((s) => s.values).filter(present);
+  if (stacked) {
+    // The scale has to fit each column's total.
+    const bars = series.filter((s) => s.type === "bar");
+    months.forEach((_, i) => values.push(bars.reduce((sum, s) => sum + (s.values[i] ?? 0), 0)));
+  }
   if (months.length === 0 || values.length === 0) return;
 
   let min = Math.min(...values);
@@ -136,14 +146,18 @@ export function chart(container, { months, series, zero = true, axis = compact, 
 
   // Bars first, lines on top of them.
   const bars = series.filter((s) => s.type === "bar");
-  const barWidth = Math.min(28, (band * 0.7) / Math.max(bars.length, 1));
+  const columns = stacked ? 1 : Math.max(bars.length, 1);
+  const barWidth = Math.min(28, (band * 0.7) / columns);
+  const stackedTo = months.map(() => 0);
   bars.forEach((s, n) => {
     const group = svg("g");
     s.values.forEach((value, i) => {
-      if (value === null || value === undefined) return;
-      const top = y(Math.max(value, 0));
-      const height = Math.max(Math.abs(y(value) - y(0)), value === 0 ? 0 : 1);
-      const offset = (n - (bars.length - 1) / 2) * barWidth;
+      if (!present(value)) return;
+      const base = stacked ? stackedTo[i] : 0;
+      const top = y(Math.max(base + value, base));
+      const height = Math.max(Math.abs(y(base + value) - y(base)), value === 0 ? 0 : 1);
+      const offset = stacked ? 0 : (n - (bars.length - 1) / 2) * barWidth;
+      if (stacked) stackedTo[i] += value;
       group.append(svg("rect", { x: x(i) - barWidth / 2 + offset, y: top, width: barWidth, height, class: s.className ?? (value < 0 ? "bar-negative" : "bar-positive") }));
     });
     root.append(group);
