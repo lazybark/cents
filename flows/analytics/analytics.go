@@ -18,7 +18,8 @@ import (
 )
 
 // NetWorthSnapshot is net worth as it was in a month, kept so its history
-// can be shown. The current month's is updated until the month is over.
+// can be shown. The current month's is updated until the month is over,
+// unless the user entered it (Manual): those are never replaced by the app.
 type NetWorthSnapshot struct {
 	ID            uint `gorm:"primaryKey"`
 	CreatedAt     time.Time
@@ -30,6 +31,8 @@ type NetWorthSnapshot struct {
 	OwnedCents    int64
 	OwedToMeCents int64
 	OwedByMeCents int64
+	// Manual is set on values the user entered, which have no breakdown.
+	Manual bool `gorm:"not null;default:false"`
 }
 
 // MonthStart is the first day of value's month (read as the day it was
@@ -57,6 +60,8 @@ type MonthValue struct {
 	Month     time.Time
 	Cents     int64
 	Estimated bool
+	// Manual is a value the user entered.
+	Manual bool
 }
 
 // History is the input for NetWorthHistory.
@@ -71,7 +76,7 @@ type History struct {
 
 // NetWorthHistory is net worth month by month, from the oldest snapshot or
 // value logged to this month: the snapshot where there is one, otherwise
-// an estimate.
+// an estimate. Months with neither are left out.
 func NetWorthHistory(h History, now time.Time) []MonthValue {
 	snapshots := map[time.Time]NetWorthSnapshot{}
 	first := MonthStart(now)
@@ -120,12 +125,15 @@ func NetWorthHistory(h History, now time.Time) []MonthValue {
 	values := []MonthValue{}
 	for month := first; !month.After(MonthStart(now)); month = month.AddDate(0, 1, 0) {
 		if s, ok := snapshots[month]; ok {
-			values = append(values, MonthValue{Month: month, Cents: s.NetWorthCents})
+			values = append(values, MonthValue{Month: month, Cents: s.NetWorthCents, Manual: s.Manual})
 			continue
 		}
 
 		end := month.AddDate(0, 1, 0)
 		var owned int64
+		// Whether any value was logged by then; without one there's nothing
+		// to estimate from, and the month is left out rather than shown as 0.
+		known := false
 		for _, acct := range h.Accounts {
 			if acct.IgnoreInSummaries {
 				continue
@@ -134,6 +142,7 @@ func NetWorthHistory(h History, now time.Time) []MonthValue {
 			if cents, ok := latestBefore(accountLogs[acct.ID], end, func(l account.AccountValueLog) (time.Time, int64) { return l.LogDate, l.ValueCents }); ok {
 				if base, ok := h.Settings.ConvertToBaseCents(acct.Currency, cents); ok {
 					owned += base
+					known = true
 				}
 			}
 		}
@@ -146,11 +155,14 @@ func NetWorthHistory(h History, now time.Time) []MonthValue {
 			if cents, ok := latestBefore(assetLogs[item.ID], end, func(l asset.AssetValueLog) (time.Time, int64) { return l.LogDate, l.ValueCents }); ok {
 				if base, ok := h.Settings.ConvertToBaseCents(item.Currency, cents); ok {
 					owned += base
+					known = true
 				}
 			}
 		}
 
-		values = append(values, MonthValue{Month: month, Cents: owned, Estimated: true})
+		if known {
+			values = append(values, MonthValue{Month: month, Cents: owned, Estimated: true})
+		}
 	}
 
 	return values

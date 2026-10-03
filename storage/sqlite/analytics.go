@@ -1,7 +1,9 @@
 package sqlite
 
 import (
+	"errors"
 	"fmt"
+	"time"
 
 	"github.com/lazybark/cents/flows/account"
 	"github.com/lazybark/cents/flows/analytics"
@@ -21,14 +23,43 @@ func (s *SQLiteStorage) LoadNetWorthSnapshots() ([]analytics.NetWorthSnapshot, e
 }
 
 // SaveNetWorthSnapshot keeps entry as its month's net worth, replacing what
-// was kept for that month before.
+// the app kept for that month before; a value the user entered stays.
 func (s *SQLiteStorage) SaveNetWorthSnapshot(entry *analytics.NetWorthSnapshot) error {
 	err := s.db.Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "month"}},
+		Where:     clause.Where{Exprs: []clause.Expression{clause.Eq{Column: clause.Column{Table: "net_worth_snapshots", Name: "manual"}, Value: false}}},
 		DoUpdates: clause.AssignmentColumns([]string{"updated_at", "net_worth_cents", "owned_cents", "owed_to_me_cents", "owed_by_me_cents"}),
 	}).Create(entry).Error
 	if err != nil {
 		return fmt.Errorf("failed to save net worth snapshot: %w", err)
+	}
+
+	return nil
+}
+
+// SetNetWorthSnapshot keeps a net worth the user entered as its month's,
+// replacing whatever was kept for it.
+func (s *SQLiteStorage) SetNetWorthSnapshot(entry *analytics.NetWorthSnapshot) error {
+	err := s.db.Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "month"}},
+		DoUpdates: clause.AssignmentColumns([]string{"updated_at", "net_worth_cents", "owned_cents", "owed_to_me_cents", "owed_by_me_cents", "manual"}),
+	}).Create(entry).Error
+	if err != nil {
+		return fmt.Errorf("failed to save net worth: %w", err)
+	}
+
+	return nil
+}
+
+// DeleteNetWorthSnapshot deletes what was kept for month, a UTC midnight.
+func (s *SQLiteStorage) DeleteNetWorthSnapshot(month time.Time) error {
+	result := s.db.Where("month = ?", month).Delete(&analytics.NetWorthSnapshot{})
+	if result.Error != nil {
+		return fmt.Errorf("failed to delete net worth: %w", result.Error)
+	}
+
+	if result.RowsAffected == 0 {
+		return errors.New("nothing is kept for that month")
 	}
 
 	return nil

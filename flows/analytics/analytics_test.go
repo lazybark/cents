@@ -73,8 +73,8 @@ func TestNetWorthHistory(t *testing.T) {
 		t.Fatalf("expected February at 100 and March at 700: %+v", got)
 	}
 
-	if only := NetWorthHistory(History{Settings: stts}, now); len(only) != 1 || !only[0].Estimated || only[0].Cents != 0 {
-		t.Fatalf("without data just this month: %+v", only)
+	if none := NetWorthHistory(History{Settings: stts}, now); len(none) != 0 {
+		t.Fatalf("without data, nothing: %+v", none)
 	}
 }
 

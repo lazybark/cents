@@ -109,3 +109,55 @@ func TestAnalyticsWithoutData(t *testing.T) {
 		t.Fatalf("unexpected empty analytics %+v", got)
 	}
 }
+
+func TestEnteringNetWorth(t *testing.T) {
+	api := newTestAPI(t)
+	thisMonth := time.Now().Format(monthLayout)
+	backfill := monthsAgo(3)[:7]
+
+	if err := api.SetNetWorth(NetWorthInput{Month: backfill, Amount: "-250.50"}); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := api.Analytics(12)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	sources := map[string]string{}
+	for _, p := range got.NetWorthHistory {
+		sources[p.Month] = p.Source
+	}
+	// No values were logged, so the months between have no estimate.
+	if len(got.NetWorthHistory) != 2 || got.NetWorthHistory[0].Cents != -25050 || sources[backfill] != SourceEntered || sources[thisMonth] != SourceSaved {
+		t.Fatalf("expected the backfill and this month: %+v", got.NetWorthHistory)
+	}
+
+	// Entering this month sticks, though the app keeps it on every load.
+	if err := api.SetNetWorth(NetWorthInput{Month: thisMonth, Amount: "1000"}); err != nil {
+		t.Fatal(err)
+	}
+	got, _ = api.Analytics(12)
+	if last := got.NetWorthHistory[len(got.NetWorthHistory)-1]; last.Source != SourceEntered || last.Cents != 100000 {
+		t.Fatalf("expected the entered value to stay: %+v", last)
+	}
+
+	// Deleting goes back to the app's value, and the backfill to nothing.
+	for _, month := range []string{thisMonth, backfill} {
+		if err := api.DeleteNetWorth(month); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, _ = api.Analytics(12)
+	if len(got.NetWorthHistory) != 1 || got.NetWorthHistory[0].Source != SourceSaved || got.NetWorthHistory[0].Cents != 0 {
+		t.Fatalf("expected only this month, kept by the app: %+v", got.NetWorthHistory)
+	}
+
+	future := time.Now().AddDate(0, 2, 0).Format(monthLayout)
+	if err := api.SetNetWorth(NetWorthInput{Month: future, Amount: "1"}); err == nil {
+		t.Fatal("expected a future month to fail")
+	}
+	if err := api.DeleteNetWorth(backfill); err == nil {
+		t.Fatal("expected nothing left to delete")
+	}
+}

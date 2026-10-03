@@ -96,6 +96,8 @@ type StorageWorker interface {
 	DeleteCreditLog(entry *credit.Credit, logID uint) error
 	LoadNetWorthSnapshots() ([]analytics.NetWorthSnapshot, error)
 	SaveNetWorthSnapshot(entry *analytics.NetWorthSnapshot) error
+	SetNetWorthSnapshot(entry *analytics.NetWorthSnapshot) error
+	DeleteNetWorthSnapshot(month time.Time) error
 	LoadAllAccountValueLogs() ([]account.AccountValueLog, error)
 	LoadAllAssetValueLogs() ([]asset.AssetValueLog, error)
 }

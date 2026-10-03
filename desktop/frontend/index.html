@@ -153,7 +153,10 @@
         </section>
 
         <section class="panel">
-          <h3 class="section-title">Net worth over time</h3>
+          <div class="panel-head">
+            <h3 class="section-title">Net worth over time</h3>
+            <button id="an-networth-edit" type="button" class="button">Edit history</button>
+          </div>
           <div id="an-networth-chart"></div>
           <div id="an-networth-legend" class="chart-legend"></div>
           <p id="an-networth-note" class="hint"></p>
@@ -1902,6 +1905,47 @@
         </span>
       </div>
     </form>
+  </dialog>
+
+  <dialog id="networth-dialog" class="dialog dialog-wide">
+    <h2 class="dialog-title">Net worth history</h2>
+    <p class="muted">Enter what your net worth was in a month to fill in the past or correct a month. The app doesn't change values you enter; delete one to go back to the value the app keeps or estimates.</p>
+
+    <form id="networth-form" class="form" novalidate>
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">Month</span>
+          <select name="month"></select>
+        </label>
+        <label class="field">
+          <span class="field-label">Year</span>
+          <input name="year" type="number" min="1970" step="1" inputmode="numeric" autocomplete="off">
+        </label>
+        <label class="field">
+          <span class="field-label">Net worth</span>
+          <input name="amount" inputmode="decimal" maxlength="24" placeholder="-1234.56" autocomplete="off">
+        </label>
+        <button type="submit" class="button field-button">Save value</button>
+      </div>
+      <p class="hint">In the base currency, <span id="networth-base"></span>. Saving a month that already has a value replaces it. Click a month below to fill it in.</p>
+      <p class="form-error negative" hidden></p>
+    </form>
+
+    <table class="table logs clickable">
+      <thead>
+        <tr>
+          <th>Month</th>
+          <th class="num">Net worth</th>
+          <th>Value</th>
+          <th><span class="visually-hidden">Actions</span></th>
+        </tr>
+      </thead>
+      <tbody id="networth-rows"></tbody>
+    </table>
+
+    <div class="dialog-actions">
+      <button type="button" class="button" data-close>Close</button>
+    </div>
   </dialog>
 
   <dialog id="confirm-dialog" class="dialog">

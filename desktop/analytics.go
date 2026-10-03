@@ -72,10 +72,26 @@ type Analytics struct {
 	ForecastMissing int   `json:"forecastMissing"`
 }
 
+// NetWorthPoint is a month of net worth history. Source says where its
+// value comes from: "saved" by the app, "entered" by the user, or
+// "estimated".
 type NetWorthPoint struct {
 	Month     string `json:"month"`
 	Cents     int64  `json:"cents"`
 	Estimated bool   `json:"estimated"`
+	Source    string `json:"source"`
+}
+
+const (
+	SourceSaved     = "saved"
+	SourceEntered   = "entered"
+	SourceEstimated = "estimated"
+)
+
+// NetWorthInput is a net worth entered for a month (YYYY-MM).
+type NetWorthInput struct {
+	Month  string `json:"month"`
+	Amount string `json:"amount"`
 }
 
 type CategorySpending struct {
@@ -163,7 +179,15 @@ func (a *API) Analytics(months int) (Analytics, error) {
 	}
 
 	for _, point := range history {
-		result.NetWorthHistory = append(result.NetWorthHistory, NetWorthPoint{Month: point.Month.Format(monthLayout), Cents: point.Cents, Estimated: point.Estimated})
+		source := SourceSaved
+		switch {
+		case point.Estimated:
+			source = SourceEstimated
+		case point.Manual:
+			source = SourceEntered
+		}
+
+		result.NetWorthHistory = append(result.NetWorthHistory, NetWorthPoint{Month: point.Month.Format(monthLayout), Cents: point.Cents, Estimated: point.Estimated, Source: source})
 	}
 
 	if start, ok := yearStart(history, now); ok {
@@ -206,6 +230,38 @@ func (a *API) Analytics(months int) (Analytics, error) {
 	}
 
 	return result, nil
+}
+
+// SetNetWorth keeps a net worth the user entered for a month, to backfill
+// or correct the history. The app doesn't replace it, even for this month.
+func (a *API) SetNetWorth(input NetWorthInput) error {
+	storage, err := a.currentStorage()
+	if err != nil {
+		return err
+	}
+
+	snapshot, err := analytics.Manual(input.Month, input.Amount, time.Now())
+	if err != nil {
+		return err
+	}
+
+	return storage.SetNetWorthSnapshot(&snapshot)
+}
+
+// DeleteNetWorth deletes what's kept for a month (YYYY-MM): the month goes
+// back to an estimate, or for this month to the value the app keeps.
+func (a *API) DeleteNetWorth(month string) error {
+	storage, err := a.currentStorage()
+	if err != nil {
+		return err
+	}
+
+	parsed, err := analytics.ParseMonth(month, time.Now())
+	if err != nil {
+		return err
+	}
+
+	return storage.DeleteNetWorthSnapshot(parsed)
 }
 
 // keepSnapshot keeps net worth now as this month's, so the history has it
