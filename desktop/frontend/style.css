@@ -875,3 +875,71 @@ th[aria-sort="descending"] .sort-button::after {
   text-decoration: underline;
   cursor: pointer;
 }
+
+/* Analytics */
+
+.subsection-title {
+  margin: 16px 0 8px;
+  font-size: 13px;
+  color: var(--table-header);
+}
+
+/* Estimated months of a line, drawn dashed. */
+.line-estimated {
+  color: var(--headline);
+  opacity: 0.6;
+}
+
+.chart-line.line-estimated {
+  stroke-dasharray: 5 4;
+}
+
+.chart-swatch.line-estimated {
+  background: repeating-linear-gradient(90deg, currentColor 0 4px, transparent 4px 6px);
+}
+
+.line-committed {
+  color: var(--table-header);
+}
+
+.chart-line.line-committed {
+  stroke-dasharray: 2 4;
+}
+
+.chart-dots.line-committed {
+  display: none;
+}
+
+/* Categories as bars of their share: name, bar, amount, percent. */
+.share-list {
+  display: grid;
+  grid-template-columns: minmax(80px, max-content) minmax(60px, 1fr) max-content 4em;
+  align-items: center;
+  gap: 6px 12px;
+}
+
+.share-bar {
+  height: 8px;
+  border-radius: 4px;
+  background: #5F5A52;
+  overflow: hidden;
+}
+
+.share-bar > div {
+  height: 100%;
+  background: var(--negative);
+}
+
+.share-list .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+#an-forecast-table {
+  margin-top: 12px;
+}
+
+.chart-swatch.bar-negative {
+  height: 10px;
+  background: var(--negative);
+}

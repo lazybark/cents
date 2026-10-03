@@ -4,6 +4,7 @@ import { api } from "./api.js";
 import { showCurrencySetup } from "./currency-setup.js";
 import { busy, setDBPath, setStatus } from "./ui.js";
 import * as accounts from "./views/accounts.js";
+import * as analytics from "./views/analytics.js";
 import * as cashflow from "./views/cashflow.js";
 import * as credits from "./views/credits.js";
 import * as debts from "./views/debts.js";
@@ -17,7 +18,7 @@ import * as settings from "./views/settings.js";
 import * as subscriptions from "./views/subscriptions.js";
 import * as taxes from "./views/taxes.js";
 
-const views = { overview, accounts, property, investments, cashflow, subscriptions, obligations, invoices, debts, credits, goals, taxes, settings };
+const views = { overview, analytics, accounts, property, investments, cashflow, subscriptions, obligations, invoices, debts, credits, goals, taxes, settings };
 const DEFAULT_VIEW = "overview";
 
 const $ = (id) => document.getElementById(id);
@@ -146,6 +147,9 @@ window.addEventListener("cents:open-month", (event) => {
   cashflow.focusMonth(event.detail);
   navigate("cashflow");
 });
+
+// Another view asks to show a list (a forecast item's, say).
+window.addEventListener("cents:open-view", (event) => navigate(event.detail));
 
 window.runtime?.EventsOn?.("rates-updated", () => {
   if (!el.app.hidden) refresh();

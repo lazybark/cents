@@ -58,6 +58,10 @@ func (a *API) Overview() (Overview, error) {
 	month := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
 	sum := summary.Compute(data, month)
 
+	// The overview is what opens first, so it keeps this month's net worth
+	// for Analytics; that failing shouldn't keep the overview from showing.
+	_ = keepSnapshot(storage, sum, now)
+
 	upcoming := make([]SubscriptionRow, 0)
 	for _, sub := range subscription.Upcoming(data.Subscriptions, now) {
 		upcoming = append(upcoming, subscriptionRow(sub, data.Settings, now))

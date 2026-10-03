@@ -196,6 +196,29 @@ func (s Subscription) NextPayment(today time.Time) (time.Time, bool) {
 	return occurrence(anchor, s.Period, n), true
 }
 
+// PaymentsUntil lists the payments from the next one (which may be
+// overdue) up to and including until.
+func (s Subscription) PaymentsUntil(today time.Time, until time.Time) []time.Time {
+	next, ok := s.NextPayment(today)
+	if !ok {
+		return nil
+	}
+
+	anchor, _ := s.Anchor(today)
+	n := 0
+	for occurrence(anchor, s.Period, n).Before(next) {
+		n++
+	}
+
+	payments := []time.Time{}
+	for at := occurrence(anchor, s.Period, n); !at.After(day(until)); at = occurrence(anchor, s.Period, n) {
+		payments = append(payments, at)
+		n++
+	}
+
+	return payments
+}
+
 // MarkPaid marks the next payment paid, returning the subscription with it
 // as the latest paid and the day it was for, to record.
 func (s Subscription) MarkPaid(today time.Time, now time.Time) (Subscription, time.Time, error) {

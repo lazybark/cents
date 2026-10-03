@@ -60,6 +60,7 @@
     <nav class="sidebar" aria-label="Main menu">
       <h1 class="brand">cents</h1>
       <button class="nav-item" type="button" data-view="overview">Overview</button>
+      <button class="nav-item" type="button" data-view="analytics">Analytics</button>
       <button class="nav-item" type="button" data-view="accounts">Accounts</button>
       <button class="nav-item" type="button" data-view="property">Property</button>
       <button class="nav-item" type="button" data-view="investments">Investments</button>
@@ -121,6 +122,89 @@
           <p id="upcoming-unscheduled" class="negative" hidden></p>
           <p id="upcoming-hint" class="hint" hidden>Click one to open it.</p>
           <p class="hint">Active subscriptions and obligations due within 5 days (monthly), 2 days (weekly), 2 weeks (quarterly) or a month (yearly).</p>
+        </section>
+      </section>
+
+      <section id="view-analytics" class="view" hidden>
+        <section class="panel">
+          <div class="figures">
+            <div>
+              <div class="label">Savings rate</div>
+              <div id="an-savings" class="figure"></div>
+              <div id="an-savings-note" class="hint"></div>
+            </div>
+            <div>
+              <div class="label">Runway</div>
+              <div id="an-runway" class="figure"></div>
+              <div id="an-runway-note" class="hint"></div>
+            </div>
+            <div>
+              <div class="label">Fixed costs</div>
+              <div id="an-fixed" class="figure"></div>
+              <div id="an-fixed-note" class="hint"></div>
+            </div>
+            <div>
+              <div class="label">Net worth this year</div>
+              <div id="an-change" class="figure"></div>
+              <div id="an-change-note" class="hint"></div>
+            </div>
+          </div>
+          <p id="an-averages" class="hint"></p>
+        </section>
+
+        <section class="panel">
+          <h3 class="section-title">Net worth over time</h3>
+          <div id="an-networth-chart"></div>
+          <div id="an-networth-legend" class="chart-legend"></div>
+          <p id="an-networth-note" class="hint"></p>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <h3 class="section-title">Where the money goes</h3>
+            <div class="chart-controls">
+              <label class="inline-field">
+                <span class="field-label">Show</span>
+                <select id="an-range">
+                  <option value="3">Last 3 months</option>
+                  <option value="6">Last 6 months</option>
+                  <option value="12" selected>Last 12 months</option>
+                  <option value="24">Last 24 months</option>
+                  <option value="0">All months</option>
+                </select>
+              </label>
+            </div>
+          </div>
+          <div id="an-monthly-chart"></div>
+          <div id="an-monthly-legend" class="chart-legend"></div>
+          <h4 class="subsection-title">By category</h4>
+          <div id="an-spending" class="share-list"></div>
+          <p id="an-spending-empty" class="muted" hidden>No expenses in this range.</p>
+          <p class="hint">In the base currency, the running month included. Archived categories count, like in Statistics.</p>
+        </section>
+
+        <section class="panel">
+          <h3 id="an-forecast-title" class="section-title">Next 90 days</h3>
+          <div class="figures">
+            <div>
+              <div class="label">Going out</div>
+              <div id="an-out" class="figure"></div>
+            </div>
+            <div>
+              <div class="label">Coming in, known</div>
+              <div id="an-in" class="figure"></div>
+            </div>
+            <div>
+              <div class="label">Usual income</div>
+              <div id="an-typical" class="figure"></div>
+            </div>
+          </div>
+          <table id="an-forecast-table" class="table clickable">
+            <tbody id="an-forecast-rows"></tbody>
+          </table>
+          <p id="an-forecast-empty" class="muted" hidden>Nothing with a date is due.</p>
+          <p id="an-forecast-missing" class="hint" hidden></p>
+          <p class="hint">Active subscriptions and obligations, plus unpaid debts, credits, taxes and invoices with a due date, overdue ones first. Click one to go to its list.</p>
         </section>
       </section>
 
