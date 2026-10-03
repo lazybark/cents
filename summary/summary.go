@@ -38,6 +38,8 @@ type Summary struct {
 	MonthlyNetCents           int64
 	MonthlySubscriptionsCents int64
 	YearlySubscriptionsCents  int64
+	MonthlyObligationsCents   int64
+	YearlyObligationsCents    int64
 	AccountsCents             int64
 	PropertyCents             int64
 	InvestmentsCents          int64
@@ -76,7 +78,11 @@ func Compute(data Data, month time.Time) Summary {
 		}
 	}
 
-	result.MonthlySubscriptionsCents, result.YearlySubscriptionsCents = subscription.TotalsInBaseCents(active, stts)
+	// Minor subscriptions and regular obligations (rent, insurance) are
+	// totalled apart.
+	subscriptions, obligations := subscription.SplitByKind(active)
+	result.MonthlySubscriptionsCents, result.YearlySubscriptionsCents = subscription.TotalsInBaseCents(subscriptions, stts)
+	result.MonthlyObligationsCents, result.YearlyObligationsCents = subscription.TotalsInBaseCents(obligations, stts)
 	result.AccountsCents = account.SumInBaseCents(data.Accounts, stts)
 	result.PropertyCents = asset.Total(asset.Filter(data.Assets, asset.KindProperty), stts).ValueCents
 	result.InvestmentsCents = asset.Total(asset.Filter(data.Assets, asset.KindInvestment), stts).ValueCents

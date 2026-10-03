@@ -65,6 +65,7 @@
       <button class="nav-item" type="button" data-view="investments">Investments</button>
       <button class="nav-item" type="button" data-view="cashflow">Incomes &amp; expenses</button>
       <button class="nav-item" type="button" data-view="subscriptions">Subscriptions</button>
+      <button class="nav-item" type="button" data-view="obligations">Obligations</button>
       <button class="nav-item" type="button" data-view="invoices">Invoices</button>
       <button class="nav-item" type="button" data-view="debts">Debts</button>
       <button class="nav-item" type="button" data-view="credits">Credits</button>
@@ -81,6 +82,7 @@
           <button id="add-income" class="button button-primary" type="button" data-for="cashflow" hidden>Add income</button>
           <button id="add-expense" class="button" type="button" data-for="cashflow" hidden>Add expense</button>
           <button id="add-subscription" class="button button-primary" type="button" data-for="subscriptions" hidden>Add subscription</button>
+          <button id="add-obligation" class="button button-primary" type="button" data-for="obligations" hidden>Add obligation</button>
           <button id="add-account" class="button button-primary" type="button" data-for="accounts" hidden>Add account</button>
           <button id="add-property" class="button button-primary" type="button" data-for="property" hidden>Add property</button>
           <button id="add-investment" class="button button-primary" type="button" data-for="investments" hidden>Add investment</button>
@@ -116,7 +118,7 @@
             <tbody id="upcoming-rows"></tbody>
           </table>
           <p id="upcoming-empty" class="muted" hidden>No regular payments due soon.</p>
-          <p class="hint">Active subscriptions due within 5 days (monthly), 2 days (weekly), 2 weeks (quarterly) or a month (yearly).</p>
+          <p class="hint">Active subscriptions and obligations due within 5 days (monthly), 2 days (weekly), 2 weeks (quarterly) or a month (yearly).</p>
         </section>
       </section>
 
@@ -445,19 +447,19 @@
           <div class="figures">
             <div>
               <div class="label">Active monthly</div>
-              <div id="subs-active-monthly" class="figure"></div>
+              <div class="figure regular-active-monthly"></div>
             </div>
             <div>
               <div class="label">Active yearly</div>
-              <div id="subs-active-yearly" class="figure"></div>
+              <div class="figure regular-active-yearly"></div>
             </div>
             <div class="inactive-total" hidden>
               <div class="label">Inactive monthly</div>
-              <div id="subs-inactive-monthly" class="figure muted"></div>
+              <div class="figure muted regular-inactive-monthly"></div>
             </div>
             <div class="inactive-total" hidden>
               <div class="label">Inactive yearly</div>
-              <div id="subs-inactive-yearly" class="figure muted"></div>
+              <div class="figure muted regular-inactive-yearly"></div>
             </div>
           </div>
           <p class="hint">Monthly counts what's paid every month or week; yearly counts everything over a year (weeks, months, quarters and years).</p>
@@ -472,13 +474,60 @@
                 <th>Every</th>
                 <th>Payment method</th>
                 <th class="num">Amount</th>
-                <th id="subs-base-heading" class="num">In base</th>
+                <th class="num regular-base-heading">In base</th>
               </tr>
             </thead>
-            <tbody id="subs-rows"></tbody>
+            <tbody class="regular-rows"></tbody>
           </table>
-          <p id="subs-empty" class="muted" hidden>No subscriptions found.</p>
-          <p id="subs-hint" class="hint">Click a payment to edit it, mark it paid or delete it. Rent, insurance, utilities: any regular payment fits here.</p>
+          <p class="muted regular-empty" hidden></p>
+          <p class="hint regular-hint">Click one to edit it, mark it paid, move it to obligations or delete it. Minor regular payments go here: streaming, apps, software.</p>
+        </section>
+      </section>
+
+      <section id="view-obligations" class="view" hidden>
+        <div class="tabs" role="tablist">
+          <button class="tab" type="button" role="tab" data-mode="active">Active</button>
+          <button class="tab" type="button" role="tab" data-mode="all">All</button>
+        </div>
+
+        <section class="panel">
+          <div class="figures">
+            <div>
+              <div class="label">Active monthly</div>
+              <div class="figure regular-active-monthly"></div>
+            </div>
+            <div>
+              <div class="label">Active yearly</div>
+              <div class="figure regular-active-yearly"></div>
+            </div>
+            <div class="inactive-total" hidden>
+              <div class="label">Inactive monthly</div>
+              <div class="figure muted regular-inactive-monthly"></div>
+            </div>
+            <div class="inactive-total" hidden>
+              <div class="label">Inactive yearly</div>
+              <div class="figure muted regular-inactive-yearly"></div>
+            </div>
+          </div>
+          <p class="hint">Monthly counts what's paid every month or week; yearly counts everything over a year (weeks, months, quarters and years).</p>
+        </section>
+
+        <section class="panel">
+          <table class="table clickable">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Next payment</th>
+                <th>Every</th>
+                <th>Payment method</th>
+                <th class="num">Amount</th>
+                <th class="num regular-base-heading">In base</th>
+              </tr>
+            </thead>
+            <tbody class="regular-rows"></tbody>
+          </table>
+          <p class="muted regular-empty" hidden></p>
+          <p class="hint regular-hint">Click one to edit it, mark it paid, move it to subscriptions or delete it. Serious regular payments go here: rent, insurance, utilities, loan payments.</p>
         </section>
       </section>
 
@@ -1006,6 +1055,10 @@
       <label class="check">
         <input type="checkbox" name="isActive" checked>
         <span>Active</span>
+      </label>
+      <label class="check">
+        <input type="checkbox" name="isObligation">
+        <span>Obligation: a serious regular payment (rent, insurance, bills), listed under Obligations</span>
       </label>
       <p class="hint">A passed payment date moves on by itself, every period from the date set here.</p>
 

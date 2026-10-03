@@ -28,7 +28,7 @@ func TestSubscriptionLifecycle(t *testing.T) {
 		}
 	}
 
-	view, err := api.Subscriptions("active")
+	view, err := api.Subscriptions("active", "subscription")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,7 +60,7 @@ func TestSubscriptionLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	view, _ = api.Subscriptions("active")
+	view, _ = api.Subscriptions("active", "subscription")
 	var edited SubscriptionRow
 	for _, s := range view.Subscriptions {
 		if s.ID == domain.ID {
@@ -141,7 +141,7 @@ func TestTUISubscriptionsGetANextPayment(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	view, _ := api.Subscriptions("active")
+	view, _ := api.Subscriptions("active", "subscription")
 	for _, s := range view.Subscriptions {
 		if s.NextPayment == "" {
 			t.Fatalf("expected a next payment for %+v", s)

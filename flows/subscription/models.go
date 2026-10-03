@@ -26,6 +26,10 @@ type Subscription struct {
 	// LastPaidDate is the payment last marked paid (early, say), so the next
 	// one comes after it.
 	LastPaidDate *time.Time
+	// IsObligation marks a serious regular payment (rent, insurance, bills)
+	// as opposed to a minor subscription (streaming, apps); they're listed
+	// and totalled apart.
+	IsObligation bool `gorm:"not null;default:false"`
 }
 
 const (

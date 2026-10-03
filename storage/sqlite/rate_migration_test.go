@@ -184,3 +184,47 @@ func TestOlderInvoicesHaveNoCashflowEntry(t *testing.T) {
 		t.Fatalf("older invoices should load without an entry: %+v %v", items, err)
 	}
 }
+
+func TestOlderObligationsAreSortedOutOnce(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "cents.db")
+	db, _, err := OpenDatabase(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, stmt := range []string{
+		"DELETE FROM setting_records WHERE setting_id = 'obligations_sorted'",
+		"INSERT INTO subscriptions (name, type, currency, amount_cents, period, payment_method, is_active) VALUES ('Flat', 'rent', '$', 100, 'month', 'Bank', 1), ('Music', 'Multimedia', '$', 5, 'month', 'Card', 1)",
+	} {
+		if err := db.Exec(stmt).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if db, _, err = OpenDatabase(path); err != nil {
+		t.Fatal(err)
+	}
+
+	subs, _ := NewSQLiteStorage(db).LoadSubscriptions()
+	for _, sub := range subs {
+		if sub.IsObligation != (sub.Name == "Flat") {
+			t.Fatalf("only the rent should be an obligation: %+v", subs)
+		}
+	}
+
+	// Once sorted, what the user picks stays.
+	if err := db.Exec("UPDATE subscriptions SET is_obligation = 0").Error; err != nil {
+		t.Fatal(err)
+	}
+
+	if db, _, err = OpenDatabase(path); err != nil {
+		t.Fatal(err)
+	}
+
+	subs, _ = NewSQLiteStorage(db).LoadSubscriptions()
+	for _, sub := range subs {
+		if sub.IsObligation {
+			t.Fatalf("sorting should only happen once: %+v", sub)
+		}
+	}
+}

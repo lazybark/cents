@@ -15,6 +15,10 @@ import (
 const (
 	subscriptionsActive = "active"
 	subscriptionsAll    = "all"
+
+	// Kinds of regular payments, each listed apart.
+	kindSubscription = "subscription"
+	kindObligation   = "obligation"
 )
 
 var errSubscriptionNotFound = errors.New("subscription not found")
@@ -35,6 +39,7 @@ type SubscriptionRow struct {
 	Type          string `json:"type"`
 	PaymentMethod string `json:"paymentMethod"`
 	IsActive      bool   `json:"isActive"`
+	IsObligation  bool   `json:"isObligation"`
 	// Anchor is the payment date set for the schedule, as YYYY-MM-DD.
 	Anchor      string `json:"anchor"`
 	NextPayment string `json:"nextPayment"`
@@ -57,6 +62,7 @@ type SubscriptionOptions struct {
 type SubscriptionsView struct {
 	BaseCurrency  string              `json:"baseCurrency"`
 	Mode          string              `json:"mode"`
+	Kind          string              `json:"kind"`
 	Subscriptions []SubscriptionRow   `json:"subscriptions"`
 	Active        SubscriptionTotals  `json:"active"`
 	Inactive      SubscriptionTotals  `json:"inactive"`
@@ -76,13 +82,17 @@ type SubscriptionInput struct {
 	PaymentMethod string `json:"paymentMethod"`
 	NextPayment   string `json:"nextPayment"`
 	IsActive      bool   `json:"isActive"`
+	// IsObligation lists it under obligations (rent, insurance) rather than
+	// subscriptions.
+	IsObligation bool `json:"isObligation"`
 }
 
-// Subscriptions lists active subscriptions, or all of them when mode is
-// "all", next payment first (ones without a schedule last, largest
-// first). Totals cover active and inactive ones separately, in the base
-// currency.
-func (a *API) Subscriptions(mode string) (SubscriptionsView, error) {
+// Subscriptions lists one kind of regular payment, "subscription" (minor
+// ones: streaming, apps) or "obligation" (rent, insurance, bills): active
+// ones, or all of them when mode is "all", next payment first (ones
+// without a schedule last, largest first). Totals cover active and
+// inactive ones separately, in the base currency.
+func (a *API) Subscriptions(mode string, kind string) (SubscriptionsView, error) {
 	storage, stts, err := a.storageAndSettings()
 	if err != nil {
 		return SubscriptionsView{}, err
@@ -97,13 +107,24 @@ func (a *API) Subscriptions(mode string) (SubscriptionsView, error) {
 		mode = subscriptionsActive
 	}
 
+	if kind != kindObligation {
+		kind = kindSubscription
+	}
+
+	subscriptions, obligations := subscription.SplitByKind(subs)
+	types := subscription.SubscriptionTypes()
+	subs = subscriptions
+	if kind == kindObligation {
+		types = subscription.ObligationTypes()
+		subs = obligations
+	}
+
 	active, inactive := subscription.SplitByActivity(subs)
 	listed := subs
 	if mode == subscriptionsActive {
 		listed = active
 	}
 
-	types := subscription.TypeSuggestions()
 	for _, sub := range subs {
 		if sub.Type != "" && !containsFold(types, sub.Type) {
 			types = append(types, sub.Type)
@@ -113,6 +134,7 @@ func (a *API) Subscriptions(mode string) (SubscriptionsView, error) {
 	result := SubscriptionsView{
 		BaseCurrency:  stts.BaseCurrencyLabel(),
 		Mode:          mode,
+		Kind:          kind,
 		Subscriptions: make([]SubscriptionRow, 0, len(listed)),
 		Options: SubscriptionOptions{
 			Currencies:     stts.CurrencyOptions(),
@@ -219,6 +241,7 @@ func (a *API) saveSubscription(input SubscriptionInput, current *subscription.Su
 		PaymentMethod: input.PaymentMethod,
 		NextPayment:   input.NextPayment,
 		IsActive:      input.IsActive,
+		IsObligation:  input.IsObligation,
 	}, dates.ISO, time.Now())
 	if err != nil {
 		return err
@@ -253,6 +276,7 @@ func subscriptionRow(sub subscription.Subscription, stts settings.AppSettings, t
 		Type:          sub.Type,
 		PaymentMethod: sub.PaymentMethod,
 		IsActive:      sub.IsActive,
+		IsObligation:  sub.IsObligation,
 	}
 
 	if anchor, ok := sub.Anchor(today); ok {

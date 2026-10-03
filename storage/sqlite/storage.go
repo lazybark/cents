@@ -62,6 +62,10 @@ func OpenDatabase(dbPath string) (*gorm.DB, bool, error) {
 		return nil, false, fmt.Errorf("failed to check currency setup: %w", err)
 	}
 
+	if err := sortOutObligations(db); err != nil {
+		return nil, false, fmt.Errorf("failed to sort out obligations: %w", err)
+	}
+
 	return db, created, nil
 }
 
@@ -179,6 +183,33 @@ func backfillRecordedRates(db *gorm.DB) error {
 		}
 
 		return nil
+	})
+}
+
+// obligationsSortedID marks a database whose older subscriptions were
+// sorted into subscriptions and obligations, which happens once.
+const obligationsSortedID = "obligations_sorted"
+
+// sortOutObligations makes older subscriptions of obligation-like types
+// (rent, insurance…) obligations, once; after that, what the user picks
+// stays as it is.
+func sortOutObligations(db *gorm.DB) error {
+	var marked int64
+	if err := db.Model(&settings.SettingRecord{}).Where("setting_id = ?", obligationsSortedID).Count(&marked).Error; err != nil || marked > 0 {
+		return err
+	}
+
+	return db.Transaction(func(tx *gorm.DB) error {
+		types := []string{}
+		for _, t := range subscription.ObligationTypesByDefault() {
+			types = append(types, strings.ToLower(t))
+		}
+
+		if err := tx.Model(&subscription.Subscription{}).Where("lower(trim(type)) IN ?", types).Update("is_obligation", true).Error; err != nil {
+			return err
+		}
+
+		return tx.Save(&settings.SettingRecord{SettingID: obligationsSortedID, SettingValue: "1"}).Error
 	})
 }
 

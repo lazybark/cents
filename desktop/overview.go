@@ -18,6 +18,8 @@ type Overview struct {
 	MonthlyNet           int64 `json:"monthlyNetCents"`
 	MonthlySubscriptions int64 `json:"monthlySubscriptionsCents"`
 	YearlySubscriptions  int64 `json:"yearlySubscriptionsCents"`
+	MonthlyObligations   int64 `json:"monthlyObligationsCents"`
+	YearlyObligations    int64 `json:"yearlyObligationsCents"`
 	Accounts             int64 `json:"accountsCents"`
 	Property             int64 `json:"propertyCents"`
 	Investments          int64 `json:"investmentsCents"`
@@ -66,6 +68,8 @@ func (a *API) Overview() (Overview, error) {
 		MonthlyNet:           sum.MonthlyNetCents,
 		MonthlySubscriptions: sum.MonthlySubscriptionsCents,
 		YearlySubscriptions:  sum.YearlySubscriptionsCents,
+		MonthlyObligations:   sum.MonthlyObligationsCents,
+		YearlyObligations:    sum.YearlyObligationsCents,
 		Accounts:             sum.AccountsCents,
 		Property:             sum.PropertyCents,
 		Investments:          sum.InvestmentsCents,

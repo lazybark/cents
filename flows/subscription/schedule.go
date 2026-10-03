@@ -26,14 +26,35 @@ func AllPeriods() []string {
 	return []string{PeriodWeek, PeriodMonth, PeriodQuarter, PeriodYear}
 }
 
-// TypeSuggestions are common kinds of regular payments, offered when
+// SubscriptionTypes are common kinds of minor subscriptions, offered when
 // picking a type; any other can be typed in. The TUI's TypeOptions are
 // among them.
-func TypeSuggestions() []string {
-	return []string{
-		"Software", "Multimedia", "Domain", "Service", "Rent", "Utilities", "Internet & phone", "Insurance",
-		"Transport", "Fitness & sports", "Education", "Healthcare", "Childcare", "Membership", "Donation", "Loan payment", "Other",
+func SubscriptionTypes() []string {
+	return []string{"Software", "Multimedia", "Domain", "Service", "Membership", "Fitness & sports", "Education", "Donation", "Other"}
+}
+
+// ObligationTypes are common kinds of serious regular payments.
+func ObligationTypes() []string {
+	return []string{"Rent", "Utilities", "Internet & phone", "Insurance", "Transport", "Healthcare", "Childcare", "Education", "Loan payment", "Other"}
+}
+
+// ObligationTypesByDefault are the types that make a payment an
+// obligation when sorting older ones out.
+func ObligationTypesByDefault() []string {
+	return []string{"Rent", "Utilities", "Internet & phone", "Insurance", "Transport", "Healthcare", "Childcare", "Loan payment"}
+}
+
+// SplitByKind separates minor subscriptions from obligations.
+func SplitByKind(subs []Subscription) (subscriptions []Subscription, obligations []Subscription) {
+	for _, sub := range subs {
+		if sub.IsObligation {
+			obligations = append(obligations, sub)
+		} else {
+			subscriptions = append(subscriptions, sub)
+		}
 	}
+
+	return subscriptions, obligations
 }
 
 // Fields are a subscription's values as typed into a form; NextPayment is a
@@ -47,6 +68,7 @@ type Fields struct {
 	PaymentMethod string
 	NextPayment   string
 	IsActive      bool
+	IsObligation  bool
 }
 
 // Update replaces every field of the subscription with f (a zero value
@@ -94,6 +116,7 @@ func (s Subscription) Update(f Fields, format dates.Format, now time.Time) (Subs
 	s.AmountCents = amount
 	s.PaymentMethod = paymentMethod
 	s.IsActive = f.IsActive
+	s.IsObligation = f.IsObligation
 	// A date set by hand starts the schedule over.
 	if !sameDay(s.NextPaymentDate, next) || s.Period != period {
 		s.LastPaidDate = nil

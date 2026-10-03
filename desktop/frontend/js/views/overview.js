@@ -42,6 +42,8 @@ function render(o) {
   // Like the TUI, amounts the user owes turn red once they are above zero.
   const owed = (cents) => (cents > 0 ? "negative" : "");
   renderStats(el.obligations, [
+    ["Regular obligations a month", money(o.monthlyObligationsCents)],
+    ["Regular obligations a year", money(o.yearlyObligationsCents)],
     ["Debts owed to me", money(o.debtsToMeCents)],
     ["Debts I owe", money(o.debtsByMeCents), owed(o.debtsByMeCents)],
     ["Unpaid taxes", money(o.unpaidTaxesCents), owed(o.unpaidTaxesCents)],
@@ -66,6 +68,7 @@ function renderUpcoming(o) {
       name.className = "account-name";
       name.textContent = sub.name;
       name.append(badge(periodLabel(sub.period).toLowerCase()));
+      if (sub.isObligation) name.append(badge("obligation"));
 
       const details = document.createElement("div");
       details.className = "account-description";
