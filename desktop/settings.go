@@ -44,7 +44,9 @@ type PaymentMethodSetting struct {
 	Name      string `json:"name"`
 	Type      string `json:"type"`
 	IsDefault bool   `json:"isDefault"`
-	UsedBy    int    `json:"usedBy"`
+	// Currency is what it pays in, "" for any.
+	Currency string `json:"currency"`
+	UsedBy   int    `json:"usedBy"`
 }
 
 type TaxTypeSetting struct {
@@ -100,6 +102,8 @@ type PaymentMethodInput struct {
 	Name      string `json:"name"`
 	Type      string `json:"type"`
 	IsDefault bool   `json:"isDefault"`
+	// Currency is what it pays in, "" for any.
+	Currency string `json:"currency"`
 }
 
 type TaxTypeInput struct {
@@ -165,7 +169,7 @@ func (a *API) Settings() (SettingsView, error) {
 	}
 
 	for _, p := range stts.PaymentMethods {
-		view.PaymentMethods = append(view.PaymentMethods, PaymentMethodSetting{ID: p.ID, Name: p.PaymentMethodName, Type: p.PaymentMethodType, IsDefault: p.IsDefault, UsedBy: usage.paymentMethods[usageKey(p.PaymentMethodName)]})
+		view.PaymentMethods = append(view.PaymentMethods, PaymentMethodSetting{ID: p.ID, Name: p.PaymentMethodName, Type: p.PaymentMethodType, IsDefault: p.IsDefault, Currency: p.Currency, UsedBy: usage.paymentMethods[usageKey(p.PaymentMethodName)]})
 	}
 
 	for _, t := range stts.TaxTypes {
@@ -368,6 +372,18 @@ func (a *API) SavePaymentMethod(input PaymentMethodInput) error {
 	if err := requireUnique("payment method", record.PaymentMethodName, names); err != nil {
 		return err
 	}
+
+	// A currency in settings, or the one it already has (which may have
+	// left settings since).
+	currency := strings.TrimSpace(input.Currency)
+	if currency != "" {
+		var ok bool
+		if currency, ok = matchOption(append(stts.CurrencyOptions(), record.Currency), currency); !ok {
+			return fmt.Errorf("unknown currency %q: add it in settings first", input.Currency)
+		}
+	}
+
+	record.Currency = currency
 
 	if err := storage.SaveSettingPaymentMethod(&record); err != nil {
 		return fmt.Errorf("payment method save failed: %w", err)

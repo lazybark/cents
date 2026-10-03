@@ -55,8 +55,11 @@ type SubscriptionTotals struct {
 type SubscriptionOptions struct {
 	Currencies     []string `json:"currencies"`
 	PaymentMethods []string `json:"paymentMethods"`
-	Periods        []string `json:"periods"`
-	Types          []string `json:"types"`
+	// PaymentMethodCurrencies maps a payment method to the currency it pays
+	// in, for the ones that have one.
+	PaymentMethodCurrencies map[string]string `json:"paymentMethodCurrencies"`
+	Periods                 []string          `json:"periods"`
+	Types                   []string          `json:"types"`
 }
 
 type SubscriptionsView struct {
@@ -137,10 +140,11 @@ func (a *API) Subscriptions(mode string, kind string) (SubscriptionsView, error)
 		Kind:          kind,
 		Subscriptions: make([]SubscriptionRow, 0, len(listed)),
 		Options: SubscriptionOptions{
-			Currencies:     stts.CurrencyOptions(),
-			PaymentMethods: stts.PaymentMethodOptions(),
-			Periods:        subscription.AllPeriods(),
-			Types:          types,
+			Currencies:              stts.CurrencyOptions(),
+			PaymentMethods:          stts.PaymentMethodOptions(),
+			PaymentMethodCurrencies: paymentMethodCurrencies(stts),
+			Periods:                 subscription.AllPeriods(),
+			Types:                   types,
 		},
 	}
 
@@ -290,6 +294,17 @@ func subscriptionRow(sub subscription.Subscription, stts settings.AppSettings, t
 	}
 
 	return row
+}
+
+func paymentMethodCurrencies(stts settings.AppSettings) map[string]string {
+	result := map[string]string{}
+	for _, method := range stts.PaymentMethods {
+		if method.Currency != "" {
+			result[method.PaymentMethodName] = method.Currency
+		}
+	}
+
+	return result
 }
 
 func containsFold(values []string, value string) bool {

@@ -49,6 +49,8 @@ function wireDialog() {
   dialogWired = true;
 
   dialog.form.addEventListener("submit", save);
+  // A payment method with a currency (a card's) fills it in.
+  dialog.form.elements.paymentMethod.addEventListener("change", methodPicked);
   dialog.paid.addEventListener("click", markPaid);
   dialog.delete.addEventListener("click", askDelete);
 }
@@ -193,12 +195,23 @@ function openDialog(view, sub) {
     fields.period.value = "month";
     fields.paymentMethod.value = options.paymentMethods[0] ?? "";
     fields.isObligation.checked = view.config.kind === "obligation";
+    methodPicked();
   }
 
   showDue(sub);
   dialog.delete.hidden = !sub;
   formError(form, "");
   dialog.dialog.showModal();
+}
+
+// methodPicked sets the currency of the picked payment method, if it has
+// one that can be picked.
+function methodPicked() {
+  const fields = dialog.form.elements;
+  const options = editing.view?.data?.options;
+  const currency = options?.paymentMethodCurrencies?.[fields.paymentMethod.value.trim()];
+
+  if (currency && [...fields.currency.options].some((o) => o.value === currency)) fields.currency.value = currency;
 }
 
 // showDue says when an edited payment is due next, with a way to mark that

@@ -75,15 +75,25 @@ const LISTS = [
     columns: () => [
       ["Name", (p) => (p.isDefault ? withBadge(p.name, "default") : p.name)],
       ["Type", (p) => p.type],
+      ["Currency", (p) => p.currency || "any", (p) => (p.currency ? "" : "muted")],
       ["Used by", usedBy, "num muted"],
     ],
-    fields: (v) => [
-      { name: "name", label: "Name", placeholder: "Personal Visa", maxlength: 40 },
-      { name: "type", label: "Type", options: v.paymentMethodTypes },
-      { name: "isDefault", label: "Default for new subscriptions", checkbox: true },
-    ],
-    values: (p) => ({ name: p.name, type: p.type, isDefault: p.isDefault }),
-    save: (id, f) => api.SavePaymentMethod({ id, name: f.name, type: f.type, isDefault: f.isDefault }),
+    fields: (v) => {
+      // Any currency in settings, or none ("any"); a method keeps its own
+      // even if it left settings since.
+      const currencies = [v.baseCurrency, ...v.currencies.map((c) => c.name)];
+      const own = state.editing?.item?.currency;
+      if (own && !currencies.includes(own)) currencies.push(own);
+
+      return [
+        { name: "name", label: "Name", placeholder: "Personal Visa", maxlength: 40 },
+        { name: "type", label: "Type", options: v.paymentMethodTypes },
+        { name: "currency", label: "Currency (fills in for payments made with it)", options: ["", ...currencies], labels: ["Any", ...currencies] },
+        { name: "isDefault", label: "Default for new subscriptions", checkbox: true },
+      ];
+    },
+    values: (p) => ({ name: p.name, type: p.type, currency: p.currency, isDefault: p.isDefault }),
+    save: (id, f) => api.SavePaymentMethod({ id, name: f.name, type: f.type, currency: f.currency, isDefault: f.isDefault }),
     warn: (p, action, v) => {
       if (action === "edit") return p.usedBy ? `${p.usedBy} subscription(s) use ${p.name} and keep that name if you rename it.` : "";
       if (v.paymentMethods.length === 1) return "It's the only payment method, so “Other” will be created in its place.";
@@ -270,7 +280,7 @@ function buildFields(fields, values) {
       let input;
       if (field.options) {
         input = document.createElement("select");
-        input.replaceChildren(...field.options.map((option) => new Option(option, option)));
+        input.replaceChildren(...field.options.map((option, i) => new Option(field.labels?.[i] ?? option, option)));
       } else {
         input = document.createElement("input");
         input.autocomplete = "off";

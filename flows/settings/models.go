@@ -52,6 +52,9 @@ type SettingPaymentMethod struct {
 	PaymentMethodName string `gorm:"not null;uniqueIndex"`
 	PaymentMethodType string `gorm:"not null"`
 	IsDefault         bool   `gorm:"not null;default:false"`
+	// Currency is what the method pays in (a card's, say), "" for any; it
+	// starts the currency of payments made with it.
+	Currency string `gorm:"not null;default:''"`
 }
 
 type SettingTaxType struct {

@@ -4,13 +4,11 @@
 
 - Export to CSV (specific account, expense, history, etc.)
 - Import is the other way around: import via join, replacing existing data where necessary
-- Automatic currency exchange update, with writing down the latest time in config, noting it in the interface and refreshing in case it was outdated
 
 
 
 
 
-- [ ] Flow to rename currency and not lose the data for accounts & other entities related to the currency (like transactions, budgets, etc.)
 - [ ] Same flow for payment methods.
 - [ ] Store DB schema by versions once we have 0.0.1 release, to be able to track changes and update the DB schema on app updates without losing data.
 Backup and restore DB.

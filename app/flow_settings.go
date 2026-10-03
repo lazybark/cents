@@ -498,7 +498,9 @@ func (m TheApplication) updateSettings(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 			methodType := selectedPaymentMethodType(m.settingsPaymentMethodTypeOptions, m.settingsPaymentMethodTypeIndex)
 			isFirst := len(m.settings.PaymentMethods) == 0
-			record, err := settings.SettingPaymentMethod{ID: m.settingsPaymentMethodEditingID}.Apply(m.settingsPaymentMethodNameInput.Value(), methodType, m.settingsPaymentMethodIsDefault, isFirst, time.Now())
+			// Start from the stored method, so editing keeps its currency
+			// (set in the desktop app).
+			record, err := storedPaymentMethod(m.settings, m.settingsPaymentMethodEditingID).Apply(m.settingsPaymentMethodNameInput.Value(), methodType, m.settingsPaymentMethodIsDefault, isFirst, time.Now())
 			if err != nil {
 				m.status = err.Error()
 
@@ -1050,4 +1052,16 @@ func storedCurrency(stts settings.AppSettings, id uint) settings.SettingCurrency
 	}
 
 	return settings.SettingCurrency{ID: id}
+}
+
+// storedPaymentMethod is the payment method with id as stored, or a new one
+// for id 0.
+func storedPaymentMethod(stts settings.AppSettings, id uint) settings.SettingPaymentMethod {
+	for _, p := range stts.PaymentMethods {
+		if id != 0 && p.ID == id {
+			return p
+		}
+	}
+
+	return settings.SettingPaymentMethod{ID: id}
 }

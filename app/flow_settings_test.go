@@ -130,3 +130,22 @@ func TestArchivedAccountsLeaveTUIPickers(t *testing.T) {
 		t.Fatalf("unexpected options %v", got)
 	}
 }
+
+func TestEditingAPaymentMethodKeepsItsCurrency(t *testing.T) {
+	m := newTestApp(t)
+
+	method := m.settings.PaymentMethods[0]
+	method.Currency = "EUR"
+	if err := m.storage.SaveSettingPaymentMethod(&method); err != nil {
+		t.Fatal(err)
+	}
+
+	m.settings.PaymentMethods[0] = method
+	if got := storedPaymentMethod(m.settings, method.ID); got.Currency != "EUR" {
+		t.Fatalf("editing should start from the stored method: %+v", got)
+	}
+
+	if got := storedPaymentMethod(m.settings, 0); got.Currency != "" || got.ID != 0 {
+		t.Fatalf("a new method starts empty: %+v", got)
+	}
+}
