@@ -1,6 +1,7 @@
 package analytics
 
 import (
+	"github.com/lazybark/cents/dates"
 	"sort"
 	"time"
 
@@ -38,7 +39,7 @@ type Due struct {
 // due (overdue) are included.
 func Forecast(data summary.Data, now time.Time, days int) []Due {
 	stts := data.Settings
-	today := dayOf(now.Local())
+	today := dates.Day(now)
 	until := today.AddDate(0, 0, days)
 	items := []Due{}
 
@@ -107,5 +108,5 @@ func Forecast(data summary.Data, now time.Time, days int) []Due {
 
 // dayOf is value's calendar day as a UTC midnight, like stored dates.
 func dayOf(value time.Time) time.Time {
-	return time.Date(value.Year(), value.Month(), value.Day(), 0, 0, 0, 0, time.UTC)
+	return dates.Day(value)
 }

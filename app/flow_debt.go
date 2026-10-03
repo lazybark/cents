@@ -93,7 +93,7 @@ func (m TheApplication) renderDebtTableRow(width int, index int, item debt.Debt)
 
 	due := "-"
 	if item.DueDate != nil {
-		due = item.DueDate.Local().Format("2006-01-02")
+		due = item.DueDate.Format("2006-01-02")
 	}
 
 	dir := "out"
@@ -353,9 +353,9 @@ func (m TheApplication) openDebtEditor(selected debt.Debt) tea.Model {
 	m.editDebtForm = debt.NewEditDebtForm()
 	m.editDebtForm.AmountInput.SetValue(formatAmount(selected.AmountCents))
 	m.editDebtForm.AmountPaidInput.SetValue(formatAmount(selected.AmountPaidCents))
-	m.editDebtForm.DebtCreatedInput.SetValue(selected.DebtCreatedAt.Local().Format("02.01.2006"))
+	m.editDebtForm.DebtCreatedInput.SetValue(selected.DebtCreatedAt.Format("02.01.2006"))
 	if selected.DueDate != nil {
-		m.editDebtForm.DueDateInput.SetValue(selected.DueDate.Local().Format("02.01.2006"))
+		m.editDebtForm.DueDateInput.SetValue(selected.DueDate.Format("02.01.2006"))
 	}
 	m.editDebtForm.CommentInput.SetValue(selected.Comment)
 	m.editDebtForm.LogDateInput.SetValue(time.Now().Format("02.01.2006"))

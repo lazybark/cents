@@ -247,7 +247,7 @@ func (m TheApplication) renderEditAmount(width int) string {
 		lines = append(lines, tableHeaderStyle.Render(header))
 
 		for _, entry := range m.accountValueLogs {
-			row := fmt.Sprintf("%-*s %-*s", dateWidth, entry.LogDate.Local().Format("2006-01-02"), valueWidth, renderMoneyWithCurrency(acct.Currency, entry.ValueCents))
+			row := fmt.Sprintf("%-*s %-*s", dateWidth, entry.LogDate.Format("2006-01-02"), valueWidth, renderMoneyWithCurrency(acct.Currency, entry.ValueCents))
 			lines = append(lines, rowStyle.Render(row))
 		}
 	}
@@ -301,10 +301,10 @@ func findAccountIndex(accounts []account.Account, id uint) int {
 	return -1
 }
 
+// accountLogDay is value's day at midnight in the zone value is in, so a
+// day typed in a form stays that day.
 func accountLogDay(value time.Time) time.Time {
-	local := value.Local()
-
-	return time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, local.Location())
+	return time.Date(value.Year(), value.Month(), value.Day(), 0, 0, 0, 0, value.Location())
 }
 
 func sortAccounts(accounts []account.Account, settings settings.AppSettings, field accountSortField) []account.Account {

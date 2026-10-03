@@ -223,7 +223,7 @@ func (a *API) AssetValueLogs(assetID uint) ([]ValueLog, error) {
 
 	result := make([]ValueLog, 0, len(logs))
 	for _, entry := range logs {
-		result = append(result, ValueLog{ID: entry.ID, Date: entry.LogDate.Local().Format(logDateLayout), ValueCents: entry.ValueCents})
+		result = append(result, ValueLog{ID: entry.ID, Date: formatDay(entry.LogDate), ValueCents: entry.ValueCents})
 	}
 
 	return result, nil

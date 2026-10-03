@@ -1,6 +1,7 @@
 package account
 
 import (
+	"github.com/lazybark/cents/dates"
 	"sort"
 	"time"
 )
@@ -18,8 +19,7 @@ func MonthlyValues(logs []AccountValueLog) []MonthValue {
 	byMonth := map[time.Time]AccountValueLog{}
 
 	for _, entry := range logs {
-		day := entry.LogDate.Local()
-		month := time.Date(day.Year(), day.Month(), 1, 0, 0, 0, 0, time.Local)
+		month := dates.MonthOf(entry.LogDate)
 
 		last, seen := byMonth[month]
 		if !seen || entry.LogDate.After(last.LogDate) || (entry.LogDate.Equal(last.LogDate) && entry.ID > last.ID) {

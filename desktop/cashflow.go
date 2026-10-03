@@ -149,7 +149,7 @@ func (a *API) CashflowMonth(month string) (CashflowMonth, error) {
 		result.Entries = append(result.Entries, CashflowRow{
 			ID:               entry.ID,
 			IsIncome:         entry.IsIncome,
-			Date:             entry.EntryDate.Local().Format(logDateLayout),
+			Date:             formatDay(entry.EntryDate),
 			Currency:         entry.Currency,
 			IsBase:           stts.IsBase(entry.Currency),
 			RateToBase:       entry.RateToBase,

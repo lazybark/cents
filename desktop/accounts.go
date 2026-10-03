@@ -246,7 +246,7 @@ func (a *API) AccountValueLogs(accountID uint) ([]ValueLog, error) {
 
 	result := make([]ValueLog, 0, len(logs))
 	for _, entry := range logs {
-		result = append(result, ValueLog{ID: entry.ID, Date: entry.LogDate.Local().Format(logDateLayout), ValueCents: entry.ValueCents})
+		result = append(result, ValueLog{ID: entry.ID, Date: formatDay(entry.LogDate), ValueCents: entry.ValueCents})
 	}
 
 	return result, nil
@@ -331,7 +331,7 @@ func (a *API) AccountMonthlyValues(accountID uint) ([]MonthPoint, error) {
 	values := account.MonthlyValues(logs)
 	points := make([]MonthPoint, 0, len(values))
 	for _, v := range values {
-		points = append(points, MonthPoint{Month: v.Month.Format(monthLayout), Date: v.Day.Local().Format(logDateLayout), ValueCents: v.ValueCents})
+		points = append(points, MonthPoint{Month: v.Month.Format(monthLayout), Date: formatDay(v.Day), ValueCents: v.ValueCents})
 	}
 
 	return points, nil

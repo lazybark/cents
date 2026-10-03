@@ -35,12 +35,12 @@ func (m TheApplication) renderGoalTableRow(width int, index int, item goal.Goal)
 
 	targetDate := "-"
 	if item.TargetDate != nil {
-		targetDate = item.TargetDate.Local().Format("2006-01-02")
+		targetDate = item.TargetDate.Format("2006-01-02")
 	}
 
 	progressValue := item.Percent()
 
-	row := fmt.Sprintf("%s %-*s %-*s %-*s %-*s %-*s %-*s %-*s %-*s %-*s", prefix, nameWidth, truncateText(item.Name, nameWidth), currencyWidth, truncateText(item.Currency, currencyWidth), targetWidth, renderMoneyWithCurrency(item.Currency, item.TargetAmountCents), accumWidth, renderMoneyWithCurrency(item.Currency, item.AmountAccumulatedCents), leftWidth, renderMoneyWithCurrency(item.Currency, left), startedWidth, item.DateStartedAt.Local().Format("2006-01-02"), targetDateWidth, targetDate, progressWidth, fmt.Sprintf("%5.1f%%", progressValue), descWidth, truncateText(item.Description, descWidth))
+	row := fmt.Sprintf("%s %-*s %-*s %-*s %-*s %-*s %-*s %-*s %-*s %-*s", prefix, nameWidth, truncateText(item.Name, nameWidth), currencyWidth, truncateText(item.Currency, currencyWidth), targetWidth, renderMoneyWithCurrency(item.Currency, item.TargetAmountCents), accumWidth, renderMoneyWithCurrency(item.Currency, item.AmountAccumulatedCents), leftWidth, renderMoneyWithCurrency(item.Currency, left), startedWidth, item.DateStartedAt.Format("2006-01-02"), targetDateWidth, targetDate, progressWidth, fmt.Sprintf("%5.1f%%", progressValue), descWidth, truncateText(item.Description, descWidth))
 
 	return style.Render(row)
 }
@@ -300,10 +300,10 @@ func (m TheApplication) openGoalEditor(selected goal.Goal) tea.Model {
 	m.editGoalForm = goal.NewEditGoalForm()
 	m.editGoalForm.TargetAmountInput.SetValue(formatAmount(selected.TargetAmountCents))
 	m.editGoalForm.AccumulatedAmountInput.SetValue(formatAmount(selected.AmountAccumulatedCents))
-	m.editGoalForm.DateStartedInput.SetValue(selected.DateStartedAt.Local().Format("02.01.2006"))
+	m.editGoalForm.DateStartedInput.SetValue(selected.DateStartedAt.Format("02.01.2006"))
 
 	if selected.TargetDate != nil {
-		m.editGoalForm.TargetDateInput.SetValue(selected.TargetDate.Local().Format("02.01.2006"))
+		m.editGoalForm.TargetDateInput.SetValue(selected.TargetDate.Format("02.01.2006"))
 	}
 
 	m.editGoalForm.DescriptionInput.SetValue(selected.Description)

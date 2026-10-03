@@ -199,7 +199,7 @@ func (m TheApplication) renderTaxTableRow(width int, index int, item tax.Tax) st
 	dueDateLabel := "-"
 
 	if item.DueDate != nil {
-		dueDateLabel = item.DueDate.Local().Format("2006-01-02")
+		dueDateLabel = item.DueDate.Format("2006-01-02")
 	}
 
 	row := fmt.Sprintf("%s %-*s %-*s %-*s %-*s %-*s %-*s %-*s %-*s %-*s", prefix, countryWidth, truncateText(item.TaxCountry, countryWidth), typeWidth, truncateText(item.TaxTypeName, typeWidth), dueWidth, renderMoneyWithCurrency(currency, item.AmountDueCents), paidWidth, renderMoneyWithCurrency(currency, item.AmountPaidCents), leftWidth, renderMoneyWithCurrency(currency, left), periodWidth, truncateText(item.Period, periodWidth), dueDateWidth, dueDateLabel, progressWidth, fmt.Sprintf("%5.1f%%", progressValue), commentWidth, truncateText(item.Comment, commentWidth))
@@ -357,7 +357,7 @@ func (m TheApplication) openTaxEditor(selected tax.Tax) tea.Model {
 	m.editTaxForm.AmountPaidInput.SetValue(formatAmount(selected.AmountPaidCents))
 	m.editTaxForm.PeriodInput.SetValue(selected.Period)
 	if selected.DueDate != nil {
-		m.editTaxForm.DueDateInput.SetValue(selected.DueDate.Local().Format("02.01.2006"))
+		m.editTaxForm.DueDateInput.SetValue(selected.DueDate.Format("02.01.2006"))
 	} else {
 		m.editTaxForm.DueDateInput.SetValue("")
 	}

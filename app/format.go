@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"github.com/lazybark/cents/dates"
 	"strings"
 	"time"
 )
@@ -60,9 +61,7 @@ func formatRate(value float64) string {
 }
 
 func beginningOfMonth(value time.Time) time.Time {
-	local := value.Local()
-
-	return time.Date(local.Year(), local.Month(), 1, 0, 0, 0, 0, local.Location())
+	return dates.MonthOf(value)
 }
 
 func monthShift(month time.Time, delta int) time.Time {

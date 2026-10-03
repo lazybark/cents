@@ -4,6 +4,7 @@
 package analytics
 
 import (
+	"github.com/lazybark/cents/dates"
 	"sort"
 	"strings"
 	"time"
@@ -31,11 +32,10 @@ type NetWorthSnapshot struct {
 	OwedByMeCents int64
 }
 
-// MonthStart is the first day of value's month, as a UTC midnight like
-// snapshots store it.
+// MonthStart is the first day of value's month (read as the day it was
+// saved, see dates.Day), as a UTC midnight like snapshots store it.
 func MonthStart(value time.Time) time.Time {
-	local := value.Local()
-	return time.Date(local.Year(), local.Month(), 1, 0, 0, 0, 0, time.UTC)
+	return time.Date(value.Year(), value.Month(), 1, 0, 0, 0, 0, time.UTC)
 }
 
 // Snapshot is net worth now, for month.
@@ -76,10 +76,7 @@ func NetWorthHistory(h History, now time.Time) []MonthValue {
 	snapshots := map[time.Time]NetWorthSnapshot{}
 	first := MonthStart(now)
 	for _, s := range h.Snapshots {
-		// Kept as UTC midnight of the month already: read as it is, as in
-		// local time it may be the month before.
-		utc := s.Month.UTC()
-		month := time.Date(utc.Year(), utc.Month(), 1, 0, 0, 0, 0, time.UTC)
+		month := MonthStart(s.Month)
 		snapshots[month] = s
 		if month.Before(first) {
 			first = month
@@ -127,9 +124,7 @@ func NetWorthHistory(h History, now time.Time) []MonthValue {
 			continue
 		}
 
-		// Logs are kept at local midnight, so the month ends at local
-		// midnight too.
-		end := time.Date(month.Year(), month.Month()+1, 1, 0, 0, 0, 0, time.Local)
+		end := month.AddDate(0, 1, 0)
 		var owned int64
 		for _, acct := range h.Accounts {
 			if acct.IgnoreInSummaries {
@@ -161,7 +156,8 @@ func NetWorthHistory(h History, now time.Time) []MonthValue {
 	return values
 }
 
-// latestBefore is the value of the latest log before end.
+// latestBefore is the value of the latest log dated before end, a UTC
+// midnight.
 func latestBefore[T any](logs []T, end time.Time, read func(T) (time.Time, int64)) (int64, bool) {
 	var (
 		best  time.Time
@@ -171,7 +167,7 @@ func latestBefore[T any](logs []T, end time.Time, read func(T) (time.Time, int64
 
 	for _, l := range logs {
 		day, cents := read(l)
-		if day.Before(end) && (!found || day.After(best)) {
+		if dates.Day(day).Before(end) && (!found || day.After(best)) {
 			best, value, found = day, cents, true
 		}
 	}

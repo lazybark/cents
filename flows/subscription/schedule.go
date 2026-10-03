@@ -347,12 +347,7 @@ func clampDay(year int, month time.Month, wanted int) int {
 
 // day is the calendar day of value, as a UTC midnight like stored dates.
 func day(value time.Time) time.Time {
-	if value.Location() != time.UTC {
-		local := value.Local()
-		return time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, time.UTC)
-	}
-
-	return time.Date(value.Year(), value.Month(), value.Day(), 0, 0, 0, 0, time.UTC)
+	return dates.Day(value)
 }
 
 // PerMonthAndYear is the subscription's amount per month (counted only

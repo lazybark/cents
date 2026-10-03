@@ -67,3 +67,25 @@ func (f Format) LogTime(raw string, now time.Time) (time.Time, error) {
 
 	return time.Date(value.Year(), value.Month(), value.Day(), now.Hour(), now.Minute(), now.Second(), 0, now.Location()), nil
 }
+
+// Calendar dates (an entry's day, a due date, a log's day) are saved as
+// midnight, mostly UTC and some in the zone they were typed in. Either way
+// they are the day they read as in the zone they were saved with: turning
+// them into local time would move them a day back west of UTC. Day and
+// MonthOf read them like that; "today" comes from the local clock, which
+// reads the same way since time.Now() is in local time.
+
+// Day is value's calendar day as a UTC midnight, the way dates are kept.
+func Day(value time.Time) time.Time {
+	return time.Date(value.Year(), value.Month(), value.Day(), 0, 0, 0, 0, time.UTC)
+}
+
+// MonthOf is the first day of value's calendar month, at local midnight.
+func MonthOf(value time.Time) time.Time {
+	return time.Date(value.Year(), value.Month(), 1, 0, 0, 0, 0, time.Local)
+}
+
+// Text is value's calendar day as YYYY-MM-DD.
+func Text(value time.Time) string {
+	return value.Format(ISO.Layout)
+}

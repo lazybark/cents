@@ -479,10 +479,10 @@ func (s *SQLiteStorage) SaveSettingExpenseCategory(entry *settings.SettingExpens
 	return nil
 }
 
+// accountLogDay is value's day at midnight in the zone value is in, so a
+// day typed in a form stays that day.
 func accountLogDay(value time.Time) time.Time {
-	local := value.Local()
-
-	return time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, local.Location())
+	return time.Date(value.Year(), value.Month(), value.Day(), 0, 0, 0, 0, value.Location())
 }
 
 func (s *SQLiteStorage) SaveInvoice(entry *invoice.Invoice) error {

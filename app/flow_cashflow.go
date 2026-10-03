@@ -90,7 +90,7 @@ func (m TheApplication) renderCashflowHistoryRow(width int, index int, item cash
 		accountLabel = "-"
 	}
 
-	row := fmt.Sprintf("%s %-*s %-*s %-*s %-*s %-*s %-*s %-*s", prefix, dateWidth, item.EntryDate.Local().Format("2006-01-02"), typeWidth, typeLabel, currencyWidth, truncateText(item.Currency, currencyWidth), amountWidth, renderMoneyWithCurrency(item.Currency, item.AmountCents), categoryWidth, truncateText(item.Category, categoryWidth), accountWidth, truncateText(accountLabel, accountWidth), commentWidth, truncateText(item.Comment, commentWidth))
+	row := fmt.Sprintf("%s %-*s %-*s %-*s %-*s %-*s %-*s %-*s", prefix, dateWidth, item.EntryDate.Format("2006-01-02"), typeWidth, typeLabel, currencyWidth, truncateText(item.Currency, currencyWidth), amountWidth, renderMoneyWithCurrency(item.Currency, item.AmountCents), categoryWidth, truncateText(item.Category, categoryWidth), accountWidth, truncateText(accountLabel, accountWidth), commentWidth, truncateText(item.Comment, commentWidth))
 
 	return style.Render(row)
 }
@@ -431,7 +431,7 @@ func (m TheApplication) updateCashflowHistory(msg tea.KeyMsg) (tea.Model, tea.Cm
 		}
 
 		selected := items[m.cashflowCursor]
-		targetName := selected.EntryDate.Local().Format("2006-01-02") + " " + selected.Category
+		targetName := selected.EntryDate.Format("2006-01-02") + " " + selected.Category
 		m = m.beginDeleteConfirmation("cashflow", selected.ID, targetName)
 
 		return m, nil

@@ -153,12 +153,12 @@ func (m TheApplication) renderInvoiceTableRow(width int, index int, item invoice
 
 	issued := "-"
 	if item.InvoiceDate != nil {
-		issued = item.InvoiceDate.Local().Format("2006-01-02")
+		issued = item.InvoiceDate.Format("2006-01-02")
 	}
 
 	due := "-"
 	if item.DueDate != nil {
-		due = item.DueDate.Local().Format("2006-01-02")
+		due = item.DueDate.Format("2006-01-02")
 	}
 
 	row := fmt.Sprintf("%s %-*s %-*s %-*s %-*s %-*s %-*s %-*s %-*s %-*s %-*s", prefix, titleWidth, truncateText(item.Title, titleWidth), typeWidth, typeLabel, currencyWidth, truncateText(item.Currency, currencyWidth), amountWidth, renderMoneyWithCurrency(item.Currency, item.AmountCents), paidWidth, paidLabel, peerWidth, truncateText(item.Peer, peerWidth), invDateWidth, issued, dueDateWidth, due, accountWidth, truncateText(item.TargetAccount, accountWidth), descWidth, truncateText(item.Description, descWidth))
@@ -355,11 +355,11 @@ func (m TheApplication) openInvoiceEditor(item invoice.Invoice) tea.Model {
 
 	m.editInvoiceForm.PeerInput.SetValue(item.Peer)
 	if item.InvoiceDate != nil {
-		m.editInvoiceForm.InvoiceDateInput.SetValue(item.InvoiceDate.Local().Format("02.01.2006"))
+		m.editInvoiceForm.InvoiceDateInput.SetValue(item.InvoiceDate.Format("02.01.2006"))
 	}
 
 	if item.DueDate != nil {
-		m.editInvoiceForm.DueDateInput.SetValue(item.DueDate.Local().Format("02.01.2006"))
+		m.editInvoiceForm.DueDateInput.SetValue(item.DueDate.Format("02.01.2006"))
 	}
 
 	m.editInvoiceForm.TargetAccountInput.SetValue(item.TargetAccount)

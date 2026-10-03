@@ -1,6 +1,7 @@
 package desktop
 
 import (
+	"github.com/lazybark/cents/dates"
 	"time"
 
 	"github.com/lazybark/cents/flows/settings"
@@ -60,8 +61,9 @@ type CreatedIn struct {
 	Mode string `json:"mode"`
 }
 
+// formatDay shows a calendar date as the day it was saved (see dates.Day).
 func formatDay(value time.Time) string {
-	return value.Local().Format(logDateLayout)
+	return dates.Text(value)
 }
 
 func formatOptionalDay(value *time.Time) string {

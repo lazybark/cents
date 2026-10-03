@@ -1,15 +1,15 @@
 package cashflow
 
 import (
+	"github.com/lazybark/cents/dates"
 	"sort"
 	"time"
 )
 
-// MonthStart returns the first moment of value's month in local time.
+// MonthStart returns the first moment of value's month in local time,
+// value read as the day it was saved (see dates.MonthOf).
 func MonthStart(value time.Time) time.Time {
-	local := value.Local()
-
-	return time.Date(local.Year(), local.Month(), 1, 0, 0, 0, 0, local.Location())
+	return dates.MonthOf(value)
 }
 
 // ForMonth returns the entries dated in month, newest first.
