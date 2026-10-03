@@ -140,6 +140,13 @@ async function start() {
 
 // Rates fetched in the background (once a day) change converted amounts, so
 // the open view is shown again. window.runtime is Wails' event bridge.
+// Another view asks to show a month of incomes and expenses (a payment
+// marked paid, say).
+window.addEventListener("cents:open-month", (event) => {
+  cashflow.focusMonth(event.detail);
+  navigate("cashflow");
+});
+
 window.runtime?.EventsOn?.("rates-updated", () => {
   if (!el.app.hidden) refresh();
 });

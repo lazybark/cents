@@ -68,9 +68,9 @@ func TestMarkPaidAndSoon(t *testing.T) {
 		t.Fatalf("4 days before a monthly payment is soon: %d %v", days, soon)
 	}
 
-	paid, err := sub.MarkPaid(d(2026, 10, 27), today)
-	if err != nil {
-		t.Fatal(err)
+	paid, paidFor, err := sub.MarkPaid(d(2026, 10, 27), today)
+	if err != nil || !paidFor.Equal(d(2026, 10, 31)) {
+		t.Fatal(err, paidFor)
 	}
 
 	if next, _ := paid.NextPayment(d(2026, 10, 27)); !next.Equal(d(2026, 11, 30)) {
@@ -90,7 +90,7 @@ func TestMarkPaidAndSoon(t *testing.T) {
 		t.Fatalf("expected the weekly then the yearly: %+v", upcoming)
 	}
 
-	if _, err := (Subscription{Period: PeriodMonth}).MarkPaid(today, today); err == nil {
+	if _, _, err := (Subscription{Period: PeriodMonth}).MarkPaid(today, today); err == nil {
 		t.Fatal("expected an error without a schedule")
 	}
 }
@@ -99,8 +99,9 @@ func TestUpdate(t *testing.T) {
 	now := time.Now()
 	ok := Fields{Name: " Rent ", Type: "Rent", Currency: "€", Amount: "950", Period: "Month", PaymentMethod: "Bank", NextPayment: "2026-10-31", IsActive: true}
 
+	// Payments marked paid are kept: a new date continues after them.
 	sub, err := Subscription{ID: 4, LastPaidDate: ptr(d(2026, 9, 30))}.Update(ok, dates.ISO, now)
-	if err != nil || sub.ID != 4 || sub.Name != "Rent" || sub.Period != "month" || sub.AmountCents != 95000 || !sub.NextPaymentDate.Equal(d(2026, 10, 31)) || sub.LastPaidDate != nil {
+	if err != nil || sub.ID != 4 || sub.Name != "Rent" || sub.Period != "month" || sub.AmountCents != 95000 || !sub.NextPaymentDate.Equal(d(2026, 10, 31)) || !sub.LastPaidDate.Equal(d(2026, 9, 30)) {
 		t.Fatalf("unexpected %+v %v", sub, err)
 	}
 
@@ -143,5 +144,59 @@ func TestTotalsCountEveryPeriod(t *testing.T) {
 	monthly, yearly := TotalsInBaseCents(subs, stts)
 	if monthly != 1200*52/12+1000 || yearly != 1200*52+1000*12+3000*4+10000 {
 		t.Fatalf("unexpected totals %d %d", monthly, yearly)
+	}
+}
+
+func TestPaidManuallyStaysDue(t *testing.T) {
+	today := d(2026, 10, 10)
+	rent := Subscription{IsActive: true, PaidManually: true, Period: PeriodMonth, NextPaymentDate: ptr(d(2026, 9, 4))}
+
+	next, days, soon, _ := rent.DueIn(today)
+	if !next.Equal(d(2026, 9, 4)) || days != -36 || !soon {
+		t.Fatalf("an unpaid manual payment stays due: %s %d %v", next, days, soon)
+	}
+
+	paid, paidFor, _ := rent.MarkPaid(today, today)
+	if !paidFor.Equal(d(2026, 9, 4)) {
+		t.Fatalf("marks the oldest unpaid one: %s", paidFor)
+	}
+
+	if next, days, _, _ := paid.DueIn(today); !next.Equal(d(2026, 10, 4)) || days != -6 {
+		t.Fatalf("then October's is overdue: %s %d", next, days)
+	}
+
+	paid, _, _ = paid.MarkPaid(today, today)
+	if next, days, soon, _ := paid.DueIn(today); !next.Equal(d(2026, 11, 4)) || days != 25 || soon {
+		t.Fatalf("paid up: next is November's: %s %d %v", next, days, soon)
+	}
+
+	// The same schedule charged automatically never goes overdue.
+	auto := rent
+	auto.PaidManually = false
+	if next, _ := auto.NextPayment(today); !next.Equal(d(2026, 11, 4)) {
+		t.Fatalf("an automatic payment rolls on: %s", next)
+	}
+
+	// Rolling back: without the latest record, the one before is next.
+	paid.LastPaidDate = ptr(d(2026, 9, 4))
+	if next, _ := paid.NextPayment(today); !next.Equal(d(2026, 10, 4)) {
+		t.Fatalf("rolled back: %s", next)
+	}
+}
+
+func TestPaidUpTo(t *testing.T) {
+	sub := Subscription{Period: PeriodMonth, NextPaymentDate: ptr(d(2026, 10, 4)), LastPaidDate: ptr(d(2026, 11, 4))}
+	got := sub.PaidUpTo(d(2026, 10, 3), 12)
+	if len(got) != 2 || !got[0].Equal(d(2026, 10, 4)) || !got[1].Equal(d(2026, 11, 4)) {
+		t.Fatalf("expected October and November: %v", got)
+	}
+
+	weekly := Subscription{Period: PeriodWeek, NextPaymentDate: ptr(d(2025, 1, 1)), LastPaidDate: ptr(d(2026, 10, 1))}
+	if got := weekly.PaidUpTo(d(2026, 10, 3), 12); len(got) != 12 || !got[11].Equal(d(2026, 9, 30)) {
+		t.Fatalf("expected the last 12: %v", got)
+	}
+
+	if (Subscription{Period: PeriodMonth}).PaidUpTo(d(2026, 10, 3), 12) != nil {
+		t.Fatal("nothing paid, nothing to list")
 	}
 }

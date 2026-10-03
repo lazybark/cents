@@ -30,6 +30,10 @@ func TestObligationsAreListedApart(t *testing.T) {
 	}
 
 	overview, _ := api.Overview()
+	if len(overview.Unscheduled) != 1 || overview.Unscheduled[0].Name != "Insurance" {
+		t.Fatalf("the insurance has no date and should be named: %v", overview.Unscheduled)
+	}
+
 	if overview.MonthlySubscriptions != 1000 || overview.MonthlyObligations != 90000 || overview.YearlyObligations != 90000*12+120000 || len(overview.Upcoming) != 2 {
 		t.Fatalf("unexpected overview %+v", overview)
 	}

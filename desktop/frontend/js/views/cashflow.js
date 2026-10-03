@@ -179,6 +179,13 @@ const state = {
 
 export const title = "Incomes & expenses";
 
+// focusMonth makes the view open on one month's entries ("YYYY-MM") the
+// next time it shows.
+export function focusMonth(month) {
+  state.month = month;
+  state.tab = "month";
+}
+
 export function init() {
   for (const tab of el.tabs) {
     tab.addEventListener("click", () => {

@@ -35,6 +35,9 @@ type Overview struct {
 
 	// Upcoming are the active subscriptions paid soon, soonest first.
 	Upcoming []SubscriptionRow `json:"upcoming"`
+	// Unscheduled are the active obligations without a next payment date,
+	// which can't show as coming up until they get one.
+	Unscheduled []SubscriptionRow `json:"unscheduled"`
 
 	LoadedAt time.Time `json:"loadedAt"`
 }
@@ -60,8 +63,16 @@ func (a *API) Overview() (Overview, error) {
 		upcoming = append(upcoming, subscriptionRow(sub, data.Settings, now))
 	}
 
+	unscheduled := make([]SubscriptionRow, 0)
+	for _, sub := range data.Subscriptions {
+		if _, ok := sub.NextPayment(now); sub.IsActive && sub.IsObligation && !ok {
+			unscheduled = append(unscheduled, subscriptionRow(sub, data.Settings, now))
+		}
+	}
+
 	return Overview{
 		Upcoming:             upcoming,
+		Unscheduled:          unscheduled,
 		BaseCurrency:         data.Settings.BaseCurrencyLabel(),
 		Month:                month,
 		NetWorth:             sum.NetWorthCents(),

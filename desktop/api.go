@@ -38,6 +38,9 @@ type StorageWorker interface {
 	CreateSubscription(entry *subscription.Subscription) error
 	SaveSubscription(entry *subscription.Subscription) error
 	DeleteSubscription(id uint) error
+	LoadSubscriptionPayments(subscriptionID uint) ([]subscription.SubscriptionPayment, error)
+	AddSubscriptionPayment(entry *subscription.Subscription, payment *subscription.SubscriptionPayment) error
+	DeleteSubscriptionPayment(entry *subscription.Subscription, paymentID uint) error
 	CreateAccount(entry *account.Account) error
 	UpdateAccountAmount(id uint, amountCents int64, ignoreInSummaries bool, updatedAt time.Time) error
 	DeleteAccount(id uint) error

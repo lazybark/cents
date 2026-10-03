@@ -114,10 +114,12 @@
         </div>
         <section class="panel">
           <h3 class="section-title">Coming up</h3>
-          <table id="upcoming-table" class="table">
+          <table id="upcoming-table" class="table clickable">
             <tbody id="upcoming-rows"></tbody>
           </table>
           <p id="upcoming-empty" class="muted" hidden>No regular payments due soon.</p>
+          <p id="upcoming-unscheduled" class="negative" hidden></p>
+          <p id="upcoming-hint" class="hint" hidden>Click one to open it.</p>
           <p class="hint">Active subscriptions and obligations due within 5 days (monthly), 2 days (weekly), 2 weeks (quarterly) or a month (yearly).</p>
         </section>
       </section>
@@ -1060,11 +1062,31 @@
         <input type="checkbox" name="isObligation">
         <span>Obligation: a serious regular payment (rent, insurance, bills), listed under Obligations</span>
       </label>
-      <p class="hint">A passed payment date moves on by itself, every period from the date set here.</p>
+      <label class="check">
+        <input type="checkbox" name="paidManually">
+        <span>I pay it myself: a passed payment stays due (overdue) until it's marked paid</span>
+      </label>
+      <p class="hint">Payments repeat every period from the date set here. Ones charged automatically move on by themselves once their day passes.</p>
 
       <div id="subscription-due" class="due-box" hidden>
         <span id="subscription-due-text"></span>
-        <button id="subscription-paid" type="button" class="button button-accent">Paid: show the next one</button>
+        <button id="subscription-paid" type="button" class="button button-accent">Mark paid</button>
+      </div>
+
+      <div id="subscription-payments" hidden>
+        <h3 class="subhead">Marked paid</h3>
+        <table class="table logs clickable">
+          <thead>
+            <tr>
+              <th>Payment</th>
+              <th>Marked</th>
+              <th><span class="visually-hidden">Actions</span></th>
+            </tr>
+          </thead>
+          <tbody id="subscription-payment-rows"></tbody>
+        </table>
+        <p id="subscription-payments-empty" class="muted" hidden>Nothing marked paid yet.</p>
+        <p class="hint">Click one to see its month in Incomes &amp; expenses. Delete one marked by mistake and the schedule rolls back.</p>
       </div>
 
       <p class="form-error negative" hidden></p>

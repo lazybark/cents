@@ -42,7 +42,7 @@ func OpenDatabase(dbPath string) (*gorm.DB, bool, error) {
 		return nil, false, fmt.Errorf("failed to open SQLite database: %w", err)
 	}
 
-	if err := db.AutoMigrate(&account.Account{}, &account.AccountValueLog{}, &subscription.Subscription{}, &debt.Debt{}, &debt.DebtLog{}, &goal.Goal{}, &goal.GoalLog{}, &tax.Tax{}, &tax.TaxLog{}, &invoice.Invoice{}, &cashflow.CashflowEntry{}, &settings.SettingRecord{}, &settings.SettingCurrency{}, &settings.SettingPaymentMethod{}, &settings.SettingTaxType{}, &settings.SettingIncomeCategory{}, &settings.SettingExpenseCategory{}, &asset.Asset{}, &asset.AssetValueLog{}, &credit.Credit{}, &credit.CreditLog{}); err != nil {
+	if err := db.AutoMigrate(&account.Account{}, &account.AccountValueLog{}, &subscription.Subscription{}, &debt.Debt{}, &debt.DebtLog{}, &goal.Goal{}, &goal.GoalLog{}, &tax.Tax{}, &tax.TaxLog{}, &invoice.Invoice{}, &cashflow.CashflowEntry{}, &settings.SettingRecord{}, &settings.SettingCurrency{}, &settings.SettingPaymentMethod{}, &settings.SettingTaxType{}, &settings.SettingIncomeCategory{}, &settings.SettingExpenseCategory{}, &asset.Asset{}, &asset.AssetValueLog{}, &credit.Credit{}, &credit.CreditLog{}, &subscription.SubscriptionPayment{}); err != nil {
 		return nil, false, fmt.Errorf("failed to auto-migrate SQLite database: %w", err)
 	}
 
@@ -64,6 +64,10 @@ func OpenDatabase(dbPath string) (*gorm.DB, bool, error) {
 
 	if err := sortOutObligations(db); err != nil {
 		return nil, false, fmt.Errorf("failed to sort out obligations: %w", err)
+	}
+
+	if err := recordPaidMarks(db); err != nil {
+		return nil, false, fmt.Errorf("failed to record payments marked paid: %w", err)
 	}
 
 	return db, created, nil
@@ -179,6 +183,29 @@ func backfillRecordedRates(db *gorm.DB) error {
 
 			if err := tx.Table(t.table).Where("rate_to_base IS NULL").Updates(updates).Error; err != nil {
 				return fmt.Errorf("%s: %w", t.table, err)
+			}
+		}
+
+		return nil
+	})
+}
+
+// recordPaidMarks turns a latest-paid date set before payments were
+// recorded into records: one per payment it covers (the last 12 at most),
+// so they show in the log and can be deleted. Subscriptions that have
+// records already are left alone.
+func recordPaidMarks(db *gorm.DB) error {
+	var subs []subscription.Subscription
+	if err := db.Where("last_paid_date IS NOT NULL AND id NOT IN (?)", db.Model(&subscription.SubscriptionPayment{}).Select("subscription_id")).Find(&subs).Error; err != nil {
+		return err
+	}
+
+	return db.Transaction(func(tx *gorm.DB) error {
+		for _, sub := range subs {
+			for _, paidFor := range sub.PaidUpTo(time.Now(), 12) {
+				if err := tx.Create(&subscription.SubscriptionPayment{SubscriptionID: sub.ID, PaidFor: paidFor}).Error; err != nil {
+					return err
+				}
 			}
 		}
 

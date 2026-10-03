@@ -40,6 +40,7 @@ type SubscriptionRow struct {
 	PaymentMethod string `json:"paymentMethod"`
 	IsActive      bool   `json:"isActive"`
 	IsObligation  bool   `json:"isObligation"`
+	PaidManually  bool   `json:"paidManually"`
 	// Anchor is the payment date set for the schedule, as YYYY-MM-DD.
 	Anchor      string `json:"anchor"`
 	NextPayment string `json:"nextPayment"`
@@ -88,6 +89,16 @@ type SubscriptionInput struct {
 	// IsObligation lists it under obligations (rent, insurance) rather than
 	// subscriptions.
 	IsObligation bool `json:"isObligation"`
+	// PaidManually keeps a passed payment due until it's marked paid.
+	PaidManually bool `json:"paidManually"`
+}
+
+// SubscriptionPaymentRow is a payment marked paid: PaidFor is its day,
+// MarkedAt when it was marked.
+type SubscriptionPaymentRow struct {
+	ID       uint   `json:"id"`
+	PaidFor  string `json:"paidFor"`
+	MarkedAt string `json:"markedAt"`
 }
 
 // Subscriptions lists one kind of regular payment, "subscription" (minor
@@ -188,8 +199,8 @@ func (a *API) UpdateSubscription(input SubscriptionInput) error {
 	return a.saveSubscription(input, &current)
 }
 
-// MarkSubscriptionPaid marks the next payment paid (for paying early), so
-// the one after it shows as next. It returns the subscription as it is now.
+// MarkSubscriptionPaid marks the next payment paid and records it, so the
+// one after it shows as next. It returns the subscription as it is now.
 func (a *API) MarkSubscriptionPaid(id uint) (SubscriptionRow, error) {
 	storage, stts, err := a.storageAndSettings()
 	if err != nil {
@@ -202,16 +213,58 @@ func (a *API) MarkSubscriptionPaid(id uint) (SubscriptionRow, error) {
 	}
 
 	now := time.Now()
-	paid, err := current.MarkPaid(now, now)
+	paid, paidFor, err := current.MarkPaid(now, now)
 	if err != nil {
 		return SubscriptionRow{}, err
 	}
 
-	if err := storage.SaveSubscription(&paid); err != nil {
-		return SubscriptionRow{}, fmt.Errorf("save failed: %w", err)
+	if err := storage.AddSubscriptionPayment(&paid, &subscription.SubscriptionPayment{SubscriptionID: paid.ID, PaidFor: paidFor}); err != nil {
+		return SubscriptionRow{}, err
 	}
 
 	return subscriptionRow(paid, stts, now), nil
+}
+
+// SubscriptionPayments lists a subscription's payments marked paid, latest
+// first.
+func (a *API) SubscriptionPayments(id uint) ([]SubscriptionPaymentRow, error) {
+	storage, err := a.currentStorage()
+	if err != nil {
+		return nil, err
+	}
+
+	payments, err := storage.LoadSubscriptionPayments(id)
+	if err != nil {
+		return nil, err
+	}
+
+	rows := make([]SubscriptionPaymentRow, 0, len(payments))
+	for _, p := range payments {
+		rows = append(rows, SubscriptionPaymentRow{ID: p.ID, PaidFor: p.PaidFor.Format(logDateLayout), MarkedAt: p.CreatedAt.Local().Format("2006-01-02 15:04")})
+	}
+
+	return rows, nil
+}
+
+// DeleteSubscriptionPayment deletes a payment marked paid, by mistake say:
+// the latest one left becomes the latest paid, so the schedule rolls back.
+// It returns the subscription as it is now.
+func (a *API) DeleteSubscriptionPayment(subscriptionID uint, paymentID uint) (SubscriptionRow, error) {
+	storage, stts, err := a.storageAndSettings()
+	if err != nil {
+		return SubscriptionRow{}, err
+	}
+
+	current, err := findSubscription(storage, subscriptionID)
+	if err != nil {
+		return SubscriptionRow{}, err
+	}
+
+	if err := storage.DeleteSubscriptionPayment(&current, paymentID); err != nil {
+		return SubscriptionRow{}, err
+	}
+
+	return subscriptionRow(current, stts, time.Now()), nil
 }
 
 func (a *API) saveSubscription(input SubscriptionInput, current *subscription.Subscription) error {
@@ -246,6 +299,7 @@ func (a *API) saveSubscription(input SubscriptionInput, current *subscription.Su
 		NextPayment:   input.NextPayment,
 		IsActive:      input.IsActive,
 		IsObligation:  input.IsObligation,
+		PaidManually:  input.PaidManually,
 	}, dates.ISO, time.Now())
 	if err != nil {
 		return err
@@ -281,6 +335,7 @@ func subscriptionRow(sub subscription.Subscription, stts settings.AppSettings, t
 		PaymentMethod: sub.PaymentMethod,
 		IsActive:      sub.IsActive,
 		IsObligation:  sub.IsObligation,
+		PaidManually:  sub.PaidManually,
 	}
 
 	if anchor, ok := sub.Anchor(today); ok {

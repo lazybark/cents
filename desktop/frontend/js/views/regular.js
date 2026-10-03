@@ -18,6 +18,7 @@ import {
   formError,
   nextPaymentCell,
   periodLabel,
+  rowAction,
   setStatus,
 } from "../ui.js";
 
@@ -33,13 +34,22 @@ const dialog = {
   delete: $("subscription-delete"),
   types: $("subscription-types"),
   paymentMethods: $("payment-methods"),
+  payments: $("subscription-payments"),
+  paymentRows: $("subscription-payment-rows"),
+  paymentsEmpty: $("subscription-payments-empty"),
 };
+
+// Both views by kind, so a payment can be opened from elsewhere (the
+// overview) in the right one.
+const views = {};
 
 // The dialog belongs to whichever view opened it.
 const editing = {
   view: null,
   // The payment open in the dialog, or null when adding one.
   current: null,
+  // Opened from elsewhere: called after a change, to show it there too.
+  onChange: null,
 };
 
 let dialogWired = false;
@@ -95,11 +105,15 @@ export function regularView(config) {
     el.add.addEventListener("click", () => openDialog(view, null));
   };
 
+  view.load = async () => {
+    view.data = await api.Subscriptions(view.mode, config.kind);
+  };
+
   view.show = async (message) => {
     for (const tab of el.tabs) tab.setAttribute("aria-selected", String(tab.dataset.mode === view.mode));
 
     try {
-      view.data = await api.Subscriptions(view.mode, config.kind);
+      await view.load();
       render(view);
       const list = view.data.subscriptions;
       const soon = list.filter((s) => s.dueSoon).length;
@@ -109,7 +123,31 @@ export function regularView(config) {
     }
   };
 
+  views[config.kind] = view;
   return view;
+}
+
+// openRegularPayment opens a subscription or obligation (a row from the
+// API) in the dialog from elsewhere, like the overview; onChange runs after
+// it changes there.
+export async function openRegularPayment(sub, onChange) {
+  const view = views[sub.isObligation ? "obligation" : "subscription"];
+  if (!view.data) await view.load();
+
+  openDialog(view, sub);
+  editing.onChange = onChange;
+}
+
+// changed shows a change: in the view the dialog belongs to and, when it was
+// opened from elsewhere, there too (with the message last).
+async function changed(message) {
+  const { view, onChange } = editing;
+  await view.show(message);
+
+  if (onChange) {
+    await onChange();
+    setStatus(message);
+  }
 }
 
 function render(view) {
@@ -166,6 +204,7 @@ function openDialog(view, sub) {
 
   editing.view = view;
   editing.current = sub;
+  editing.onChange = null;
   const form = dialog.form;
   const fields = form.elements;
   form.reset();
@@ -190,15 +229,19 @@ function openDialog(view, sub) {
     fields.paymentMethod.value = sub.paymentMethod;
     fields.isActive.checked = sub.isActive;
     fields.isObligation.checked = sub.isObligation;
+    fields.paidManually.checked = sub.paidManually;
   } else {
     dialog.title.textContent = view.config.addTitle;
     fields.period.value = "month";
     fields.paymentMethod.value = options.paymentMethods[0] ?? "";
     fields.isObligation.checked = view.config.kind === "obligation";
+    // Obligations (rent) are usually paid by hand; subscriptions charged.
+    fields.paidManually.checked = view.config.kind === "obligation";
     methodPicked();
   }
 
   showDue(sub);
+  showPayments(sub);
   dialog.delete.hidden = !sub;
   formError(form, "");
   dialog.dialog.showModal();
@@ -240,6 +283,7 @@ function formInput() {
     nextPayment: fields.nextPayment.value,
     isActive: fields.isActive.checked,
     isObligation: fields.isObligation.checked,
+    paidManually: fields.paidManually.checked,
   };
 }
 
@@ -258,34 +302,83 @@ async function save(event) {
     const name = input.name.trim();
     const moved = input.isObligation !== (view.config.kind === "obligation");
     const where = moved ? `, moved to ${input.isObligation ? "Obligations" : "Subscriptions"}` : "";
-    await view.show(`${current ? "updated" : "saved"} ${name}${where}`);
+    await changed(`${current ? "updated" : "saved"} ${name}${where}`);
   } catch (err) {
     formError(dialog.form, String(err));
   }
 }
 
-// markPaid marks the next payment paid; the dialog stays open showing the
-// one after it.
+// markPaid marks the next payment paid and records it; the dialog stays
+// open showing the one after it, and the record can be deleted again.
 async function markPaid() {
-  const { view, current } = editing;
+  const { current } = editing;
 
   try {
     const updated = await busy(dialog.form, () => api.MarkSubscriptionPaid(current.id));
-    editing.current = updated;
-    showDue(updated);
-    formError(dialog.form, "");
-    await view.show(`marked ${current.name} paid; next payment ${updated.nextPayment}`);
+    await afterPayments(updated, `marked ${current.name} paid; next payment ${updated.nextPayment}`);
   } catch (err) {
     formError(dialog.form, String(err));
   }
 }
 
+async function afterPayments(updated, message) {
+  editing.current = updated;
+  showDue(updated);
+  formError(dialog.form, "");
+  await showPayments(updated);
+  await changed(message);
+}
+
+// showPayments lists the payments marked paid, latest first. Each opens its
+// month in incomes and expenses; deleting one rolls the schedule back.
+async function showPayments(sub) {
+  dialog.payments.hidden = !sub;
+  dialog.paymentRows.replaceChildren();
+  dialog.paymentsEmpty.hidden = true;
+  if (!sub) return;
+
+  try {
+    const payments = await api.SubscriptionPayments(sub.id);
+    dialog.paymentsEmpty.hidden = payments.length > 0;
+    dialog.paymentRows.replaceChildren(
+      ...payments.map((payment) => {
+        const row = document.createElement("tr");
+        const remove = rowAction("Delete", (event) => {
+          event.stopPropagation();
+          askDeletePayment(payment);
+        });
+
+        row.append(cell(payment.paidFor, "nowrap"), cell(payment.markedAt, "muted nowrap"), cell(remove, "num"));
+        clickableRow(row, () => openMonth(payment.paidFor));
+        return row;
+      }),
+    );
+  } catch (err) {
+    formError(dialog.form, `Failed to load payments: ${err}`);
+  }
+}
+
+// openMonth shows the payment's month in incomes and expenses.
+function openMonth(day) {
+  dialog.dialog.close();
+  window.dispatchEvent(new CustomEvent("cents:open-month", { detail: day.slice(0, 7) }));
+}
+
+function askDeletePayment(payment) {
+  const { current } = editing;
+
+  confirmDelete("Delete payment?", `The payment for ${payment.paidFor} won't count as paid anymore, so the schedule rolls back.`, async () => {
+    const updated = await api.DeleteSubscriptionPayment(current.id, payment.id);
+    await afterPayments(updated, `unmarked ${current.name}'s payment for ${payment.paidFor}; next payment ${updated.nextPayment}`);
+  });
+}
+
 function askDelete() {
-  const { view, current } = editing;
+  const { current } = editing;
 
   confirmDelete(`Delete ${current.name}?`, `“${current.name}” will be deleted. This can't be undone.`, async () => {
     await api.DeleteSubscription(current.id);
     dialog.dialog.close();
-    await view.show(`deleted ${current.name}`);
+    await changed(`deleted ${current.name}`);
   });
 }

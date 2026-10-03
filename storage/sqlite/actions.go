@@ -150,13 +150,78 @@ func (s *SQLiteStorage) SaveSubscription(entry *subscription.Subscription) error
 	return nil
 }
 
+// DeleteSubscription deletes a subscription with its payment records.
 func (s *SQLiteStorage) DeleteSubscription(id uint) error {
-	err := s.db.Delete(&subscription.Subscription{}, id).Error
-	if err != nil {
-		return fmt.Errorf("failed to delete subscription: %w", err)
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("subscription_id = ?", id).Delete(&subscription.SubscriptionPayment{}).Error; err != nil {
+			return fmt.Errorf("failed to delete subscription payments: %w", err)
+		}
+
+		if err := tx.Delete(&subscription.Subscription{}, id).Error; err != nil {
+			return fmt.Errorf("failed to delete subscription: %w", err)
+		}
+
+		return nil
+	})
+}
+
+// LoadSubscriptionPayments returns a subscription's payments marked paid,
+// latest first.
+func (s *SQLiteStorage) LoadSubscriptionPayments(subscriptionID uint) ([]subscription.SubscriptionPayment, error) {
+	var payments []subscription.SubscriptionPayment
+	if err := s.db.Where("subscription_id = ?", subscriptionID).Order("paid_for desc, id desc").Find(&payments).Error; err != nil {
+		return nil, fmt.Errorf("failed to load subscription payments: %w", err)
 	}
 
-	return nil
+	return payments, nil
+}
+
+// AddSubscriptionPayment records a payment marked paid and saves entry
+// (the subscription with it as the latest paid) together.
+func (s *SQLiteStorage) AddSubscriptionPayment(entry *subscription.Subscription, payment *subscription.SubscriptionPayment) error {
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(payment).Error; err != nil {
+			return fmt.Errorf("failed to record payment: %w", err)
+		}
+
+		if err := tx.Save(entry).Error; err != nil {
+			return fmt.Errorf("failed to save subscription: %w", err)
+		}
+
+		return nil
+	})
+}
+
+// DeleteSubscriptionPayment deletes one payment record and makes the latest
+// remaining one (if any) the latest paid, saving entry with it, together.
+func (s *SQLiteStorage) DeleteSubscriptionPayment(entry *subscription.Subscription, paymentID uint) error {
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		result := tx.Where("id = ? AND subscription_id = ?", paymentID, entry.ID).Delete(&subscription.SubscriptionPayment{})
+		if result.Error != nil {
+			return fmt.Errorf("failed to delete payment: %w", result.Error)
+		}
+
+		if result.RowsAffected == 0 {
+			return ErrLogNotFound
+		}
+
+		var latest subscription.SubscriptionPayment
+		err := tx.Where("subscription_id = ?", entry.ID).Order("paid_for desc, id desc").First(&latest).Error
+		switch {
+		case err == nil:
+			entry.LastPaidDate = &latest.PaidFor
+		case errors.Is(err, gorm.ErrRecordNotFound):
+			entry.LastPaidDate = nil
+		default:
+			return fmt.Errorf("failed to find the latest payment: %w", err)
+		}
+
+		if err := tx.Save(entry).Error; err != nil {
+			return fmt.Errorf("failed to save subscription: %w", err)
+		}
+
+		return nil
+	})
 }
 
 func (s *SQLiteStorage) CreateDebt(entry *debt.Debt) error {

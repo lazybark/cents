@@ -228,3 +228,28 @@ func TestOlderObligationsAreSortedOutOnce(t *testing.T) {
 		}
 	}
 }
+
+func TestOlderPaidMarksBecomeRecords(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "cents.db")
+	db, _, err := OpenDatabase(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Paid twice before records existed: October's and November's.
+	if err := db.Exec("INSERT INTO subscriptions (name, type, currency, amount_cents, period, payment_method, is_active, next_payment_date, last_paid_date) VALUES ('Flat', 'Rent', '$', 100, 'month', 'Bank', 1, '2026-10-04 00:00:00+00:00', '2026-11-04 00:00:00+00:00')").Error; err != nil {
+		t.Fatal(err)
+	}
+
+	for range 2 {
+		if db, _, err = OpenDatabase(path); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	subs, _ := NewSQLiteStorage(db).LoadSubscriptions()
+	payments, err := NewSQLiteStorage(db).LoadSubscriptionPayments(subs[0].ID)
+	if err != nil || len(payments) != 2 || payments[0].PaidFor.Format("2006-01-02") != "2026-11-04" || payments[1].PaidFor.Format("2006-01-02") != "2026-10-04" {
+		t.Fatalf("expected one record per payment, once: %+v %v", payments, err)
+	}
+}

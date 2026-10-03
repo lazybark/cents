@@ -273,9 +273,11 @@ export function periodLabel(period) {
   return PERIOD_LABELS[period] ?? period;
 }
 
-// dueText reads like "today", "tomorrow" or "in 12 days".
+// dueText reads like "today", "tomorrow", "in 12 days" or "3 days
+// overdue".
 export function dueText(days) {
-  if (days <= 0) return "today";
+  if (days < 0) return `${-days} day${days === -1 ? "" : "s"} overdue`;
+  if (days === 0) return "today";
   if (days === 1) return "tomorrow";
   return `in ${days} days`;
 }

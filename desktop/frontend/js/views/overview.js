@@ -1,6 +1,7 @@
 // Overview: the same figures as the TUI home screen, in the base currency.
 import { api } from "../api.js";
-import { badge, cell, formatMoney, loadedStatus, nextPaymentCell, periodLabel, setStatus, signClass, withBase } from "../ui.js";
+import { openRegularPayment } from "./regular.js";
+import { badge, cell, clickableRow, formatMoney, loadedStatus, nextPaymentCell, periodLabel, setStatus, signClass, withBase } from "../ui.js";
 
 const el = {
   netWorth: document.getElementById("net-worth"),
@@ -9,6 +10,8 @@ const el = {
   upcoming: document.getElementById("upcoming-rows"),
   upcomingTable: document.getElementById("upcoming-table"),
   upcomingEmpty: document.getElementById("upcoming-empty"),
+  unscheduled: document.getElementById("upcoming-unscheduled"),
+  upcomingHint: document.getElementById("upcoming-hint"),
 };
 
 export const title = "Overview";
@@ -60,6 +63,25 @@ function render(o) {
 function renderUpcoming(o) {
   el.upcomingTable.hidden = o.upcoming.length === 0;
   el.upcomingEmpty.hidden = o.upcoming.length > 0;
+
+  el.upcomingHint.hidden = o.upcoming.length === 0;
+
+  // Obligations without a date can't come up; say which (each opens to set
+  // one), so they get one.
+  const missing = o.unscheduled ?? [];
+  el.unscheduled.hidden = missing.length === 0;
+  const names = missing.flatMap((sub, i) => {
+    const link = document.createElement("button");
+    link.type = "button";
+    link.className = "link-button";
+    link.textContent = sub.name;
+    link.addEventListener("click", () => openRegularPayment(sub, show));
+    return i === 0 ? [link] : [", ", link];
+  });
+  el.unscheduled.replaceChildren(
+    ...names,
+    missing.length === 1 ? " has no next payment date, so it can't show here. Click it to set one." : " have no next payment date, so they can't show here. Click one to set it.",
+  );
   el.upcoming.replaceChildren(
     ...o.upcoming.map((sub) => {
       const row = document.createElement("tr");
@@ -78,6 +100,8 @@ function renderUpcoming(o) {
       nameCell.append(name, details);
 
       row.append(cell(nameCell), nextPaymentCell(sub), cell(withBase(sub, sub.amountCents, o.baseCurrency, sub.baseCents), "num"));
+      // The same dialog as in its list; changes show here too.
+      clickableRow(row, () => openRegularPayment(sub, show));
       return row;
     }),
   );

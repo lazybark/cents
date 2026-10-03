@@ -69,6 +69,7 @@ type Fields struct {
 	NextPayment   string
 	IsActive      bool
 	IsObligation  bool
+	PaidManually  bool
 }
 
 // Update replaces every field of the subscription with f (a zero value
@@ -117,11 +118,7 @@ func (s Subscription) Update(f Fields, format dates.Format, now time.Time) (Subs
 	s.PaymentMethod = paymentMethod
 	s.IsActive = f.IsActive
 	s.IsObligation = f.IsObligation
-	// A date set by hand starts the schedule over.
-	if !sameDay(s.NextPaymentDate, next) || s.Period != period {
-		s.LastPaidDate = nil
-	}
-
+	s.PaidManually = f.PaidManually
 	s.Period = period
 	s.NextPaymentDate = next
 	s.LastUpdatedAt = now
@@ -170,20 +167,25 @@ func (s Subscription) Anchor(today time.Time) (time.Time, bool) {
 	return time.Time{}, false
 }
 
-// NextPayment is the first payment on or after today (and after the one
-// last marked paid). A next payment date in the future is just that; once
-// it has passed, the schedule rolls forward from it by whole periods, so it
-// never goes stale. Rolling counts from the date itself, so a payment on
-// the 31st lands on the last day of shorter months and comes back after.
+// NextPayment is the next payment not marked paid. A payment made by hand
+// (PaidManually) stays due once its day has passed, so it can be in the
+// past (overdue). Otherwise a passed payment counts as paid and the next one
+// is on or after today. Either way it comes after the latest payment marked
+// paid. Payments repeat every period from the date set, so one on the 31st
+// lands on the last day of shorter months and comes back after.
 func (s Subscription) NextPayment(today time.Time) (time.Time, bool) {
 	anchor, ok := s.Anchor(today)
 	if !ok || !contains(AllPeriods(), s.Period) {
 		return time.Time{}, false
 	}
 
-	from := day(today)
-	if s.LastPaidDate != nil && !day(*s.LastPaidDate).Before(from) {
+	var from time.Time
+	if s.LastPaidDate != nil {
 		from = day(*s.LastPaidDate).AddDate(0, 0, 1)
+	}
+
+	if !s.PaidManually && from.Before(day(today)) {
+		from = day(today)
 	}
 
 	n := 0
@@ -194,18 +196,40 @@ func (s Subscription) NextPayment(today time.Time) (time.Time, bool) {
 	return occurrence(anchor, s.Period, n), true
 }
 
-// MarkPaid marks the next payment paid, for paying early (or on the day),
-// so the one after it shows as next.
-func (s Subscription) MarkPaid(today time.Time, now time.Time) (Subscription, error) {
+// MarkPaid marks the next payment paid, returning the subscription with it
+// as the latest paid and the day it was for, to record.
+func (s Subscription) MarkPaid(today time.Time, now time.Time) (Subscription, time.Time, error) {
 	next, ok := s.NextPayment(today)
 	if !ok {
-		return Subscription{}, errors.New("this subscription has no next payment date")
+		return Subscription{}, time.Time{}, errors.New("this subscription has no next payment date")
 	}
 
 	s.LastPaidDate = &next
 	s.LastUpdatedAt = now
 
-	return s, nil
+	return s, next, nil
+}
+
+// PaidUpTo lists the payments from the date set up to and including the
+// latest paid, newest last, at most limit of them: what a LastPaidDate set
+// before payments were recorded stands for.
+func (s Subscription) PaidUpTo(today time.Time, limit int) []time.Time {
+	anchor, ok := s.Anchor(today)
+	if !ok || s.LastPaidDate == nil || !contains(AllPeriods(), s.Period) {
+		return nil
+	}
+
+	last := day(*s.LastPaidDate)
+	paid := []time.Time{}
+	for n := 0; !occurrence(anchor, s.Period, n).After(last); n++ {
+		paid = append(paid, occurrence(anchor, s.Period, n))
+	}
+
+	if len(paid) > limit {
+		paid = paid[len(paid)-limit:]
+	}
+
+	return paid
 }
 
 // SoonDays is how many days before a payment it counts as coming up: two
@@ -224,7 +248,8 @@ func SoonDays(period string) int {
 	}
 }
 
-// DueIn is how many days until the next payment and whether that's soon.
+// DueIn is how many days until the next payment (negative once it's
+// overdue) and whether that's soon (overdue counts as soon).
 func (s Subscription) DueIn(today time.Time) (next time.Time, days int, soon bool, ok bool) {
 	next, ok = s.NextPayment(today)
 	if !ok {
@@ -281,14 +306,6 @@ func occurrence(anchor time.Time, period string, n int) time.Time {
 	month := time.Month(total - floorDiv(total, 12)*12 + 1)
 
 	return time.Date(year, month, clampDay(year, month, anchor.Day()), 0, 0, 0, 0, time.UTC)
-}
-
-func sameDay(a, b *time.Time) bool {
-	if a == nil || b == nil {
-		return a == nil && b == nil
-	}
-
-	return day(*a).Equal(day(*b))
 }
 
 func floorDiv(a, b int) int {
