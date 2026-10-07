@@ -1,4 +1,5 @@
-// Overview: the same figures as the TUI home screen, in the base currency.
+// Overview: financial summary, obligations and net worth, in the base
+// currency.
 import { api } from "../api.js";
 import { budgetRow } from "./budgets.js";
 import { openRegularPayment } from "./regular.js";
@@ -51,7 +52,7 @@ function render(o) {
     ["Investments", money(o.investmentsCents)],
   ]);
 
-  // Like the TUI, amounts the user owes turn red once they are above zero.
+  // Amounts the user owes turn red once they are above zero.
   const owed = (cents) => (cents > 0 ? "negative" : "");
   renderStats(el.obligations, [
     ["Regular obligations a month", money(o.monthlyObligationsCents)],

@@ -85,7 +85,7 @@ func TestRenamesNeedNoRecordChanges(t *testing.T) {
 func TestOtherRecordsLink(t *testing.T) {
 	s, _ := openTest(t)
 
-	// A payment method typed in (the TUI's custom one) is added.
+	// A payment method typed in is added.
 	sub := subscription.Subscription{Name: "Music", Currency: "$", AmountCents: 5, Period: "month", PaymentMethod: "Revolut"}
 	if err := s.CreateSubscription(&sub); err != nil || sub.PaymentMethodUID == "" {
 		t.Fatalf("expected a link: %+v %v", sub, err)

@@ -1,5 +1,5 @@
 // Taxes: unpaid or paid, with paid progress. Each tax can be edited, take
-// logged payments and be deleted, like in the TUI. A tax is paid in its own
+// logged payments and be deleted. A tax is paid in its own
 // currency and counts in the base currency at the rate recorded with it.
 import { api } from "../api.js";
 import {
@@ -152,7 +152,7 @@ function openAdd() {
     form.elements.currency,
     (view?.currencies ?? []).map((c) => c.name),
   );
-  // The TUI's form starts with today as the due date too.
+  // The due date starts at today.
   form.elements.dueDate.value = localDate(new Date());
   syncAddCurrency();
 

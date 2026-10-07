@@ -12,7 +12,7 @@ import (
 	"github.com/lazybark/cents/money"
 )
 
-// ListMode picks which invoices a list shows, like the TUI's invoice menu.
+// ListMode picks which invoices a list shows.
 // Incoming invoices are the ones I have to pay; outgoing ones are paid to me.
 type ListMode string
 

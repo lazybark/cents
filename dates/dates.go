@@ -1,6 +1,5 @@
-// Package dates parses the dates people type into a form. Each interface
-// has its own format (the TUI takes DD.MM.YYYY, the desktop's date inputs
-// send YYYY-MM-DD), so parsing takes the format and errors name it.
+// Package dates parses the dates people type into a form. Parsing takes the
+// format (the desktop's date inputs send YYYY-MM-DD) so errors can name it.
 package dates
 
 import (
@@ -16,10 +15,7 @@ type Format struct {
 	Label string
 }
 
-var (
-	TUI = Format{Layout: "02.01.2006", Label: "DD.MM.YYYY"}
-	ISO = Format{Layout: "2006-01-02", Label: "YYYY-MM-DD"}
-)
+var ISO = Format{Layout: "2006-01-02", Label: "YYYY-MM-DD"}
 
 // Required parses a mandatory date. what names the field in errors, like
 // "created" in "created date is required".

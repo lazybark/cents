@@ -1,0 +1,307 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>cents</title>
+  <!-- Telegram's Mini App bridge: the sign-in, theme colors and haptics. -->
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main class="app">
+    <p id="message" class="message" hidden></p>
+
+    <section id="home" class="screen" hidden>
+      <section class="card">
+        <div class="card-head">
+          <h2 id="home-month" class="title"></h2>
+          <span id="home-net" class="figure"></span>
+        </div>
+        <div class="split">
+          <div><span class="label">Income</span><span id="home-income" class="positive"></span></div>
+          <div><span class="label">Expenses</span><span id="home-expenses"></span></div>
+        </div>
+        <p id="home-missing" class="hint" hidden></p>
+      </section>
+
+      <section id="home-budgets" class="card" hidden>
+        <h3 class="subtitle">Budgets</h3>
+        <ul id="budget-list" class="list wrap"></ul>
+      </section>
+
+      <section id="home-upcoming" class="card" hidden>
+        <h3 class="subtitle">Coming up</h3>
+        <ul id="upcoming-list" class="list"></ul>
+      </section>
+
+      <section class="card">
+        <div class="row">
+          <span class="label">Net worth</span>
+          <span id="home-worth" class="figure"></span>
+        </div>
+      </section>
+    </section>
+
+    <section id="add" class="screen" hidden>
+      <form id="entry-form" class="form" novalidate>
+        <h2 id="form-title" class="title">Add</h2>
+        <div class="segmented" role="radiogroup">
+          <label><input type="radio" name="kind" value="expense" checked><span>Expense</span></label>
+          <label><input type="radio" name="kind" value="income"><span>Income</span></label>
+        </div>
+        <div class="amount-row">
+          <input name="amount" class="amount" inputmode="decimal" placeholder="0.00" autocomplete="off" aria-label="Amount">
+          <select name="currency" aria-label="Currency"></select>
+        </div>
+        <div id="categories" class="chips" role="radiogroup" aria-label="Category"></div>
+        <input name="comment" placeholder="Comment" autocomplete="off">
+        <div class="pair">
+          <input name="date" type="date" aria-label="Date">
+          <select name="account" aria-label="Account"></select>
+        </div>
+        <input name="tags" placeholder="Tags: work, trip" autocomplete="off">
+        <p id="form-error" class="error" hidden></p>
+        <button id="save" class="button" type="submit">Save</button>
+        <button id="delete" class="button button-danger" type="button" hidden>Delete</button>
+      </form>
+    </section>
+
+    <section id="entries" class="screen" hidden>
+      <div class="month-nav">
+        <button id="month-prev" class="icon" type="button" aria-label="Previous month">‹</button>
+        <h2 id="entries-month" class="title"></h2>
+        <button id="month-next" class="icon" type="button" aria-label="Next month">›</button>
+      </div>
+      <p id="entries-totals" class="hint"></p>
+      <div id="entry-days"></div>
+      <p id="entries-empty" class="hint" hidden>No entries this month.</p>
+    </section>
+
+    <section id="accounts" class="screen" hidden>
+      <section class="card">
+        <div class="card-head">
+          <h2 class="title">Accounts</h2>
+          <span id="accounts-total" class="figure"></span>
+        </div>
+        <ul id="currency-totals" class="list compact"></ul>
+        <p id="accounts-note" class="hint" hidden></p>
+      </section>
+      <ul id="account-list" class="list card"></ul>
+      <button id="archived-toggle" class="link" type="button" hidden></button>
+      <ul id="archived-list" class="list card" hidden></ul>
+      <button id="account-new" class="button wide" type="button">New account</button>
+    </section>
+
+    <section id="account" class="screen" hidden>
+      <section class="card">
+        <h2 id="account-name" class="title"></h2>
+        <p id="account-description" class="hint"></p>
+        <div class="balance">
+          <span id="account-balance" class="figure"></span>
+          <span id="account-base" class="hint"></span>
+        </div>
+        <p id="account-updated" class="hint"></p>
+      </section>
+
+      <form id="balance-form" class="form card" novalidate>
+        <label class="label" for="balance-amount">New balance</label>
+        <input id="balance-amount" name="amount" class="amount" inputmode="decimal" autocomplete="off">
+        <label class="switch"><span>Keep it in the history</span><input type="checkbox" name="log" checked></label>
+        <p class="error" hidden></p>
+        <button class="button" type="submit">Save balance</button>
+      </form>
+
+      <section class="card">
+        <label class="switch"><span>Counted in totals</span><input id="account-counted" type="checkbox"></label>
+        <label class="switch"><span>Archived</span><input id="account-archived" type="checkbox"></label>
+        <p class="hint">Archived accounts keep their history but aren't offered for new entries.</p>
+      </section>
+
+      <section id="history-card" class="card" hidden>
+        <h3 class="subtitle">History</h3>
+        <ul id="history-list" class="list"></ul>
+      </section>
+
+      <p id="account-error" class="error" hidden></p>
+      <button id="account-delete" class="button button-danger wide" type="button">Delete account</button>
+    </section>
+
+    <section id="new-account" class="screen" hidden>
+      <form id="account-form" class="form" novalidate>
+        <h2 class="title">New account</h2>
+        <input name="name" placeholder="Name" autocomplete="off">
+        <input name="description" placeholder="What it's for" autocomplete="off">
+        <div class="amount-row">
+          <input name="amount" class="amount" inputmode="decimal" placeholder="0.00" autocomplete="off" aria-label="Balance">
+          <select name="currency" aria-label="Currency"></select>
+        </div>
+        <label class="switch"><span>Counted in totals</span><input type="checkbox" name="counted" checked></label>
+        <p class="error" hidden></p>
+        <button class="button" type="submit">Add account</button>
+      </form>
+    </section>
+
+    <section id="more" class="screen" hidden>
+      <h2 class="title screen-title">More</h2>
+      <ul class="list card">
+        <li><button class="nav-row" type="button" data-screen="budgets"><span>Budgets</span><span id="more-budgets" class="item-note"></span></button></li>
+        <li><button class="nav-row" type="button" data-kind="subscription"><span>Subscriptions</span><span id="more-subscription" class="item-note"></span></button></li>
+        <li><button class="nav-row" type="button" data-kind="obligation"><span>Obligations</span><span id="more-obligation" class="item-note"></span></button></li>
+        <li><button class="nav-row" type="button" data-screen="investments"><span>Investments</span><span id="more-investments" class="item-note"></span></button></li>
+      </ul>
+      <p class="hint">Subscriptions are the small regular payments (music, software); obligations the serious ones (rent, bills, insurance).</p>
+    </section>
+
+    <section id="payments" class="screen" hidden>
+      <section class="card">
+        <h2 id="payments-title" class="title"></h2>
+        <div class="split">
+          <div><span class="label">A month</span><span id="payments-monthly" class="figure"></span></div>
+          <div><span class="label">A year</span><span id="payments-yearly" class="figure"></span></div>
+        </div>
+        <p class="hint">Active ones, in the base currency.</p>
+      </section>
+      <div class="filter" role="group" aria-label="Show">
+        <button type="button" data-mode="active">Active</button>
+        <button type="button" data-mode="all">All</button>
+      </div>
+      <ul id="payment-list" class="list card"></ul>
+      <p id="payments-empty" class="hint" hidden>None yet.</p>
+      <button id="payment-new" class="button wide" type="button"></button>
+    </section>
+
+    <section id="payment" class="screen" hidden>
+      <section id="paid-card" class="card" hidden>
+        <div class="card-head">
+          <div>
+            <span class="label">Next payment</span>
+            <span id="paid-next"></span>
+          </div>
+          <button id="paid-mark" class="button" type="button">Mark paid</button>
+        </div>
+        <ul id="paid-list" class="list compact"></ul>
+      </section>
+
+      <form id="payment-form" class="form" novalidate>
+        <h2 id="payment-title" class="title"></h2>
+        <label class="field"><span class="label">Name</span><input name="name" autocomplete="off"></label>
+        <div class="amount-row">
+          <input name="amount" class="amount" inputmode="decimal" placeholder="0.00" autocomplete="off" aria-label="Amount">
+          <select name="currency" aria-label="Currency"></select>
+        </div>
+        <div class="pair">
+          <label class="field"><span class="label">How often</span><select name="period"></select></label>
+          <label class="field"><span class="label">Repeats from</span><input name="nextPayment" type="date"></label>
+        </div>
+        <label class="field"><span class="label">Type</span><input name="type" list="payment-types" autocomplete="off"></label>
+        <datalist id="payment-types"></datalist>
+        <label class="field"><span class="label">Paid with</span><input name="paymentMethod" list="payment-methods" autocomplete="off"></label>
+        <datalist id="payment-methods"></datalist>
+        <section class="card">
+          <label class="switch"><span>Active</span><input type="checkbox" name="isActive"></label>
+          <label class="switch"><span>Paid by hand</span><input type="checkbox" name="paidManually"></label>
+          <label class="switch"><span>Obligation</span><input type="checkbox" name="isObligation"></label>
+          <p class="hint">Paid by hand: a payment stays due, then overdue, until marked paid. Otherwise it counts as paid once its day passes (a card charged automatically).</p>
+        </section>
+        <p class="error" hidden></p>
+        <button class="button" type="submit">Save</button>
+        <button id="payment-delete" class="button button-danger" type="button" hidden>Delete</button>
+      </form>
+    </section>
+
+    <section id="budgets" class="screen" hidden>
+      <div class="month-nav">
+        <button id="budgets-prev" class="icon" type="button" aria-label="Previous month">‹</button>
+        <h2 id="budgets-month" class="title"></h2>
+        <button id="budgets-next" class="icon" type="button" aria-label="Next month">›</button>
+      </div>
+      <p id="budgets-days" class="hint"></p>
+      <ul id="budgets-list" class="list card wrap"></ul>
+      <p id="budgets-empty" class="hint" hidden>No budgets yet: set a limit for all spending, or for a category.</p>
+      <p id="budgets-missing" class="hint" hidden></p>
+      <button id="budget-new" class="button wide" type="button">New budget</button>
+    </section>
+
+    <section id="budget" class="screen" hidden>
+      <form id="budget-form" class="form" novalidate>
+        <h2 id="budget-title" class="title"></h2>
+        <label id="budget-category-field" class="field"><span class="label">For</span><select name="category"></select></label>
+        <label class="field"><span class="label">Limit a month</span><input name="limit" class="amount" inputmode="decimal" placeholder="0.00" autocomplete="off"></label>
+        <button id="budget-usual" class="link inline" type="button" hidden></button>
+        <p class="hint">In the base currency. A budget turns yellow at 80% of its limit and red once it's over.</p>
+        <p class="error" hidden></p>
+        <button class="button" type="submit">Save</button>
+        <button id="budget-delete" class="button button-danger" type="button" hidden>Delete</button>
+      </form>
+    </section>
+
+    <section id="investments" class="screen" hidden>
+      <section class="card">
+        <div class="card-head">
+          <h2 class="title">Investments</h2>
+          <span id="investments-total" class="figure"></span>
+        </div>
+        <div id="investments-gain-row" class="split">
+          <div><span class="label">Cost</span><span id="investments-cost"></span></div>
+          <div><span class="label">Gain</span><span id="investments-gain"></span></div>
+        </div>
+        <ul id="investments-types" class="list compact"></ul>
+        <p id="investments-note" class="hint" hidden></p>
+      </section>
+      <ul id="investment-list" class="list card"></ul>
+      <p id="investments-empty" class="hint" hidden>No investments yet.</p>
+      <button id="investment-new" class="button wide" type="button">New investment</button>
+    </section>
+
+    <section id="investment" class="screen" hidden>
+      <section id="investment-value-card" class="card">
+        <h2 id="investment-name" class="title"></h2>
+        <div class="balance">
+          <span id="investment-value" class="figure"></span>
+          <span id="investment-base" class="hint"></span>
+        </div>
+        <p id="investment-gain" class="hint"></p>
+        <form id="value-form" class="form" novalidate>
+          <label class="field"><span class="label">Value today</span><input name="value" class="amount" inputmode="decimal" autocomplete="off"></label>
+          <p class="error" hidden></p>
+          <button class="button" type="submit">Update value</button>
+        </form>
+      </section>
+
+      <section id="investment-history-card" class="card" hidden>
+        <h3 class="subtitle">History</h3>
+        <ul id="investment-history" class="list"></ul>
+      </section>
+
+      <form id="investment-form" class="form" novalidate>
+        <h3 id="investment-form-title" class="subtitle">Details</h3>
+        <label class="field"><span class="label">Name</span><input name="name" autocomplete="off"></label>
+        <label class="field"><span class="label">Type</span><input name="type" list="investment-types-list" autocomplete="off"></label>
+        <datalist id="investment-types-list"></datalist>
+        <label id="investment-new-value" class="field"><span class="label">Value now</span><input name="value" class="amount" inputmode="decimal" placeholder="0.00" autocomplete="off"></label>
+        <div class="pair">
+          <label class="field"><span class="label">Currency</span><select name="currency"></select></label>
+          <label class="field"><span class="label">Cost (optional)</span><input name="cost" inputmode="decimal" autocomplete="off"></label>
+        </div>
+        <label class="field"><span class="label">Bought on (optional)</span><input name="acquiredAt" type="date"></label>
+        <label class="field"><span class="label">Note</span><input name="description" autocomplete="off"></label>
+        <label class="switch"><span>Counted in net worth</span><input type="checkbox" name="counted" checked></label>
+        <p class="error" hidden></p>
+        <button class="button" type="submit">Save</button>
+        <button id="investment-delete" class="button button-danger" type="button" hidden>Delete</button>
+      </form>
+    </section>
+  </main>
+
+  <nav class="tabs" aria-label="Screens">
+    <button type="button" data-screen="home">Home</button>
+    <button type="button" data-screen="entries">Entries</button>
+    <button type="button" data-screen="add" class="add-tab" aria-label="Add an entry"><span>+</span></button>
+    <button type="button" data-screen="accounts">Accounts</button>
+    <button type="button" data-screen="more">More</button>
+  </nav>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>

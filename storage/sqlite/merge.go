@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/lazybark/cents/fault"
 	"github.com/lazybark/cents/flows/account"
 	"gorm.io/gorm"
 )
@@ -53,7 +54,7 @@ func uidOf(tx *gorm.DB, table string, id uint) (string, error) {
 	}
 
 	if len(uids) == 0 {
-		return "", fmt.Errorf("%d not found", id)
+		return "", fault.NotFound(fmt.Sprint(id))
 	}
 
 	return uids[0], nil

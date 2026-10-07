@@ -71,8 +71,3 @@ func TestSwitchingDatabases(t *testing.T) {
 		t.Fatal("an empty pick (cancelled) changes nothing")
 	}
 }
-
-func (a *API) storageAndSettingsForTest() (settings.AppSettings, error) {
-	_, stts, err := a.storageAndSettings()
-	return stts, err
-}

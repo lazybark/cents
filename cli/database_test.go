@@ -160,3 +160,50 @@ func TestEncryptedDatabases(t *testing.T) {
 	}
 	_ = storage.NewEncryptedStorage(db, vault).Close()
 }
+
+func TestServerIsRemembered(t *testing.T) {
+	l, dir := newTestLauncher(t)
+	if server, err := l.server(); server != nil || err != nil {
+		t.Fatalf("expected no server without config: %v %v", server, err)
+	}
+
+	dbPath := filepath.Join(dir, "cents.db")
+	if _, _, _, err := l.choose(dbPath, true); err != nil {
+		t.Fatal(err)
+	}
+
+	want := config.Server{URL: "https://cents.lan:8740", Token: "cents_secret", Certificate: "AB:CD"}
+	if err := l.saveServer(want); err != nil {
+		t.Fatal(err)
+	}
+
+	// The server wins; the database file is kept to offer again.
+	cfg, err := config.Load(l.configPath)
+	if err != nil || cfg.DBPath != dbPath || cfg.Server == nil || *cfg.Server != want {
+		t.Fatalf("unexpected config %+v %v", cfg, err)
+	}
+
+	if server, err := l.server(); err != nil || server == nil || *server != want {
+		t.Fatalf("expected the server: %v %v", server, err)
+	}
+
+	// The token makes the file private.
+	if info, err := os.Stat(l.configPath); err != nil || info.Mode().Perm() != 0o600 {
+		t.Fatalf("expected the config readable by its owner only: %v %v", info.Mode(), err)
+	}
+
+	// --db is a database file, whatever the config says.
+	override := launcher{configPath: l.configPath, dbOverride: dbPath}
+	if server, _ := override.server(); server != nil {
+		t.Fatal("expected --db to skip the server")
+	}
+
+	// Picking a database file forgets the server.
+	if _, _, _, err := l.choose(dbPath, false); err != nil {
+		t.Fatal(err)
+	}
+
+	if server, err := l.server(); server != nil || err != nil {
+		t.Fatalf("expected the server forgotten: %v %v", server, err)
+	}
+}

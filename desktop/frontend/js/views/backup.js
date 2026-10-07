@@ -44,9 +44,9 @@ export function init() {
 
 export async function show(message) {
   try {
-    const view = await api.ExportOptions();
+    const [view, status] = await Promise.all([api.ExportOptions(), api.Status()]);
     state.view = view;
-    render(view);
+    render(view, status);
     if (!el.form.elements.from.value && !el.form.elements.to.value) applyPreset();
     setStatus(message ?? "backup & export");
   } catch (err) {
@@ -54,10 +54,12 @@ export async function show(message) {
   }
 }
 
-function render(view) {
+function render(view, status) {
   el.backupLast.textContent = view.lastBackupAt ? `Last backup: ${view.lastBackupAt}, to ${view.lastBackupPath}` : "No backup made yet.";
   el.backupLast.className = view.lastBackupAt ? "" : "muted";
-  el.backupDB.textContent = view.dbPath;
+  el.backupDB.textContent = status.server || view.dbPath;
+  $("backup-hint").hidden = Boolean(status.server);
+  $("backup-hint-server").hidden = !status.server;
 
   state.picked ??= new Set(view.datasets.map((ds) => ds.key));
   const box = (ds) => {

@@ -15,7 +15,7 @@ document.addEventListener("input", (event) => {
   input.setSelectionRange(start, end);
 });
 
-// Mirrors renderMoneyWithCurrency in app/render.go: "-$ 12.34".
+// formatMoney puts the sign before the currency: "-$ 12.34".
 export function formatMoney(currency, cents) {
   const sign = cents < 0 ? "-" : "";
   const amount = formatAmount(Math.abs(cents));
@@ -23,12 +23,12 @@ export function formatMoney(currency, cents) {
   return currency ? `${sign}${currency} ${amount}` : `${sign}${amount}`;
 }
 
-// Mirrors formatAmount in app/format.go, for prefilling inputs.
+// formatAmount gives plain cents as "12.34", for prefilling inputs.
 export function formatAmount(cents) {
   return (cents / 100).toFixed(2);
 }
 
-// Mirrors formatUpdatedAt in app/format.go: records never updated carry a
+// formatUpdatedAt shows a dash for records never updated, which carry a
 // 1970 placeholder date.
 export function formatUpdatedAt(value) {
   const date = new Date(value);

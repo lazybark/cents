@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/lazybark/cents/fault"
 	"github.com/lazybark/cents/flows/account"
 	"github.com/lazybark/cents/flows/cashflow"
 	"github.com/lazybark/cents/flows/debt"
@@ -46,10 +47,6 @@ func (s *SQLiteStorage) LoadInvoices() ([]invoice.Invoice, error) {
 
 func (s *SQLiteStorage) LoadCashflows() ([]cashflow.CashflowEntry, error) {
 	return LoadCashflows(s.db)
-}
-
-func (s *SQLiteStorage) ExportData(request ExportRequest) (ExportResult, error) {
-	return ExportData(s.db, request)
 }
 
 func (s *SQLiteStorage) LoadAccountValueLogs(accountID uint) ([]account.AccountValueLog, error) {
@@ -600,7 +597,7 @@ func (s *SQLiteStorage) SaveInvoicePaid(entry *invoice.Invoice, cash *cashflow.C
 
 // ErrLogNotFound is returned when a log entry to delete doesn't exist or
 // belongs to another record.
-var ErrLogNotFound = errors.New("log entry not found")
+var ErrLogNotFound error = fault.NotFound("log entry")
 
 // DeleteAccountValueLog removes one value history entry of an account.
 func (s *SQLiteStorage) DeleteAccountValueLog(accountID uint, logID uint) error {

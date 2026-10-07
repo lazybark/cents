@@ -1,5 +1,5 @@
 // Package summary computes the home-screen figures (financial summary and
-// obligations) shared by the TUI and the desktop app. All amounts are in the
+// obligations) shown by the desktop app. All amounts are in the
 // base currency; entries without a conversion rate are skipped.
 package summary
 

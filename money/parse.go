@@ -1,5 +1,5 @@
-// Package money holds amount parsing shared by every interface, so the TUI
-// and the desktop app accept exactly the same input.
+// Package money holds amount parsing shared by every interface, so they
+// all accept exactly the same input.
 package money
 
 import (

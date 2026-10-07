@@ -1,5 +1,5 @@
 // Invoices: unpaid ones paid to me, unpaid ones I pay, and paid ones, with
-// the unpaid totals. Every field can be edited, like in the TUI; one dialog
+// the unpaid totals. Every field can be edited; one dialog
 // adds and edits.
 import { api } from "../api.js";
 import { cashflowInput, setupCashflow, showCashflow } from "../payment-cashflow.js";
@@ -46,7 +46,7 @@ const el = {
 const TAB_LABELS = { outgoing: "They pay me", incoming: "I pay", paid: "Paid" };
 
 const state = {
-  // Like the TUI menu, the list starts with invoices paid to me.
+  // The list starts with invoices paid to me.
   mode: "outgoing",
   view: null,
   // The invoice being edited, or null when adding one.

@@ -11,7 +11,7 @@ import (
 	"github.com/lazybark/cents/money"
 )
 
-// ListMode picks which debts a list shows, like the TUI's debt menu.
+// ListMode picks which debts a list shows.
 type ListMode string
 
 const (

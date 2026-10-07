@@ -1,10 +1,6 @@
 package cashflow
 
-import (
-	"time"
-
-	"github.com/charmbracelet/bubbles/textinput"
-)
+import "time"
 
 type CashflowEntry struct {
 	ID            uint `gorm:"primaryKey"`
@@ -32,28 +28,6 @@ type CashflowEntry struct {
 	// Tags are the names of the entry's tags, filled in on load and saved
 	// with it.
 	Tags []string `gorm:"-"`
-}
-
-const (
-	CashflowFieldCurrency = iota
-	CashflowFieldAmount
-	CashflowFieldDate
-	CashflowFieldCategory
-	CashflowFieldAccount
-	CashflowFieldComment
-	CashflowFieldCount
-)
-
-type AddCashflowForm struct {
-	Inputs          []textinput.Model
-	Active          int
-	CurrencyOptions []string
-	CurrencyIndex   int
-	IsIncome        bool
-	CategoryOptions []string
-	CategoryIndex   int
-	AccountOptions  []string
-	AccountIndex    int
 }
 
 type CashflowMonthlyOverviewRow struct {
