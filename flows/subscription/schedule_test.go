@@ -26,9 +26,9 @@ func TestNextPaymentRollsForward(t *testing.T) {
 		{"weekly", Subscription{Period: PeriodWeek, NextPaymentDate: ptr(d(2026, 9, 1))}, d(2026, 10, 6)},
 		{"quarterly", Subscription{Period: PeriodQuarter, NextPaymentDate: ptr(d(2026, 1, 10))}, d(2026, 10, 10)},
 		{"yearly", Subscription{Period: PeriodYear, NextPaymentDate: ptr(d(2024, 2, 29))}, d(2027, 2, 28)},
-		{"TUI yearly date", Subscription{Period: PeriodYear, PaymentDateYearly: "16.02.2027"}, d(2027, 2, 16)},
-		{"TUI monthly day, passed", Subscription{Period: PeriodMonth, PaymentDayMonthly: intPtr(1)}, d(2026, 11, 1)},
-		{"TUI monthly day, ahead", Subscription{Period: PeriodMonth, PaymentDayMonthly: intPtr(18)}, d(2026, 10, 18)},
+		{"old yearly date", Subscription{Period: PeriodYear, PaymentDateYearly: "16.02.2027"}, d(2027, 2, 16)},
+		{"old monthly day, passed", Subscription{Period: PeriodMonth, PaymentDayMonthly: intPtr(1)}, d(2026, 11, 1)},
+		{"old monthly day, ahead", Subscription{Period: PeriodMonth, PaymentDayMonthly: intPtr(18)}, d(2026, 10, 18)},
 	}
 
 	for _, c := range cases {
@@ -105,15 +105,15 @@ func TestUpdate(t *testing.T) {
 		t.Fatalf("unexpected %+v %v", sub, err)
 	}
 
-	if sub.PaymentDayMonthly == nil || *sub.PaymentDayMonthly != 31 || sub.PaymentDateYearly != "" {
-		t.Fatalf("monthly day should follow for the TUI: %+v", sub)
-	}
-
-	yearly := ok
-	yearly.Period = "year"
-	sub, _ = sub.Update(yearly, dates.ISO, now)
-	if sub.PaymentDateYearly != "31.10.2026" || sub.PaymentDayMonthly != nil {
-		t.Fatalf("yearly date should follow for the TUI: %+v", sub)
+	// The old yearly date and monthly day give way to the next payment, so
+	// clearing it leaves no schedule.
+	day := 18
+	old := Subscription{Period: PeriodMonth, PaymentDateYearly: "16.02.2027", PaymentDayMonthly: &day}
+	cleared := ok
+	cleared.NextPayment = ""
+	sub, err = old.Update(cleared, dates.ISO, now)
+	if _, scheduled := sub.Anchor(now); err != nil || scheduled || sub.PaymentDateYearly != "" || sub.PaymentDayMonthly != nil {
+		t.Fatalf("old days should be cleared: %+v %v", sub, err)
 	}
 
 	cases := map[string]func(*Fields){

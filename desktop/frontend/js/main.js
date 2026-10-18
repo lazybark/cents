@@ -1,9 +1,11 @@
-// App shell: database setup, the main menu and switching between views.
+// App shell: database or server setup, the main menu and switching between
+// views.
 // Each view module exports a title and show(); init() is optional, and so
 // is enter(), called when the view is switched to (not on a refresh).
 import { api } from "./api.js";
 import { showCurrencySetup } from "./currency-setup.js";
 import { loadNotes } from "./notes.js";
+import { openServerDialog } from "./server.js";
 import { busy, formError, setDBPath, setStatus, takeNotice } from "./ui.js";
 import * as accounts from "./views/accounts.js";
 import * as analytics from "./views/analytics.js";
@@ -31,8 +33,11 @@ const el = {
   setup: $("setup"),
   setupNote: $("setup-note"),
   setupError: $("setup-error"),
+  setupConnecting: $("setup-connecting"),
   createDB: $("create-db"),
   openDB: $("open-db"),
+  connectServer: $("connect-server"),
+  retryServer: $("retry-server"),
 
   unlock: $("unlock"),
   unlockPath: $("unlock-path"),
@@ -51,16 +56,39 @@ let current = DEFAULT_VIEW;
 
 // --- setup -----------------------------------------------------------------
 
-function showSetup(note) {
+// showSetup asks where the data lives; retry offers to try the server
+// remembered again.
+function showSetup(note, retry = false) {
   el.setup.hidden = false;
   el.app.hidden = true;
   el.setupNote.hidden = !note;
   el.setupNote.textContent = note;
+  el.retryServer.hidden = !retry;
+  // Trying again is what's most likely wanted then.
+  el.createDB.classList.toggle("button-primary", !retry);
+}
+
+// reconnect connects to the server remembered, saying so meanwhile.
+async function reconnect(server) {
+  showSetup("");
+  el.setupError.hidden = true;
+  el.setupConnecting.textContent = `Connecting to ${server}…`;
+  el.setupConnecting.hidden = false;
+
+  try {
+    await busy(el.setup, () => api.Reconnect());
+    openDatabase(await api.Status());
+  } catch (err) {
+    showSetup(`Couldn't connect to ${server}: ${err}`, true);
+  } finally {
+    el.setupConnecting.hidden = true;
+  }
 }
 
 // showApp opens the app on the default view, resolving once it's shown.
-function showApp(dbPath) {
-  setDBPath(dbPath);
+// location is the database file or server in use, for the status bar.
+function showApp(location) {
+  setDBPath(location);
   el.setup.hidden = true;
   el.app.hidden = false;
   return navigate(DEFAULT_VIEW);
@@ -96,7 +124,7 @@ async function chooseAnother() {
   el.unlock.hidden = true;
   const status = await api.Status();
   if (status.ready) openDatabase(status);
-  else showSetup(status.note);
+  else showSetup(status.note, Boolean(status.server));
 }
 
 // openDatabase shows the app, after picking currencies for a new database;
@@ -110,14 +138,15 @@ function openDatabase(status) {
   if (!status.needsCurrencies) {
     // Said after the first view loads, which sets the status itself.
     const notice = takeNotice();
-    showApp(status.dbPath).then(() => notice && setStatus(notice));
+    showApp(status.dbPath || status.server).then(() => notice && setStatus(notice));
     return;
   }
 
   el.setup.hidden = true;
-  showCurrencySetup(async (rates) => {
+  // A server's database gets its password on the server.
+  showCurrencySetup({ password: !status.server }, async (rates) => {
     // Said after the first view loads, which sets the status itself.
-    await showApp(status.dbPath);
+    await showApp(status.dbPath || status.server);
     if (rates?.lastError) setStatus(`Currencies saved; rates couldn't be fetched yet and will be tried again: ${rates.lastError}`);
     else if (rates) setStatus(`Currencies saved with rates from ${rates.source}`);
   });
@@ -185,6 +214,11 @@ for (const view of Object.values(views)) {
 
 el.createDB.addEventListener("click", () => pick(api.CreateDatabase));
 el.openDB.addEventListener("click", () => pick(api.OpenDatabase));
+el.connectServer.addEventListener("click", () => {
+  el.setupError.hidden = true;
+  openServerDialog(async () => openDatabase(await api.Status()));
+});
+el.retryServer.addEventListener("click", async () => reconnect((await api.Status()).server));
 el.refresh.addEventListener("click", refresh);
 el.unlockForm.addEventListener("submit", unlock);
 el.unlockOther.addEventListener("click", chooseAnother);
@@ -192,6 +226,7 @@ el.unlockOther.addEventListener("click", chooseAnother);
 async function start() {
   const status = await api.Status();
   if (status.ready || status.locked) openDatabase(status);
+  else if (status.server) reconnect(status.server);
   else showSetup(status.note);
 }
 

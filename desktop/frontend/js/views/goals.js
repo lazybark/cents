@@ -1,6 +1,5 @@
 // Goals: active ones or reached ones, with saved progress. Each goal can be
-// edited, take logged changes (which can be deleted again) and be deleted,
-// like in the TUI.
+// edited, take logged changes (which can be deleted again) and be deleted.
 import { api } from "../api.js";
 import {
   busy,

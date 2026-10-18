@@ -11,7 +11,7 @@ import (
 	"github.com/lazybark/cents/money"
 )
 
-// ListMode picks which taxes a list shows, like the TUI's tax menu.
+// ListMode picks which taxes a list shows.
 type ListMode string
 
 const (

@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"errors"
+	"github.com/lazybark/cents/service"
 	"path/filepath"
 	"testing"
 
@@ -48,12 +49,11 @@ func TestPasswords(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	api := newAPI(encryptionOptions(Options{Storage: storage.NewSQLiteStorage(db), DBPath: path}))
-	api.rates = &fakeRates{err: errors.New("offline in tests")}
-	if err := api.SaveCategory(CategoryInput{Name: "Food"}); err != nil {
+	api := offline(newAPI(encryptionOptions(Options{Storage: storage.NewSQLiteStorage(db), DBPath: path})))
+	if err := api.SaveCategory(service.CategoryInput{Name: "Food"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := api.CreateCashflow(NewCashflowInput{Currency: "$", Amount: "12", Date: "2026-03-01", Category: "Food", Comment: "secret"}); err != nil {
+	if _, err := api.CreateCashflow(service.NewCashflowInput{Currency: "$", Amount: "12", Date: "2026-03-01", Category: "Food", Comment: "secret"}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -82,8 +82,7 @@ func TestPasswords(t *testing.T) {
 
 	// Quit and start again: locked until the password is given.
 	api.shutdown(nil)
-	again := newAPI(encryptionOptions(Options{LockedPath: path}))
-	again.rates = &fakeRates{err: errors.New("offline in tests")}
+	again := offline(newAPI(encryptionOptions(Options{LockedPath: path})))
 	if status := again.Status(); !status.Locked || status.Ready || status.LockedPath != path {
 		t.Fatalf("expected locked: %+v", status)
 	}

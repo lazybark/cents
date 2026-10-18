@@ -9,11 +9,21 @@ endif
 build:
 	go build -tags $(DESKTOP_TAGS) -o bin/cents ./cmd
 
+# The storage server: plain Go, no desktop window.
+build-server:
+	go build -o bin/cents-server ./cmd/server
+
+# The Telegram bot: plain Go, like the server.
+build-bot:
+	go build -o bin/cents-bot ./cmd/bot
+
+build-all:
+	$(MAKE) build
+	$(MAKE) build-server
+	$(MAKE) build-bot
+
 run: build
 	./bin/cents
-
-run-tui:
-	go run ./cmd --mode=t
 
 test:
 	go run gotest.tools/gotestsum@latest --format-icons hivis --format-hide-empty-pkg

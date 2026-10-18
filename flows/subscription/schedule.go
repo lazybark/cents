@@ -20,15 +20,13 @@ const (
 	PeriodYear    = "year"
 )
 
-// AllPeriods lists every period, shortest first. (PeriodOptions are the
-// ones the TUI form offers.)
+// AllPeriods lists every period, shortest first.
 func AllPeriods() []string {
 	return []string{PeriodWeek, PeriodMonth, PeriodQuarter, PeriodYear}
 }
 
 // SubscriptionTypes are common kinds of minor subscriptions, offered when
-// picking a type; any other can be typed in. The TUI's TypeOptions are
-// among them.
+// picking a type; any other can be typed in.
 func SubscriptionTypes() []string {
 	return []string{"Software", "Multimedia", "Domain", "Service", "Membership", "Fitness & sports", "Education", "Donation", "Other"}
 }
@@ -73,8 +71,8 @@ type Fields struct {
 }
 
 // Update replaces every field of the subscription with f (a zero value
-// makes a new one). The old yearly date and monthly day are kept in step
-// with the next payment, for the TUI.
+// makes a new one). The next payment replaces the yearly date and monthly
+// day older versions set, so they can't bring back a cleared schedule.
 func (s Subscription) Update(f Fields, format dates.Format, now time.Time) (Subscription, error) {
 	name := strings.TrimSpace(f.Name)
 	if name == "" {
@@ -122,31 +120,15 @@ func (s Subscription) Update(f Fields, format dates.Format, now time.Time) (Subs
 	s.Period = period
 	s.NextPaymentDate = next
 	s.LastUpdatedAt = now
-	s.syncTUIDays()
+	s.PaymentDateYearly = ""
+	s.PaymentDayMonthly = nil
 
 	return s, nil
 }
 
-// syncTUIDays sets the yearly date and monthly day the TUI shows from the
-// next payment.
-func (s *Subscription) syncTUIDays() {
-	s.PaymentDateYearly = ""
-	s.PaymentDayMonthly = nil
-	if s.NextPaymentDate == nil {
-		return
-	}
-
-	switch s.Period {
-	case PeriodYear:
-		s.PaymentDateYearly = s.NextPaymentDate.Format(PaymentDateLayout)
-	case PeriodMonth:
-		day := s.NextPaymentDate.Day()
-		s.PaymentDayMonthly = &day
-	}
-}
-
 // Anchor is a payment date the schedule repeats from: the next payment
-// date, or else the TUI's yearly date or monthly day (that day this month).
+// date, or else the yearly date or monthly day older versions set (that
+// day this month).
 // It reports false when the subscription has no schedule.
 func (s Subscription) Anchor(today time.Time) (time.Time, bool) {
 	if s.NextPaymentDate != nil {

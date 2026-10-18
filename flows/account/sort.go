@@ -25,16 +25,6 @@ func SortOptions() []string {
 	}
 }
 
-func SortLabel(field SortField) string {
-	options := SortOptions()
-	index := int(field)
-	if index < 0 || index >= len(options) {
-		return options[0]
-	}
-
-	return options[index]
-}
-
 // Sort returns a sorted copy. Ties fall back to newest created first.
 func Sort(accounts []Account, stts settings.AppSettings, field SortField) []Account {
 	if len(accounts) < 2 {

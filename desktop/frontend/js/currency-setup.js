@@ -38,10 +38,13 @@ el.search.addEventListener("change", () => {
 el.save.addEventListener("click", save);
 el.skip.addEventListener("click", skip);
 
-// showCurrencySetup shows the screen; done(status) runs once currencies are
-// saved (status says how rates went) or the pick is skipped (no status).
-export async function showCurrencySetup(done) {
+// showCurrencySetup shows the screen, offering a password for the database
+// if password is set; done(status) runs once currencies are saved (status
+// says how rates went) or the pick is skipped (no status).
+export async function showCurrencySetup({ password }, done) {
   state.done = done;
+  for (const part of el.screen.querySelectorAll(".setup-password")) part.hidden = !password;
+  el.password.value = el.passwordAgain.value = "";
   state.codes = [];
   state.base = "";
   el.screen.hidden = false;

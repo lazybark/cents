@@ -1,9 +1,10 @@
-// Settings: base currency plus every settings list the TUI can edit. Each
+// Settings: base currency plus every settings list. Each
 // list is described once in LISTS; one panel renderer and one dialog serve
 // them all.
 import { api } from "../api.js";
 import { describe, loadCatalog, match } from "../currencies.js";
 import { openMerge } from "../merge.js";
+import { openServerDialog } from "../server.js";
 import { THEMES, savedTheme, setTheme } from "../theme.js";
 import { badge, busy, cell, clickableRow, confirmDelete, formatUpdatedAt, formError, reloadApp, setStatus } from "../ui.js";
 
@@ -19,9 +20,12 @@ const el = {
   ratesNote: $("rates-note"),
   ratesError: $("rates-error"),
   db: $("settings-db"),
+  dbKind: $("settings-db-kind"),
   dbOpen: $("db-open"),
   dbCreate: $("db-create"),
+  dbConnect: $("db-connect"),
   dbError: $("db-error"),
+  securityPanel: $("security-panel"),
   lists: $("settings-lists"),
 
   dialog: $("setting-dialog"),
@@ -202,6 +206,10 @@ export function init() {
   el.ratesRefresh.addEventListener("click", refreshRates);
   el.dbOpen.addEventListener("click", () => switchDatabase(api.OpenDatabase, "opened"));
   el.dbCreate.addEventListener("click", () => switchDatabase(api.CreateDatabase, "created"));
+  el.dbConnect.addEventListener("click", () => {
+    el.dbError.hidden = true;
+    openServerDialog((url) => reloadApp(`connected to ${url}`));
+  });
   el.ratesAuto.addEventListener("change", setRatesAuto);
   el.editBase.addEventListener("click", openBase);
   el.form.addEventListener("submit", save);
@@ -212,7 +220,9 @@ export async function show(message) {
   try {
     state.view = await api.Settings();
     render(state.view);
-    renderSecurity(await api.Status());
+    const status = await api.Status();
+    renderDatabase(status);
+    renderSecurity(status);
     setStatus(message ?? "settings");
   } catch (err) {
     setStatus(`Failed to load settings: ${err}`);
@@ -227,7 +237,6 @@ function render(view) {
     ? `Linked to ${describe(view.baseCode)}`
     : "Not linked to a known currency, so rates can't be fetched. Use Change to link it.";
   renderRates(view.rates, view);
-  el.db.textContent = view.dbPath;
 
   // Categories pair up side by side; the other lists take the full width.
   const panels = LISTS.map((list) => listPanel(list, view));
@@ -505,6 +514,13 @@ function askDelete() {
 
 // --- database ----------------------------------------------------------------
 
+// renderDatabase shows the database file or the server in use.
+function renderDatabase(status) {
+  el.dbKind.textContent = status.server ? "On a cents server:" : "A file on this computer:";
+  el.db.textContent = status.server || status.dbPath;
+  el.dbConnect.textContent = status.server ? "Connect to another server…" : "Connect to a server…";
+}
+
 // switchDatabase runs the Open or Create dialog; once the app has switched,
 // it starts over on the new database (currency setup first, for a new one).
 async function switchDatabase(choose, verb) {
@@ -515,7 +531,7 @@ async function switchDatabase(choose, verb) {
     if (!chosen) return;
 
     const status = await api.Status();
-    reloadApp(`${verb} ${status.dbPath}`);
+    reloadApp(status.locked ? `${verb} ${status.lockedPath}` : `${verb} ${status.dbPath}`);
   } catch (err) {
     el.dbError.textContent = String(err);
     el.dbError.hidden = false;
@@ -580,6 +596,8 @@ const security = {
 // renderSecurity shows whether the database has a password, and the form
 // to set one, or to change or remove it.
 function renderSecurity(status) {
+  // A server's database gets its password on the server.
+  el.securityPanel.hidden = Boolean(status.server);
   security.encrypted = status.encrypted;
   security.form.reset();
   formError(security.form, "");

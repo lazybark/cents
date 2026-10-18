@@ -19,21 +19,21 @@ func TestNewAndEditValidateInTUIOrder(t *testing.T) {
 		{"x", "x", "Q1", "", "amount due error: amount must be a number"},
 		{"0", "x", "Q1", "", "amount due must be greater than zero"},
 		{"10", "x", "Q1", "", "amount paid error: amount must be a number"},
-		{"10", "0", "Q1", "31.31.2026", "due date must use DD.MM.YYYY format"},
+		{"10", "0", "Q1", "2026-31-31", "due date must use YYYY-MM-DD format"},
 	}
 
 	for _, c := range cases {
-		if _, err := New(taxType, "$", 1, c.due, c.paid, c.period, c.dueDate, "", dates.TUI, now); err == nil || err.Error() != c.want {
+		if _, err := New(taxType, "$", 1, c.due, c.paid, c.period, c.dueDate, "", dates.ISO, now); err == nil || err.Error() != c.want {
 			t.Errorf("expected %q, got %v", c.want, err)
 		}
 	}
 
-	created, err := New(taxType, "$", 1, "100", "150", " Q1 2026 ", "31.03.2026", "", dates.TUI, now)
+	created, err := New(taxType, "$", 1, "100", "150", " Q1 2026 ", "2026-03-31", "", dates.ISO, now)
 	if err != nil || created.TaxTypeID != 4 || created.TaxCountry != "NL" || created.TaxTypeName != "VAT" || created.Period != "Q1 2026" || created.DueDate == nil || !created.IsPaid() || created.PaidPercent() != 100 || created.LeftCents() != 0 {
 		t.Fatalf("unexpected tax %+v, %v", created, err)
 	}
 
-	if _, err := created.Edit("100", "0", " ", "", "", dates.TUI, now); err == nil || err.Error() != "period is required" {
+	if _, err := created.Edit("100", "0", " ", "", "", dates.ISO, now); err == nil || err.Error() != "period is required" {
 		t.Fatalf("expected period error on edit, got %v", err)
 	}
 }

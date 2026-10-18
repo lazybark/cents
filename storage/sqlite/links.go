@@ -170,8 +170,7 @@ func (l *links) linkBudget(b *budget.Budget) error {
 }
 
 // linkSubscription links s's payment method, adding it to settings when
-// it's a new one: payment methods can be typed in freely (the TUI's
-// "custom" one).
+// it's a new one: payment methods can be typed in freely.
 func (l *links) linkSubscription(tx *gorm.DB, s *subscription.Subscription) error {
 	s.PaymentMethodUID = ""
 	name := strings.TrimSpace(s.PaymentMethod)

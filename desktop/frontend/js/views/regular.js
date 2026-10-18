@@ -87,7 +87,7 @@ export function regularView(config) {
   const view = {
     config,
     el,
-    // Like the TUI menu, lists start with active payments.
+    // Lists start with active payments.
     mode: "active",
     data: null,
   };
@@ -295,8 +295,8 @@ async function save(event) {
   try {
     await busy(dialog.form, () => (current ? api.UpdateSubscription(input) : api.CreateSubscription(input)));
     dialog.dialog.close();
-    // A new inactive one would vanish from the active list, so like the TUI
-    // every payment shows after adding one.
+    // A new inactive one would vanish from the active list, so every
+    // payment shows after adding one.
     if (!current) view.mode = "all";
 
     const name = input.name.trim();

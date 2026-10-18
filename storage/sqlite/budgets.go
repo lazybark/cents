@@ -3,6 +3,7 @@ package sqlite
 import (
 	"fmt"
 
+	"github.com/lazybark/cents/fault"
 	"github.com/lazybark/cents/flows/budget"
 )
 
@@ -54,7 +55,7 @@ func (s *SQLiteStorage) DeleteBudget(id uint) error {
 	}
 
 	if result.RowsAffected == 0 {
-		return fmt.Errorf("budget %d not found", id)
+		return fault.NotFound(fmt.Sprintf("budget %d", id))
 	}
 
 	return nil

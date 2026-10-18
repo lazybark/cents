@@ -8,7 +8,7 @@ export const STORAGE_KEY = "cents.theme";
 // Swatches show each theme's background, panel and accent colors.
 export const THEMES = [
   { id: "system", name: "System", note: "Paper in light mode, Amber in dark", swatch: ["#F6F1E7", "#1F1A17", "#E7C96D"] },
-  { id: "amber", name: "Amber", note: "Warm brown and gold, like the TUI", swatch: ["#1F1A17", "#26201C", "#E7C96D"] },
+  { id: "amber", name: "Amber", note: "Warm brown and gold", swatch: ["#1F1A17", "#26201C", "#E7C96D"] },
   { id: "ocean", name: "Ocean", note: "Navy and sky blue", swatch: ["#121A24", "#172231", "#6CB6FF"] },
   { id: "forest", name: "Forest", note: "Deep green and sand", swatch: ["#141B16", "#19221B", "#E8B86B"] },
   { id: "plum", name: "Plum", note: "Purple and lavender", swatch: ["#1C1621", "#231B29", "#C99BF0"] },

@@ -19,7 +19,7 @@ func TestEditValidatesAndTrims(t *testing.T) {
 		t.Fatalf("want due date error, got %v", err)
 	}
 
-	if _, err := New(Fields{Title: "A", InvoiceDate: "x"}, settings.AppSettings{}, dates.TUI, now); err == nil || err.Error() != "invoice date must use DD.MM.YYYY format" {
+	if _, err := New(Fields{Title: "A", InvoiceDate: "x"}, settings.AppSettings{}, dates.ISO, now); err == nil || err.Error() != "invoice date must use YYYY-MM-DD format" {
 		t.Fatalf("want invoice date error, got %v", err)
 	}
 

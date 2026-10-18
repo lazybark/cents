@@ -1,6 +1,5 @@
 /* Themes. Every color comes from these variables; a theme sets them on
-   :root[data-theme] (see js/theme.js). The default, Amber, is the TUI's
-   palette (see app/styling.go). */
+   :root[data-theme] (see js/theme.js). The default is Amber. */
 :root {
   --bg: #1F1A17;
   --surface: #26201C;
@@ -476,6 +475,13 @@ body {
   color: var(--hint);
   font-style: italic;
   font-size: 12px;
+}
+
+/* Commands to type, inside a hint. */
+.hint code {
+  font-style: normal;
+  color: var(--text);
+  white-space: nowrap;
 }
 
 .positive {

@@ -21,8 +21,21 @@ const (
 // ErrNotFound is returned by Load when there is no config file yet.
 var ErrNotFound = errors.New("config file not found")
 
+// Config says what the app opens: the server, when one is set, or else
+// the database file.
 type Config struct {
-	DBPath string `yaml:"db_path"`
+	DBPath string  `yaml:"db_path,omitempty"`
+	Server *Server `yaml:"server,omitempty"`
+}
+
+// Server is a cents server the app connects to. The file is readable only
+// by its owner (it holds the token).
+type Server struct {
+	URL   string `yaml:"url"`
+	Token string `yaml:"token"`
+	// Certificate is the SHA-256 fingerprint of the server's certificate,
+	// trusted instead of the system's authorities; empty uses those.
+	Certificate string `yaml:"certificate_sha256,omitempty"`
 }
 
 // Dir is the app's directory inside the OS config directory, e.g.
@@ -86,6 +99,11 @@ func Save(path string, cfg Config) error {
 
 	if err := os.WriteFile(path, data, 0o600); err != nil {
 		return fmt.Errorf("failed to write config file: %w", err)
+	}
+
+	// A file written before it held a token may be readable by others.
+	if err := os.Chmod(path, 0o600); err != nil {
+		return fmt.Errorf("failed to protect config file: %w", err)
 	}
 
 	return nil

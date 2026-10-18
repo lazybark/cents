@@ -1,5 +1,5 @@
 // Incomes & expenses: one month's entries with totals, or every month's
-// totals side by side. Entries can be added and deleted, like in the TUI.
+// totals side by side. Entries can be added, edited and deleted.
 // Each keeps the rate to the base currency it was made at; the rate of an
 // entry (or of a whole month's entries in its currency) can be corrected.
 import { api } from "../api.js";
@@ -302,7 +302,9 @@ function goToMonth(month) {
 // --- months ----------------------------------------------------------------
 
 function shiftMonth(month, delta) {
-  const [year, index] = month.split("-").map(Number);
+  // Before a month has loaded, from this one.
+  const now = new Date();
+  const [year, index] = month ? month.split("-").map(Number) : [now.getFullYear(), now.getMonth() + 1];
   const date = new Date(year, index - 1 + delta, 1);
 
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;

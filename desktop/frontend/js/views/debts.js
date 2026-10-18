@@ -1,6 +1,5 @@
 // Debts: what I owe and what I'm owed, unpaid or paid, with paid progress.
-// Each debt can be edited, take logged payments and be deleted, like in the
-// TUI. A debt keeps the rate to the base currency it was recorded with.
+// Each debt can be edited, take logged payments and be deleted. A debt keeps the rate to the base currency it was recorded with.
 import { api } from "../api.js";
 import { cashflowInput, setupCashflow } from "../payment-cashflow.js";
 import {

@@ -10,7 +10,7 @@ import (
 	"github.com/lazybark/cents/money"
 )
 
-// ListMode picks which goals a list shows, like the TUI's goal menu.
+// ListMode picks which goals a list shows.
 type ListMode string
 
 const (

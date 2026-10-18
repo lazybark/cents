@@ -46,6 +46,10 @@ type PasswordInput struct {
 }
 
 func (a *API) SetPassword(input PasswordInput) error {
+	if a.remote() {
+		return errors.New("the server keeps the database: a password is set there")
+	}
+
 	storage, err := a.currentStorage()
 	if err != nil {
 		return err

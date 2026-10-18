@@ -19,12 +19,12 @@ func TestNewValidatesInTUIOrder(t *testing.T) {
 		{"Bank", "100", "-1", "", "", "amount paid error: amount cannot be negative"},
 		{"Bank", "100", "101", "", "", "amount paid cannot be more than amount"},
 		{"Bank", "100", "0", "", "", "created date is required"},
-		{"Bank", "100", "0", "2026-01-01", "", "created date must use DD.MM.YYYY format"},
-		{"Bank", "100", "0", "01.01.2026", "x", "due date must use DD.MM.YYYY format"},
+		{"Bank", "100", "0", "01.01.2026", "", "created date must use YYYY-MM-DD format"},
+		{"Bank", "100", "0", "2026-01-01", "x", "due date must use YYYY-MM-DD format"},
 	}
 
 	for _, c := range cases {
-		if _, err := New(false, c.peer, "$", 1, c.amount, c.paid, c.created, c.due, "", dates.TUI, now); err == nil || err.Error() != c.want {
+		if _, err := New(false, c.peer, "$", 1, c.amount, c.paid, c.created, c.due, "", dates.ISO, now); err == nil || err.Error() != c.want {
 			t.Errorf("expected %q, got %v", c.want, err)
 		}
 	}

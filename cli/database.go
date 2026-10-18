@@ -12,8 +12,7 @@ import (
 	"gorm.io/gorm"
 )
 
-// launcher decides which database a run uses. Both interfaces share it: they
-// only differ in how they ask the user when setup is needed.
+// launcher decides which database a run uses.
 type launcher struct {
 	configPath string
 	dbOverride string
@@ -47,6 +46,37 @@ func (l launcher) resolve() (dbPath string, note string, err error) {
 	}
 
 	return cfg.DBPath, "", nil
+}
+
+// server is the server remembered, if the app connects to one (and --db
+// doesn't say otherwise).
+func (l launcher) server() (*config.Server, error) {
+	if l.dbOverride != "" {
+		return nil, nil
+	}
+
+	cfg, err := config.Load(l.configPath)
+	if errors.Is(err, config.ErrNotFound) {
+		return nil, nil
+	}
+
+	if err != nil || cfg.Server == nil || strings.TrimSpace(cfg.Server.URL) == "" {
+		return nil, err
+	}
+
+	return cfg.Server, nil
+}
+
+// saveServer remembers the server connected to; the database file is kept,
+// to offer it again.
+func (l launcher) saveServer(server config.Server) error {
+	cfg, err := config.Load(l.configPath)
+	if err != nil && !errors.Is(err, config.ErrNotFound) {
+		return err
+	}
+
+	cfg.Server = &server
+	return config.Save(l.configPath, cfg)
 }
 
 // unlock opens the encrypted database at path with its password and saves

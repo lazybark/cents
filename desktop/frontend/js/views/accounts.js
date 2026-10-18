@@ -1,5 +1,5 @@
-// Accounts: totals, the account table and every account operation the TUI
-// offers (add, update amount, value history, delete).
+// Accounts: totals, the account table and every account operation (add,
+// update amount, value history, delete).
 import { api } from "../api.js";
 import { chart, monthLabel, monthRange } from "../charts.js";
 import { openMerge } from "../merge.js";
