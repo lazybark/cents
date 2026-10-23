@@ -24,7 +24,7 @@ func (c *Client) ReadLogs(ctx context.Context, query logview.Query) (logview.Pag
 	if q.BeforeID > 0 {
 		values.Set("beforeId", strconv.FormatInt(q.BeforeID, 10))
 	}
-	for key, value := range map[string]string{"level": q.Level, "component": q.Component, "search": q.Search, "from": q.From, "to": q.To} {
+	for key, value := range map[string]string{"level": q.Level, "component": q.Component, "client": q.Client, "status": q.Status, "search": q.Search, "from": q.From, "to": q.To} {
 		if value != "" {
 			values.Set(key, value)
 		}

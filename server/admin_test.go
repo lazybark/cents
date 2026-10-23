@@ -21,7 +21,7 @@ func TestAdminLogsAuthorizationAndValidation(t *testing.T) {
 	}
 	defer db.Close()
 	if _, err := db.Exec(`CREATE TABLE logs(id INTEGER PRIMARY KEY, timestamp TEXT, level TEXT, component TEXT, message TEXT, attributes TEXT);
-	INSERT INTO logs VALUES(1,'2026-10-23T10:00:00.000000000Z','ERROR','bot','poll failed','{}')`); err != nil {
+	INSERT INTO logs VALUES(1,'2026-10-23T10:00:00.000000000Z','ERROR','bot','poll failed','{"status":500,"client":"mini_app_api"}')`); err != nil {
 		t.Fatal(err)
 	}
 	admin, tok := testToken(t)
@@ -35,6 +35,8 @@ func TestAdminLogsAuthorizationAndValidation(t *testing.T) {
 		{"GET", "/api/v1/admin/logs", "", 401, "unauthorized"},
 		{"GET", "/api/v1/admin/logs", ordinary, 403, "admin_required"},
 		{"GET", "/api/v1/admin/logs?level=error", admin, 200, "poll failed"},
+		{"GET", "/api/v1/admin/logs?status=5xx&client=mini_app_api", admin, 200, "poll failed"},
+		{"GET", "/api/v1/admin/logs?status=600", admin, 400, "HTTP status"},
 		{"GET", "/api/v1/admin/logs?limit=wat", admin, 400, "limit"},
 		{"GET", "/api/v1/admin/logs?limit=501", admin, 400, "limit"},
 		{"GET", "/api/v1/admin/logs?beforeId=-2", admin, 400, "beforeId"},

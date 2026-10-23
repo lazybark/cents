@@ -64,10 +64,26 @@ ask you to compare and explicitly trust the certificate fingerprint.
 
 ## Inspect logs
 
-Logs appear newest first. Filter by severity, component, a literal substring
-in messages or JSON attributes, and a time range. The time controls use your
+Logs appear newest first, with separate **Component**, **Client** and **HTTP
+status** columns. Filter by severity, component, client, HTTP status, a literal
+substring in messages or JSON attributes, and a time range. HTTP status accepts
+an exact code such as `404` or a whole group such as `4xx` or `5xx`. A dash
+means that an event has no request status or client. The time controls use your
 computer's local timezone; event details also show the exact UTC timestamp.
 Click a message to inspect the complete event and its JSON attributes.
+
+**Component** identifies the service that wrote an event: `cloud`, `gateway`,
+`server` or `bot`. Gateway events use **Client** to identify `mini_app_api`,
+`desktop_api`, `admin_api`, or Mini App assets (`mini_app`). Server events show
+the authenticated token's configured name, such as `desktop` or `bot`. Mini
+App API requests also produce bot events with `client: mini_app_api`, including
+successful requests and authentication failures. Successful static probes are
+omitted from the bot's logs.
+
+Historical HTTP statuses and gateway `route` values are read from their stored
+attributes, so existing records gain the new columns without migrating the
+database. Rebuild the admin app and server image for the new filters and request
+logging, then recreate the container with the existing persistent volume.
 
 **Load older** retrieves another 100 events. **Refresh** returns to the newest
 matching events. Optional automatic refresh runs every five seconds while
@@ -84,7 +100,8 @@ configuration.
 
 The read-only endpoint is `GET /api/v1/admin/logs` with bearer authentication.
 Query parameters: `limit` (1–500, default 100), `beforeId` (exclusive event ID
-cursor), `level`, `component`, `search` (up to 200 bytes), `from` and `to`
-(inclusive RFC3339 timestamps). Responses contain `entries`, `components`,
+cursor), `level`, `component`, `client`, `status` (an exact code or `1xx`–`5xx`),
+`search` (up to 200 bytes), `from` and `to`
+(inclusive RFC3339 timestamps). Responses contain `entries`, `components`, `clients`,
 `hasMore` and `nextBefore`. Ordinary tokens receive 403. The endpoint is
 excluded from the Telegram Mini App's API.

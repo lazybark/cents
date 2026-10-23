@@ -37,13 +37,16 @@ type statusWriter struct {
 }
 
 func (w *statusWriter) WriteHeader(status int) {
+	if w.status != 0 {
+		return
+	}
 	w.status = status
 	w.ResponseWriter.WriteHeader(status)
 }
 
 func (w *statusWriter) Write(b []byte) (int, error) {
 	if w.status == 0 {
-		w.status = http.StatusOK
+		w.WriteHeader(http.StatusOK)
 	}
 
 	n, err := w.ResponseWriter.Write(b)
@@ -119,14 +122,18 @@ func guard(s options, failures *throttle, next http.Handler) http.Handler {
 				}
 			}
 
+			status := sw.status
+			if status == 0 {
+				status = http.StatusOK
+			}
 			level := slog.LevelInfo
-			if sw.status >= 500 {
+			if status >= 500 {
 				level = slog.LevelError
-			} else if sw.status >= 400 {
+			} else if status >= 400 {
 				level = slog.LevelWarn
 			}
 
-			log.Log(r.Context(), level, "request", "method", r.Method, "path", r.URL.Path, "status", sw.status, "duration_ms", time.Since(started).Milliseconds(), "remote", addr.String(), "client", req.client, "bytes", sw.bytes)
+			log.Log(r.Context(), level, "request", "method", r.Method, "path", r.URL.Path, "status", status, "duration_ms", time.Since(started).Milliseconds(), "remote", addr.String(), "client", req.client, "bytes", sw.bytes)
 		}()
 
 		h := sw.Header()

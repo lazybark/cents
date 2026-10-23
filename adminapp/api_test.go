@@ -27,7 +27,7 @@ func logServer(t *testing.T, tls bool) *httptest.Server {
 			fmt.Fprint(w, `{"error":{"code":"admin_required","message":"administrator permission required"}}`)
 			return
 		}
-		if r.URL.Query().Get("limit") == "2" && (r.URL.Query().Get("search") != "error & x" || r.URL.Query().Get("beforeId") != "42") {
+		if r.URL.Query().Get("limit") == "2" && (r.URL.Query().Get("search") != "error & x" || r.URL.Query().Get("beforeId") != "42" || r.URL.Query().Get("client") != "mini_app_api" || r.URL.Query().Get("status") != "4xx") {
 			t.Error("filters were not encoded correctly")
 		}
 		fmt.Fprint(w, `{"entries":[{"id":1,"message":"started","attributes":"{}"}],"components":["server"],"hasMore":false,"nextBefore":0}`)
@@ -68,7 +68,7 @@ func TestConnectionPermissionsRememberAndDisconnect(t *testing.T) {
 	if err != nil || !result.Connected {
 		t.Fatalf("connect: %+v %v", result, err)
 	}
-	page, err := a.ReadLogs(logview.Query{Limit: 2, BeforeID: 42, Search: "error & x"})
+	page, err := a.ReadLogs(logview.Query{Limit: 2, BeforeID: 42, Search: "error & x", Client: "mini_app_api", Status: "4xx"})
 	if err != nil || len(page.Entries) != 1 {
 		t.Fatalf("read: %+v %v", page, err)
 	}

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/url"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -19,6 +20,8 @@ type Query struct {
 	BeforeID  int64  `json:"beforeId"`
 	Level     string `json:"level"`
 	Component string `json:"component"`
+	Client    string `json:"client"`
+	Status    string `json:"status"`
 	Search    string `json:"search"`
 	From      string `json:"from"`
 	To        string `json:"to"`
@@ -31,16 +34,32 @@ type Entry struct {
 	Component  string `json:"component"`
 	Message    string `json:"message"`
 	Attributes string `json:"attributes"`
+	Client     string `json:"client"`
+	Status     *int   `json:"status"`
 }
 
 type Page struct {
 	Entries    []Entry  `json:"entries"`
 	Components []string `json:"components"`
+	Clients    []string `json:"clients"`
 	HasMore    bool     `json:"hasMore"`
 	NextBefore int64    `json:"nextBefore"`
 }
 
 const TimeFormat = "2006-01-02T15:04:05.000000000Z"
+
+// Project request fields out of attributes, so historical logs need no
+// migration. Older gateway events used route for what is now called client.
+const eventsSQL = `WITH metadata AS (
+	SELECT *, CASE WHEN json_valid(attributes) THEN attributes ELSE '{}' END AS attrs FROM logs
+), events AS (
+	SELECT id, timestamp, level, component, message, attributes,
+		CASE WHEN json_type(attrs, '$.status') = 'integer' AND json_extract(attrs, '$.status') BETWEEN 100 AND 599
+			THEN json_extract(attrs, '$.status') END AS status,
+		COALESCE(NULLIF(CASE WHEN json_type(attrs, '$.client') = 'text' THEN json_extract(attrs, '$.client') END, ''),
+			CASE WHEN json_type(attrs, '$.route') = 'text' THEN json_extract(attrs, '$.route') END, '') AS client
+	FROM metadata
+) `
 
 // Normalize bounds work per request and normalizes all time filters to UTC.
 func (q Query) Normalize() (Query, error) {
@@ -57,9 +76,17 @@ func (q Query) Normalize() (Query, error) {
 	if q.Level != "" && q.Level != "DEBUG" && q.Level != "INFO" && q.Level != "WARN" && q.Level != "ERROR" {
 		return q, errors.New("choose DEBUG, INFO, WARN or ERROR")
 	}
-	q.Component, q.Search = strings.TrimSpace(q.Component), strings.TrimSpace(q.Search)
-	if len(q.Component) > 64 || len(q.Search) > 200 {
-		return q, errors.New("component or search filter is too long")
+	q.Component, q.Client, q.Search = strings.TrimSpace(q.Component), strings.TrimSpace(q.Client), strings.TrimSpace(q.Search)
+	if len(q.Component) > 64 || len(q.Client) > 200 || len(q.Search) > 200 {
+		return q, errors.New("component, client or search filter is too long")
+	}
+	q.Status = strings.ToLower(strings.TrimSpace(q.Status))
+	if q.Status != "" {
+		group := len(q.Status) == 3 && q.Status[0] >= '1' && q.Status[0] <= '5' && q.Status[1:] == "xx"
+		code, err := strconv.Atoi(q.Status)
+		if !group && (err != nil || len(q.Status) != 3 || code < 100 || code > 599) {
+			return q, errors.New("HTTP status must be a code from 100 to 599 or a group such as 4xx")
+		}
 	}
 	for _, field := range []*string{&q.From, &q.To} {
 		if *field == "" {
@@ -114,6 +141,17 @@ func Read(ctx context.Context, path string, query Query) (Page, error) {
 	if q.Component != "" {
 		add("component = ?", q.Component)
 	}
+	if q.Client != "" {
+		add("client = ?", q.Client)
+	}
+	if strings.HasSuffix(q.Status, "xx") {
+		first := int(q.Status[0]-'0') * 100
+		conditions = append(conditions, "status BETWEEN ? AND ?")
+		args = append(args, first, first+99)
+	} else if q.Status != "" {
+		code, _ := strconv.Atoi(q.Status) // Normalize has validated it.
+		add("status = ?", code)
+	}
 	if q.From != "" {
 		add("timestamp >= ?", q.From)
 	}
@@ -125,14 +163,14 @@ func Read(ctx context.Context, path string, query Query) (Page, error) {
 		args = append(args, q.Search, q.Search)
 	}
 	args = append(args, q.Limit+1)
-	rows, err := db.QueryContext(ctx, "SELECT id, timestamp, level, component, message, attributes FROM logs WHERE "+strings.Join(conditions, " AND ")+" ORDER BY id DESC LIMIT ?", args...)
+	rows, err := db.QueryContext(ctx, eventsSQL+"SELECT id, timestamp, level, component, message, attributes, client, status FROM events WHERE "+strings.Join(conditions, " AND ")+" ORDER BY id DESC LIMIT ?", args...)
 	if err != nil {
 		return Page{}, fmt.Errorf("read logs: %w", err)
 	}
-	page := Page{Entries: make([]Entry, 0), Components: make([]string, 0)}
+	page := Page{Entries: make([]Entry, 0)}
 	for rows.Next() {
 		var e Entry
-		if err := rows.Scan(&e.ID, &e.Timestamp, &e.Level, &e.Component, &e.Message, &e.Attributes); err != nil {
+		if err := rows.Scan(&e.ID, &e.Timestamp, &e.Level, &e.Component, &e.Message, &e.Attributes, &e.Client, &e.Status); err != nil {
 			_ = rows.Close()
 			return Page{}, err
 		}
@@ -148,17 +186,27 @@ func Read(ctx context.Context, path string, query Query) (Page, error) {
 		page.Entries = page.Entries[:q.Limit]
 		page.NextBefore = page.Entries[len(page.Entries)-1].ID
 	}
-	components, err := db.QueryContext(ctx, "SELECT DISTINCT component FROM logs ORDER BY component LIMIT 100")
+	page.Components, err = choices(ctx, db, "SELECT DISTINCT component FROM logs ORDER BY component LIMIT 100")
 	if err != nil {
 		return Page{}, err
 	}
-	defer components.Close()
-	for components.Next() {
-		var value string
-		if err := components.Scan(&value); err != nil {
-			return Page{}, err
-		}
-		page.Components = append(page.Components, value)
+	page.Clients, err = choices(ctx, db, eventsSQL+"SELECT DISTINCT client FROM events WHERE client <> '' ORDER BY client LIMIT 100")
+	return page, err
+}
+
+func choices(ctx context.Context, db *sql.DB, query string) ([]string, error) {
+	rows, err := db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, err
 	}
-	return page, components.Err()
+	defer rows.Close()
+	values := make([]string, 0)
+	for rows.Next() {
+		var value string
+		if err := rows.Scan(&value); err != nil {
+			return nil, err
+		}
+		values = append(values, value)
+	}
+	return values, rows.Err()
 }

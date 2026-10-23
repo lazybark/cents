@@ -16,7 +16,7 @@ func adminLogs(path string, log *slog.Logger) http.Handler {
 			return
 		}
 		values := r.URL.Query()
-		q := logview.Query{Level: values.Get("level"), Component: values.Get("component"), Search: values.Get("search"), From: values.Get("from"), To: values.Get("to")}
+		q := logview.Query{Level: values.Get("level"), Component: values.Get("component"), Client: values.Get("client"), Status: values.Get("status"), Search: values.Get("search"), From: values.Get("from"), To: values.Get("to")}
 		var err error
 		if raw := values.Get("limit"); raw != "" {
 			q.Limit, err = strconv.Atoi(raw)

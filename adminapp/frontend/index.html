@@ -57,17 +57,21 @@
             <div class="log-filters">
               <label class="field"><span class="field-label">Level</span><select name="level"><option value="">All levels</option><option>DEBUG</option><option>INFO</option><option>WARN</option><option>ERROR</option></select></label>
               <label class="field"><span class="field-label">Component</span><select name="component" id="component"><option value="">All components</option></select></label>
+              <label class="field"><span class="field-label">Client</span><select name="client" id="client"><option value="">All clients</option></select></label>
+              <label class="field"><span class="field-label">HTTP status</span><input name="status" list="http-statuses" maxlength="3" placeholder="Any, 404, 5xx…" aria-describedby="http-status-hint"></label>
+              <datalist id="http-statuses"><option value="2xx">Success</option><option value="3xx">Redirects</option><option value="4xx">Client errors</option><option value="5xx">Server errors</option><option value="200"><option value="401"><option value="403"><option value="404"><option value="500"><option value="502"><option value="503"></datalist>
               <label class="field search-field"><span class="field-label">Search message &amp; attributes</span><input name="search" type="search" maxlength="200" placeholder="Request, user, error…"></label>
-              <label class="field"><span class="field-label">From (local time)</span><input name="from" type="datetime-local" step="1"></label>
-              <label class="field"><span class="field-label">To (local time)</span><input name="to" type="datetime-local" step="1"></label>
+              <label class="field range-field"><span class="field-label">From (local time)</span><input name="from" type="datetime-local" step="1"></label>
+              <label class="field range-field"><span class="field-label">To (local time)</span><input name="to" type="datetime-local" step="1"></label>
             </div>
             <div class="actions"><button class="button button-primary" type="submit">Apply filters</button><button id="clear" class="button" type="button">Clear</button></div>
+            <p id="http-status-hint" class="hint">HTTP status accepts an exact code (404) or a group (4xx). A dash marks an event without request metadata.</p>
           </form>
         </section>
         <p id="log-error" class="negative" role="alert" hidden></p>
         <section class="panel log-panel" aria-label="Log entries" aria-busy="false">
           <p id="log-status" class="muted" role="status" aria-live="polite"></p>
-          <div class="log-scroll"><table class="table log-table"><thead><tr><th>Time (local)</th><th>Level</th><th>Component</th><th>Message</th></tr></thead><tbody id="entries"></tbody></table></div>
+          <div class="log-scroll"><table class="table log-table"><thead><tr><th>Time (local)</th><th>Level</th><th>Component</th><th>Client</th><th>HTTP status</th><th>Message</th></tr></thead><tbody id="entries"></tbody></table></div>
           <button id="older" class="button" type="button" hidden>Load older</button>
         </section>
       </div>

@@ -157,9 +157,15 @@ implement replication or automatic off-Machine backups.
 `logs.db` is a separate SQLite database on the same persistent `/data` volume
 as `cents.db`. Its schema is independent of the budget. Records include UTC
 timestamp, severity, component (`cloud`, `server`, `bot`, or `gateway`), message
-and JSON attributes. The gateway records method, route category, status,
+and JSON attributes. The gateway records method, client category, status,
 duration, response bytes, original client IP and a generated request ID,
 also returned in `X-Request-ID`.
+
+Client categories include `mini_app_api`, `desktop_api` and `admin_api`;
+older events stored this category under `route`. The admin app exposes client
+and HTTP status as separate columns and filters. Mini App API requests also
+produce bot request logs, while server requests retain the authenticated
+token name in `client`.
 
 Request bodies, query strings, authorization headers and Telegram initData
 are not included in gateway access logs. Known bot/server secrets are

@@ -155,14 +155,76 @@ func (bt *Bot) webAppHandler(data Data, botToken string) http.Handler {
 	}))
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		started := time.Now()
+		sw := &webResponse{ResponseWriter: w}
+		defer func() {
+			panicked := false
+			if p := recover(); p != nil {
+				if p == http.ErrAbortHandler {
+					panic(p)
+				}
+				panicked = true
+				if sw.status == 0 {
+					writeError(sw, http.StatusInternalServerError, "internal", "something went wrong on the server")
+				}
+			}
+			status := sw.status
+			if status == 0 {
+				status = http.StatusOK
+			}
+			client := "mini_app"
+			isAPI := strings.HasPrefix(r.URL.Path, "/api/")
+			if isAPI {
+				client = "mini_app_api"
+			}
+			// Successful static requests include gateway health probes. The
+			// gateway records assets; log API activity and failures here.
+			if !isAPI && status < 400 && !panicked {
+				return
+			}
+			level, message := slog.LevelInfo, "request"
+			if status >= 500 || panicked {
+				level = slog.LevelError
+			} else if status >= 400 {
+				level = slog.LevelWarn
+			}
+			if panicked {
+				message = "request panicked"
+			}
+			bt.log.Log(r.Context(), level, message, "client", client, "method", r.Method, "path", r.URL.Path, "status", status, "duration_ms", time.Since(started).Milliseconds(), "bytes", sw.bytes)
+		}()
 		h := w.Header()
 		h.Set("X-Content-Type-Options", "nosniff")
 		h.Set("Referrer-Policy", "no-referrer")
 		h.Set("Cache-Control", "no-store")
-		r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
-		mux.ServeHTTP(w, r)
+		r.Body = http.MaxBytesReader(sw, r.Body, 1<<20)
+		mux.ServeHTTP(sw, r)
 	})
 }
+
+type webResponse struct {
+	http.ResponseWriter
+	status, bytes int
+}
+
+func (w *webResponse) WriteHeader(status int) {
+	if w.status != 0 {
+		return
+	}
+	w.status = status
+	w.ResponseWriter.WriteHeader(status)
+}
+
+func (w *webResponse) Write(p []byte) (int, error) {
+	if w.status == 0 {
+		w.WriteHeader(http.StatusOK)
+	}
+	n, err := w.ResponseWriter.Write(p)
+	w.bytes += n
+	return n, err
+}
+
+func (w *webResponse) Unwrap() http.ResponseWriter { return w.ResponseWriter }
 
 func writeError(w http.ResponseWriter, status int, code, message string) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")

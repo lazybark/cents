@@ -148,7 +148,7 @@ func gateway(api, mini *url.URL, proxies []netip.Prefix, log *slog.Logger) http.
 			}
 			// Health probes are useful when failing, noisy when successful.
 			if r.URL.Path != "/healthz" || status >= 400 {
-				log.Log(r.Context(), level, "request", "request_id", id, "method", r.Method, "route", routeName(r.URL.Path), "status", status, "duration_ms", time.Since(started).Milliseconds(), "bytes", sw.bytes, "remote", originalAddr(r, proxies).String())
+				log.Log(r.Context(), level, "request", "request_id", id, "method", r.Method, "client", routeName(r.URL.Path), "status", status, "duration_ms", time.Since(started).Milliseconds(), "bytes", sw.bytes, "remote", originalAddr(r, proxies).String())
 			}
 		}()
 		limit := server.BodyLimit(r.Method, r.URL.Path)
@@ -175,6 +175,8 @@ func routeName(path string) string {
 		return "mini_app_api"
 	case strings.HasPrefix(path, "/app/"):
 		return "mini_app"
+	case strings.HasPrefix(path, "/api/v1/admin/"):
+		return "admin_api"
 	case strings.HasPrefix(path, "/api/"):
 		return "desktop_api"
 	default:

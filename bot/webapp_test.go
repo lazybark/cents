@@ -1,11 +1,14 @@
 package bot
 
 import (
+	"bytes"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -13,7 +16,61 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/lazybark/cents/service"
 )
+
+type panickingWebData struct{ Data }
+
+func (panickingWebData) Info() (service.Info, error) { panic("private budget details") }
+
+func TestWebAppRequestLogs(t *testing.T) {
+	bt, _, svc := newTestBot(t)
+	var logs bytes.Buffer
+	bt.log = slog.New(slog.NewJSONHandler(&logs, nil))
+	for _, tc := range []struct {
+		path, auth string
+		data       Data
+		status     int
+		client     string
+	}{
+		{"/api/v1/info?private=secret-query", "tma " + signIn(owner, testBotToken, time.Now()), svc, 200, "mini_app_api"},
+		{"/api/v1/info", "tma invalid-secret-signin", svc, 401, "mini_app_api"},
+		{"/api/v1/missing", "tma " + signIn(owner, testBotToken, time.Now()), svc, 404, "mini_app_api"},
+		{"/missing.js", "", svc, 404, "mini_app"},
+		{"/api/v1/info", "tma " + signIn(owner, testBotToken, time.Now()), panickingWebData{Data: svc}, 500, "mini_app_api"},
+	} {
+		logs.Reset()
+		r := httptest.NewRequest("GET", tc.path, nil)
+		r.Header.Set("Authorization", tc.auth)
+		w := httptest.NewRecorder()
+		bt.webAppHandler(tc.data, testBotToken).ServeHTTP(w, r)
+		if w.Code != tc.status {
+			t.Fatalf("%s: got %d want %d", tc.path, w.Code, tc.status)
+		}
+		var event map[string]any
+		if err := json.Unmarshal(logs.Bytes(), &event); err != nil {
+			t.Fatalf("invalid log: %v %s", err, logs.String())
+		}
+		if event["status"] != float64(tc.status) || event["client"] != tc.client || event["method"] != "GET" || event["path"] != r.URL.Path {
+			t.Fatalf("missing request context: %+v", event)
+		}
+		for _, secret := range []string{tc.auth, "secret-query", "private budget details"} {
+			if secret != "" && strings.Contains(logs.String(), secret) {
+				t.Fatalf("request log leaked %q", secret)
+			}
+		}
+		if tc.status >= 500 && event["level"] != "ERROR" {
+			t.Fatal("server failure must be an error log")
+		}
+	}
+	logs.Reset()
+	w := httptest.NewRecorder()
+	bt.webAppHandler(svc, testBotToken).ServeHTTP(w, httptest.NewRequest("GET", "/", nil))
+	if w.Code != 200 || logs.Len() != 0 {
+		t.Fatal("successful static health probes should not produce bot request logs")
+	}
+}
 
 const testBotToken = "123456:test-token"
 

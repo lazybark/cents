@@ -66,7 +66,8 @@ async function runConnection(input, retry = false) {
 
 function queryFromForm() {
   const fields = new FormData($("filters"));
-  const query = { level: fields.get("level"), component: fields.get("component"), search: fields.get("search").trim() };
+  const query = { level: fields.get("level"), component: fields.get("component"), client: fields.get("client"), status: fields.get("status").trim().toLowerCase(), search: fields.get("search").trim() };
+  if (query.status && !/^[1-5](?:[0-9]{2}|xx)$/.test(query.status)) throw new Error("HTTP status must be a code from 100 to 599 or a group such as 4xx.");
   for (const key of ["from", "to"]) {
     const raw = fields.get(key);
     query[key] = raw ? new Date(raw).toISOString() : "";
@@ -74,12 +75,24 @@ function queryFromForm() {
   if (query.from && query.to && query.to < query.from) throw new Error("The end time must not precede the start time.");
   return query;
 }
+
+function requestMetadata(entry) {
+  // Fall back to stored attributes when connected to an older server.
+  let attributes = {};
+  try { attributes = JSON.parse(entry.attributes) || {}; } catch {}
+  const status = entry.status ?? attributes.status;
+  return {
+    status: Number.isInteger(status) && status >= 100 && status <= 599 ? status : null,
+    client: entry.client || (typeof attributes.client === "string" ? attributes.client : "") || (typeof attributes.route === "string" ? attributes.route : ""),
+  };
+}
 function renderEntries() {
   const fragment = document.createDocumentFragment();
   for (const entry of entries) {
     const row = document.createElement("tr");
     const time = new Date(entry.timestamp);
-    for (const value of [time.toLocaleString(), entry.level, entry.component]) {
+    const request = requestMetadata(entry);
+    for (const value of [time.toLocaleString(), entry.level, entry.component, request.client || "—", request.status ?? "—"]) {
       const cell = document.createElement("td");
       cell.textContent = value;
       cell.title = value;
@@ -87,6 +100,7 @@ function renderEntries() {
     }
     row.cells[0].title = entry.timestamp;
     row.cells[1].className = `level-${entry.level.toLowerCase()}`;
+    row.cells[4].className = request.status >= 500 ? "status-error" : request.status >= 400 ? "status-warning" : request.status >= 200 && request.status < 300 ? "status-success" : "";
     const cell = document.createElement("td");
     const button = document.createElement("button");
     button.type = "button";
@@ -102,7 +116,8 @@ function renderEntries() {
 }
 function details(entry) {
   const fragment = document.createDocumentFragment();
-  for (const [label, value] of [["Event ID", entry.id], ["Time (UTC)", entry.timestamp], ["Level", entry.level], ["Component", entry.component]]) {
+  const request = requestMetadata(entry);
+  for (const [label, value] of [["Event ID", entry.id], ["Time (UTC)", entry.timestamp], ["Level", entry.level], ["Component", entry.component], ["Client", request.client || "—"], ["HTTP status", request.status ?? "—"]]) {
     const dt = document.createElement("dt"), dd = document.createElement("dd");
     dt.textContent = label;
     dd.textContent = value;
@@ -131,6 +146,10 @@ async function load(older = false) {
     const components = [...new Set([...page.components, ...(selected ? [selected] : [])])].sort();
     $("component").replaceChildren(new Option("All components", ""), ...components.map((c) => new Option(c, c)));
     $("component").value = selected;
+    const selectedClient = $("client").value;
+    const clients = [...new Set([...(page.clients || []), ...entries.map((e) => requestMetadata(e).client).filter(Boolean), ...(selectedClient ? [selectedClient] : [])])].sort();
+    $("client").replaceChildren(new Option("All clients", ""), ...clients.map((c) => new Option(c, c)));
+    $("client").value = selectedClient;
     renderEntries();
     $("log-status").textContent = entries.length ? `${entries.length} events · newest first · updated ${new Date().toLocaleTimeString()}` : "No logs match these filters.";
   } catch (error) {

@@ -3,6 +3,7 @@ package cloud
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"io"
 	"log/slog"
 	"net/http"
@@ -39,8 +40,10 @@ func TestGatewayRoutingAndProxyBoundary(t *testing.T) {
 		{"/app/app.js", "mini:/app.js", 200},
 		{"/app/api/v1/info?private=secret-query", "mini:/api/v1/info?private=secret-query", 200},
 		{"/api/v1/info", "api:/api/v1/info", 200},
+		{"/api/v1/admin/logs", "api:/api/v1/admin/logs", 200},
 		{"/app", "", 308}, {"/", "", 308}, {"/unknown", "", 404}, {"/healthz", `{"status":"ok"}`, 200},
 	} {
+		before := logs.Len()
 		r := httptest.NewRequest("GET", tc.path, nil)
 		r.RemoteAddr = "203.0.113.7:1234"
 		r.Header.Set("Authorization", "tma secret-signin")
@@ -49,6 +52,18 @@ func TestGatewayRoutingAndProxyBoundary(t *testing.T) {
 		r.Header.Set("X-Request-ID", "untrusted-id")
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, r)
+		if tc.path != "/healthz" {
+			var event map[string]any
+			if err := json.Unmarshal(logs.Bytes()[before:], &event); err != nil {
+				t.Fatal(err)
+			}
+			if event["client"] != routeName(r.URL.Path) || event["status"] != float64(tc.status) {
+				t.Fatalf("missing request context: %+v", event)
+			}
+			if _, ok := event["route"]; ok {
+				t.Fatal("route classification should now be in client")
+			}
+		}
 		if w.Code != tc.status || tc.want != "" && w.Body.String() != tc.want {
 			t.Fatalf("%s: got %d %s", tc.path, w.Code, w.Body.String())
 		}
