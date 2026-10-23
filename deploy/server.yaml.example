@@ -8,6 +8,11 @@ tokens:
     sha256: REPLACE_WITH_BOT_TOKEN_SHA256
   - name: desktop
     sha256: REPLACE_WITH_DESKTOP_TOKEN_SHA256
+  # Optional: cents-server token new --name admin --admin --read-only
+  # - name: admin
+  #   sha256: REPLACE_WITH_ADMIN_TOKEN_SHA256
+  #   admin: true
+  #   read_only: true
 log:
   format: json
   level: info

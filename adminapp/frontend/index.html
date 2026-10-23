@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>cents admin</title>
+  <script>
+    try {
+      var theme = localStorage.getItem("cents.theme") || "amber";
+      if (theme === "system") theme = matchMedia("(prefers-color-scheme: light)").matches ? "paper" : "amber";
+      if (theme !== "amber") document.documentElement.dataset.theme = theme;
+    } catch (e) {}
+  </script>
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="admin.css">
+</head>
+<body>
+  <div class="app">
+    <nav class="sidebar" aria-label="Administration menu">
+      <h1 class="brand">cents <span class="admin-label">admin</span></h1>
+      <button class="nav-item" type="button" aria-current="page">Logs</button>
+      <div class="nav-spacer"></div>
+      <label class="field theme-field"><span class="field-label">Theme</span><select id="theme"></select></label>
+      <button id="connection" class="nav-item" type="button">Connect to server…</button>
+    </nav>
+    <main class="content">
+      <header class="content-head">
+        <h2 class="view-title">Logs</h2>
+        <div class="toolbar">
+          <label class="check"><input id="auto" type="checkbox" disabled> Refresh every 5s</label>
+          <button id="refresh" class="button" type="button" disabled>Refresh</button>
+        </div>
+      </header>
+      <p id="server" class="muted path">Connect to your cents server to inspect its logs.</p>
+      <section id="connect-panel" class="panel">
+        <h3 class="section-title">Connect to server</h3>
+        <p class="muted">Use a token with administrator permission. The server reads its separate logs database.</p>
+        <form id="connect-form" class="form">
+          <div class="field-row">
+            <label class="field"><span class="field-label">Server address</span><input id="address" type="url" placeholder="http://localhost:8080" required></label>
+            <label class="field"><span class="field-label">Admin token</span><input id="token" type="password" autocomplete="off" required></label>
+          </div>
+          <label class="check"><input id="remember" type="checkbox" checked> Remember this connection on this computer</label>
+          <p class="hint">Saved credentials are kept in the separate admin.yml settings file, readable only by your user.</p>
+          <div class="actions">
+            <button id="connect" class="button button-primary" type="submit">Connect</button>
+            <button id="retry" class="button" type="button" hidden>Reconnect saved server</button>
+            <button id="disconnect" class="button" type="button" hidden>Disconnect &amp; forget</button>
+            <button id="cancel-connect" class="button" type="button" hidden>Cancel</button>
+          </div>
+          <p id="connect-error" class="negative" role="alert" hidden></p>
+        </form>
+      </section>
+      <div id="log-view" class="view" hidden>
+        <section class="panel">
+          <form id="filters" class="form">
+            <div class="log-filters">
+              <label class="field"><span class="field-label">Level</span><select name="level"><option value="">All levels</option><option>DEBUG</option><option>INFO</option><option>WARN</option><option>ERROR</option></select></label>
+              <label class="field"><span class="field-label">Component</span><select name="component" id="component"><option value="">All components</option></select></label>
+              <label class="field search-field"><span class="field-label">Search message &amp; attributes</span><input name="search" type="search" maxlength="200" placeholder="Request, user, error…"></label>
+              <label class="field"><span class="field-label">From (local time)</span><input name="from" type="datetime-local" step="1"></label>
+              <label class="field"><span class="field-label">To (local time)</span><input name="to" type="datetime-local" step="1"></label>
+            </div>
+            <div class="actions"><button class="button button-primary" type="submit">Apply filters</button><button id="clear" class="button" type="button">Clear</button></div>
+          </form>
+        </section>
+        <p id="log-error" class="negative" role="alert" hidden></p>
+        <section class="panel log-panel" aria-label="Log entries" aria-busy="false">
+          <p id="log-status" class="muted" role="status" aria-live="polite"></p>
+          <div class="log-scroll"><table class="table log-table"><thead><tr><th>Time (local)</th><th>Level</th><th>Component</th><th>Message</th></tr></thead><tbody id="entries"></tbody></table></div>
+          <button id="older" class="button" type="button" hidden>Load older</button>
+        </section>
+      </div>
+    </main>
+  </div>
+  <dialog id="details" class="dialog dialog-wide" aria-labelledby="details-title">
+    <h2 id="details-title" class="dialog-title">Log event</h2>
+    <dl id="event-meta" class="event-meta"></dl>
+    <h3 class="section-title">Message</h3><pre id="event-message"></pre>
+    <h3 class="section-title">Attributes</h3><pre id="event-attributes"></pre>
+    <form method="dialog" class="dialog-actions"><button class="button" type="submit">Close</button></form>
+  </dialog>
+  <dialog id="certificate" class="dialog dialog-wide" aria-labelledby="certificate-title">
+    <h2 id="certificate-title" class="dialog-title">Trust this server certificate?</h2>
+    <p class="muted">Your computer does not trust this certificate. Compare this SHA-256 fingerprint with the one shown by your server before trusting it.</p>
+    <pre id="fingerprint"></pre>
+    <div class="dialog-actions"><button id="reject-certificate" class="button" type="button">Cancel</button><button id="trust-certificate" class="button button-primary" type="button">Trust &amp; connect</button></div>
+  </dialog>
+  <script type="module" src="admin.js"></script>
+</body>
+</html>

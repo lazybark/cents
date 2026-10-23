@@ -50,6 +50,7 @@ func parseHash(raw string) ([32]byte, error) {
 type client struct {
 	name     string
 	readOnly bool
+	admin    bool
 }
 
 // clientOf is the client of the token presented, if it's one of tokens.

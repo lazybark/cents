@@ -28,6 +28,8 @@ type Config struct {
 	Listen string `yaml:"listen"`
 	// Database is the SQLite database file.
 	Database string `yaml:"database"`
+	// LogsDatabase is the diagnostic SQLite file exposed to admin tokens only.
+	LogsDatabase string `yaml:"logs_database"`
 	// Allow lists the addresses and networks (CIDR) that may connect; empty
 	// allows this machine only.
 	Allow []string `yaml:"allow"`
@@ -57,6 +59,7 @@ type Token struct {
 	Name     string `yaml:"name"`
 	SHA256   string `yaml:"sha256"`
 	ReadOnly bool   `yaml:"read_only"`
+	Admin    bool   `yaml:"admin"`
 }
 
 // Log says how requests and events are logged: format text or json, level
@@ -88,6 +91,7 @@ func LoadConfig(path string) (Config, error) {
 type options struct {
 	listen         string
 	database       string
+	logsDatabase   string
 	allow          []netip.Prefix
 	trustedProxies []netip.Prefix
 	tls            TLS
@@ -99,7 +103,7 @@ type options struct {
 // expose the database: no tokens, or plain HTTP beyond this machine
 // (unless InsecureHTTP says so).
 func (cfg Config) check(logOutput io.Writer) (options, error) {
-	s := options{listen: strings.TrimSpace(cfg.Listen), database: strings.TrimSpace(cfg.Database), tls: cfg.TLS, tokens: map[[32]byte]client{}}
+	s := options{listen: strings.TrimSpace(cfg.Listen), database: strings.TrimSpace(cfg.Database), logsDatabase: strings.TrimSpace(cfg.LogsDatabase), tls: cfg.TLS, tokens: map[[32]byte]client{}}
 	if s.listen == "" {
 		s.listen = DefaultListen
 	}
@@ -162,7 +166,7 @@ func (cfg Config) check(logOutput io.Writer) (options, error) {
 		}
 
 		names[name] = true
-		s.tokens[hash] = client{name: name, readOnly: t.ReadOnly}
+		s.tokens[hash] = client{name: name, readOnly: t.ReadOnly, admin: t.Admin}
 	}
 
 	s.logger, err = newLogger(cfg.Log, logOutput)

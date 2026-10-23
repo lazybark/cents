@@ -10,6 +10,10 @@ endif
 build:
 	go build -tags $(DESKTOP_TAGS) -o bin/cents ./cmd
 
+# Separate desktop administration app.
+build-admin:
+	go build -tags $(DESKTOP_TAGS) -o bin/cents-admin ./cmd/admin
+
 # The storage server: plain Go, no desktop window.
 build-server:
 	go build -o bin/cents-server ./cmd/server
@@ -29,12 +33,16 @@ build-docker:
 
 build-all:
 	$(MAKE) build
+	$(MAKE) build-admin
 	$(MAKE) build-server
 	$(MAKE) build-bot
 	$(MAKE) build-cloud
 
 run: build
 	./bin/cents
+
+run-admin: build-admin
+	./bin/cents-admin
 
 test:
 	go run gotest.tools/gotestsum@latest --format-icons hivis --format-hide-empty-pkg

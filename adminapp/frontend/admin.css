@@ -1,0 +1,23 @@
+.admin-label { display: block; margin-top: 4px; font-size: 13px; font-weight: 400; color: var(--muted); }
+.theme-field { flex: none; margin: 12px 8px; }
+.log-filters { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.search-field { grid-column: 1 / -1; }
+.log-scroll { overflow-x: auto; }
+.log-table { table-layout: fixed; min-width: 570px; }
+.log-table th:first-child { width: 165px; }
+.log-table th:nth-child(2) { width: 75px; }
+.log-table th:nth-child(3) { width: 100px; }
+.log-table th:last-child, .log-table td:last-child { text-align: left; }
+.log-table td { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.event-button { display: block; padding: 0; background: none; border: 0; color: inherit; font: inherit; text-align: left; max-width: 100%; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+.event-button:hover { color: var(--headline); text-decoration: underline; }
+.event-button:focus-visible { outline: 2px solid var(--headline); outline-offset: 3px; }
+.level-error { color: var(--negative); }
+.level-warn { color: var(--headline); }
+#older { margin-top: 18px; }
+.event-meta { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 8px; }
+.event-meta dt { color: var(--muted); }
+.event-meta dd { margin: 0; overflow-wrap: anywhere; }
+.dialog pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 280px; overflow-y: auto; font-size: 13px; }
+#fingerprint { user-select: text; }
+@media (min-width: 1200px) { .log-filters { grid-template-columns: 120px 140px minmax(160px, 1fr); } .search-field { grid-column: auto; } }

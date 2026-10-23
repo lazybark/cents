@@ -165,7 +165,9 @@ Request bodies, query strings, authorization headers and Telegram initData
 are not included in gateway access logs. Known bot/server secrets are
 redacted before stdout and SQLite output, including tokens embedded in
 Telegram error URLs. Existing API and bot lifecycle/error logs are captured
-as JSON too. There is no public log-viewing endpoint.
+as JSON too. The separate [desktop admin app](admin.md) reads these logs
+through the API using an admin token. Ordinary desktop/bot tokens and the
+Telegram Mini App cannot access that endpoint.
 
 The default retention is 30 days, pruned on startup and hourly. Set
 `log_retention_days: 0` to retain all events. SQLite reuses deleted pages;

@@ -66,6 +66,7 @@ func root() *cobra.Command {
 	var (
 		name     string
 		readOnly bool
+		admin    bool
 	)
 	token := &cobra.Command{Use: "token", Short: "Manage client tokens"}
 	newToken := &cobra.Command{
@@ -89,11 +90,15 @@ func root() *cobra.Command {
 			if readOnly {
 				fmt.Fprintln(out, "    read_only: true")
 			}
+			if admin {
+				fmt.Fprintln(out, "    admin: true")
+			}
 			return nil
 		},
 	}
 	newToken.Flags().StringVar(&name, "name", "", "the client's name, shown in logs")
 	newToken.Flags().BoolVar(&readOnly, "read-only", false, "the client can only read")
+	newToken.Flags().BoolVar(&admin, "admin", false, "allow administration access, including diagnostic logs")
 	token.AddCommand(newToken)
 	cmd.AddCommand(token)
 

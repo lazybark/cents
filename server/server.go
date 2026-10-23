@@ -27,7 +27,11 @@ const (
 
 // handler is the whole server: the endpoints behind the guard.
 func handler(s options, b service.Backend, files service.Files) http.Handler {
-	return guard(s, newThrottle(throttleFailures, throttleWindow), routes(b, files, s.logger))
+	mux := routes(b, files, s.logger)
+	if s.logsDatabase != "" {
+		mux.Handle(apiPrefix+"/admin/logs", adminLogs(s.logsDatabase, s.logger))
+	}
+	return guard(s, newThrottle(throttleFailures, throttleWindow), mux)
 }
 
 // Handler serves b and files as cfg says (its database and listen address

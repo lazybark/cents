@@ -10,6 +10,10 @@ listen: 127.0.0.1:8740
 # The SQLite database, made with the desktop app.
 database: /path/to/cents.db
 
+# Optional diagnostic logs for the admin desktop app. cents-cloud supplies
+# its own logs_database automatically. Only tokens with admin: true can read it.
+logs_database: ""
+
 # Who may connect: addresses and networks (CIDR). Everyone else is turned
 # away before anything else happens. Empty means this machine only.
 allow:
@@ -33,6 +37,7 @@ insecure_http: false
 # Clients allowed in. Make one with: cents-server token new --name NAME
 # and paste what it prints here; the token itself goes to the client. Add
 # read_only: true to a client that should only read.
+# Use cents-server token new --name admin --admin --read-only for a log viewer.
 tokens: []
 
 # Request and event logs: format text or json; level debug, info, warn or

@@ -164,6 +164,10 @@ func guard(s options, failures *throttle, next http.Handler) http.Handler {
 			}
 
 			req.client = c.name
+			if strings.HasPrefix(r.URL.Path, apiPrefix+"/admin/") && !c.admin {
+				writeError(sw, http.StatusForbidden, "admin_required", "this token does not have administrator permission")
+				return
+			}
 			if c.readOnly && r.Method != http.MethodGet && r.Method != http.MethodHead {
 				writeError(sw, http.StatusForbidden, "read_only", "this token can only read")
 				return

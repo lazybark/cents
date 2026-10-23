@@ -18,8 +18,13 @@ import (
 //go:embed all:frontend
 var assets embed.FS
 
+// FrontendAssets exposes the shared desktop styles and theme assets.
+func FrontendAssets() (fs.FS, error) {
+	return fs.Sub(assets, "frontend")
+}
+
 func Run(opts Options) error {
-	frontend, err := fs.Sub(assets, "frontend")
+	frontend, err := FrontendAssets()
 	if err != nil {
 		return fmt.Errorf("failed to load frontend assets: %w", err)
 	}

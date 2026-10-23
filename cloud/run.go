@@ -86,6 +86,7 @@ func Run(ctx context.Context, cfg Config, output io.Writer) error {
 	}
 	// Only this gateway's loopback connection supplies original addresses.
 	sc.TrustedProxies = []string{"127.0.0.1", "::1"}
+	sc.LogsDatabase = cfg.LogsDatabase
 	sc.Log.Format, bc.Log.Format = "json", "json"
 	if bc.Reminders.StateFile == "" {
 		bc.Reminders.StateFile = bot.DefaultStateFile(cfg.BotConfig)
