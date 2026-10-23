@@ -186,17 +186,24 @@ func (bt *Bot) serveWebApp(ctx context.Context, w WebApp, data Data, botToken st
 		ErrorLog:          slog.NewLogLogger(bt.log.Handler(), slog.LevelWarn),
 	}
 
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	stopped := make(chan struct{})
 	go func() {
+		defer close(stopped)
 		<-ctx.Done()
 		shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		_ = srv.Shutdown(shutdown)
+		if err := srv.Shutdown(shutdown); err != nil {
+			_ = srv.Close()
+		}
 	}()
 
 	bt.log.Info("mini app served", "listen", listener.Addr().String(), "url", w.URL)
 	if err := srv.Serve(listener); !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
+	<-stopped
 
 	return nil
 }

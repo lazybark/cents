@@ -17,10 +17,15 @@ build-server:
 build-bot:
 	go build -o bin/cents-bot ./cmd/bot
 
+# Combined cloud deployment: API, Telegram bot, gateway and SQLite logs.
+build-cloud:
+	go build -o bin/cents-cloud ./cmd/cloud
+
 build-all:
 	$(MAKE) build
 	$(MAKE) build-server
 	$(MAKE) build-bot
+	$(MAKE) build-cloud
 
 run: build
 	./bin/cents

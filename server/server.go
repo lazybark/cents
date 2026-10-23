@@ -45,6 +45,8 @@ func Handler(cfg Config, b service.Backend, files service.Files, logOutput io.Wr
 // Run serves cfg until ctx ends, then shuts down: requests in flight get a
 // few seconds to finish, and the database is closed. Logs go to logOutput.
 func Run(ctx context.Context, cfg Config, logOutput io.Writer) error {
+	ctx, stop := context.WithCancel(ctx)
+	defer stop()
 	s, err := cfg.check(logOutput)
 	if err != nil {
 		return err
@@ -75,7 +77,12 @@ func Run(ctx context.Context, cfg Config, logOutput io.Writer) error {
 	}()
 
 	svc := service.On(store)
-	go svc.KeepRatesFresh(ctx, func() { log.Info("exchange rates updated") })
+	ratesDone := make(chan struct{})
+	go func() {
+		defer close(ratesDone)
+		svc.KeepRatesFresh(ctx, func() { log.Info("exchange rates updated") })
+	}()
+	defer func() { stop(); <-ratesDone }()
 
 	srv := &http.Server{
 		Handler:           handler(s, svc, svc),
@@ -135,6 +142,7 @@ func Run(ctx context.Context, cfg Config, logOutput io.Writer) error {
 		defer cancel()
 		if err := srv.Shutdown(shutdown); err != nil {
 			log.Error("shutdown", "error", err)
+			_ = srv.Close()
 		}
 	}
 

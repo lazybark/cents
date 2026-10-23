@@ -17,6 +17,10 @@ allow:
   - ::1
   # - 192.168.1.0/24
 
+# Only these proxy peers may supply the original client in Fly-Client-IP.
+# Keep empty when clients connect directly. cents-cloud sets this to loopback.
+trusted_proxies: []
+
 # HTTPS. Needed to listen beyond this machine, unless insecure_http is set.
 tls:
   cert: ""

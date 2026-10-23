@@ -67,6 +67,17 @@ func remoteAddr(r *http.Request) netip.Addr {
 	return addr.Unmap()
 }
 
+// Only a configured proxy may assert an original client address. An invalid
+// header fails closed (the address allowlist rejects an invalid address).
+func clientAddr(r *http.Request, trusted []netip.Prefix) netip.Addr {
+	peer := remoteAddr(r)
+	if allowed(trusted, peer) && r.Header.Get("Fly-Client-IP") != "" {
+		addr, _ := netip.ParseAddr(r.Header.Get("Fly-Client-IP"))
+		return addr.Unmap()
+	}
+	return peer
+}
+
 type apiError struct {
 	Error errorBody `json:"error"`
 }
@@ -96,7 +107,7 @@ func guard(s options, failures *throttle, next http.Handler) http.Handler {
 		req := &request{}
 		r = r.WithContext(context.WithValue(r.Context(), requestKey{}, req))
 		sw := &statusWriter{ResponseWriter: w}
-		addr := remoteAddr(r)
+		addr := clientAddr(r, s.trustedProxies)
 
 		defer func() {
 			if p := recover(); p != nil {

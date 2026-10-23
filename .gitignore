@@ -1,4 +1,8 @@
 /vendor
 *.db
+*.db-wal
+*.db-shm
+bot-state.json
+/.deploy/
 *.yml
 /bin

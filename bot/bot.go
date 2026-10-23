@@ -80,8 +80,12 @@ var Commands = []telegram.Command{
 // Run answers updates from poller until ctx ends. Failures to get updates
 // are retried, slower each time, except a refused token.
 func (bt *Bot) Run(ctx context.Context, poller Poller) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	if bt.reminders != nil && bt.reminders.Enabled {
-		go bt.remind(ctx)
+		reminded := make(chan struct{})
+		go func() { defer close(reminded); bt.remind(ctx) }()
+		defer func() { cancel(); <-reminded }()
 	}
 
 	var offset int64

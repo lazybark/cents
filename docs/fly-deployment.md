@@ -1,193 +1,224 @@
-# Running cents-server on fly.io
+# Deploying cents, its Telegram bot and Mini App on Fly.io
 
-Status: **an idea, not built yet.** For now the server runs on a laptop.
-This note covers what hosting it on fly.io would take, so the work can be
-picked up later.
+`cents-cloud` starts the existing API server, Telegram bot and a reverse proxy
+in one Go process on one Fly Machine. The standalone server and bot commands
+remain available. The desktop app runs on your computer and connects remotely.
 
-## The setup in short
+```text
+                         one Fly Machine
+HTTPS -> Fly TLS -> gateway :8080
+                       |-- /app/* -> bot's Mini App, 127.0.0.1:8750
+                       |              (strips /app; keeps Telegram authentication)
+                       |-- /api/* -> API, 127.0.0.1:8740 (bearer authentication)
+                       |-- /healthz -> checks both HTTP listeners
+                       `-- / -> /app/
 
-```
-desktop app ──HTTPS──▶ Fly edge (TLS, cents.example.com)
-                           │ private network, plain HTTP
-                           ▼
-                   cents-server (one machine)
-                           │
-                   SQLite on a Fly Volume ──Litestream──▶ S3-compatible bucket
-```
-
-- **Desktop app:** nothing changes. Use Settings → Database → Connect to a
-  server… with `https://cents.example.com` and a token. Fly gives the domain
-  a Let's Encrypt certificate, so the system trusts it and the app doesn't
-  ask about a fingerprint.
-- **Database:** the SQLite file lives on a **Fly Volume** (a disk attached to
-  the machine), not in S3.
-- **Copies:** **Litestream** streams every change to the S3 bucket within
-  about a second, and restores the file from it if the volume is lost.
-
-### Why not keep the database file in S3
-
-SQLite needs a real filesystem with working file locks, and object storage
-isn't one. Mounting a bucket as a drive (s3fs and the like) is slow, has no
-real locking, and risks corrupting the database. Litestream is how SQLite is
-normally paired with S3: the disk keeps the live file and the bucket keeps
-the copies.
-
-## What has to change in the code
-
-### 1. Real client addresses behind the proxy (required)
-
-Fly's edge ends HTTPS and forwards requests to the machine, so every request
-reaches cents-server from the proxy's address. The server deliberately
-ignores headers like `X-Forwarded-For`, because a client can send them
-(`remoteAddr` in `server/middleware.go`). Behind the proxy that breaks two
-things:
-
-- **Allowlist (`allow`):** it would have to include Fly's internal network,
-  which then lets everyone in. The token still guards the API.
-- **Failed-login throttle (`throttle` in `server/auth.go`):** it counts
-  failures per address. Every client would share the proxy's address, so 10
-  bad tokens from anyone would lock everyone out for a minute, and a stranger
-  could keep doing it.
-
-Fix: a `trusted_proxies` config key (a list of CIDRs, empty by default).
-Only when a connection comes from one of those addresses, the server takes
-the client's address from Fly's `Fly-Client-IP` header (or the last
-`X-Forwarded-For` entry). The allowlist, the throttle and the logs then use
-that address. Connections from anywhere else keep ignoring the headers.
-
-Check the exact source range of Fly's proxy when building this. It's
-expected to be Fly's private IPv6 network (`fdaa::/16`), but confirm it from
-the machine.
-
-### 2. WAL mode, for Litestream (required)
-
-Litestream works only with SQLite in WAL mode, and `OpenDatabase` in
-`storage/sqlite/storage.go` doesn't set a journal mode today. Add
-`PRAGMA journal_mode=WAL` when opening a file-backed database. It's also a
-good change for the desktop app.
-
-Things to check:
-
-- **Backups:** the `-wal` and `-shm` files next to the database. VACUUM INTO
-  already writes one consistent file.
-- **Encryption:** the vault (`storage/sqlite/vault.go`) runs in memory and
-  doesn't need WAL.
-- **Moving or copying the database:** checkpoint first, since the `-wal`
-  file holds recent changes.
-
-### 3. Timezone (recommended)
-
-Fly machines run on UTC. "Today" and "this month" (budgets, overdue
-payments, the running month) follow the server's clock. Set `TZ` to the
-user's zone in `fly.toml`, and build the server with Go's embedded zone data
-(`-tags timetzdata`, or import `time/tzdata` in `cmd/server`), because slim
-images ship without `/usr/share/zoneinfo`.
-
-### 4. Encrypted databases (limitation)
-
-The server can't open password-protected databases yet (`Run` in
-`server/server.go` refuses them), so the file on the volume must be plain.
-Litestream can encrypt the copies it uploads (its `age` support), so the
-bucket stays private even if its credentials leak.
-
-## Deployment files to write
-
-None of these exist yet. They are rough sketches to check against the
-current Fly and Litestream docs.
-
-### Dockerfile (two-stage: the SQLite driver needs cgo)
-
-```dockerfile
-FROM golang:1.27-bookworm AS build
-WORKDIR /src
-COPY . .
-RUN CGO_ENABLED=1 go build -tags timetzdata -o /cents-server ./cmd/server
-
-FROM debian:bookworm-slim
-RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
-COPY --from=build /cents-server /usr/local/bin/cents-server
-# Add the litestream binary from its release (or the litestream image).
-COPY litestream.yml /etc/litestream.yml
-# Litestream restores the database if it's missing, then runs the server
-# as its child process and replicates its changes.
-CMD ["litestream", "replicate", "-exec", "cents-server --config /data/server.yml"]
+Telegram <-- long polling -- bot -- localhost HTTP --> API --> /data/cents.db
+                                  all components' logs --> /data/logs.db + stdout
+                                  reminder state --> /data/bot-state.json
 ```
 
-On first boot, run `litestream restore -if-db-not-exists -if-replica-exists`
-before `replicate` (for example in a small entrypoint script).
+The Mini App URL must end in `/app/`, including the trailing slash. Its assets
+and API calls use relative URLs, so they stay under that prefix. The desktop
+connects to the root address, such as `https://YOUR_APP.fly.dev`.
 
-### fly.toml
+## Lifecycle and configuration
 
-```toml
-app = "cents"
-primary_region = "ams"            # nearest to you
+Build with `make build-cloud`. To run outside Docker:
 
-[env]
-  TZ = "Europe/Amsterdam"         # your zone
-
-[mounts]
-  source = "cents_data"
-  destination = "/data"
-
-[http_service]
-  internal_port = 8740
-  force_https = true
-  auto_stop_machines = "stop"     # waking takes a few seconds; the app waits 15
-  auto_start_machines = true
-  min_machines_running = 0
+```sh
+bin/cents-cloud config example
+bin/cents-cloud --config /path/to/cloud.yml
 ```
 
-Keep the app on **one machine** (`fly scale count 1`). SQLite allows a
-single writer, and a volume belongs to one machine.
+The gateway uses `cloud.yml`, plus the existing `server.yml` and `bot.yml`.
+Missing config keys receive defaults; unknown keys are rejected. The API and
+Mini App listeners must use loopback IPs. The bot's `server.url` must match
+the API listener, and its token must match a writable server token.
 
-### server.yml (on the volume, at /data/server.yml)
+The server starts before the bot uses it. The gateway's readiness check
+returns 503 until both upstream HTTP endpoints respond. A fatal service exit
+cancels its siblings, waits for shutdown, flushes queued logs and exits with
+a failure status. Fly's restart policy then restarts the bundle. Temporary
+Telegram polling failures still use the bot's existing retry loop.
 
-```yaml
-listen: 0.0.0.0:8740
-database: /data/cents.db
-# HTTPS ends at Fly's edge; this hop runs on Fly's private network.
-insecure_http: true
-# Needs change 1 above:
-# trusted_proxies: [fdaa::/16]
-# allow: [...]   # once real addresses are seen, if wanted
-tokens:
-  - name: laptop
-    sha256: ...
-log:
-  format: json
+Normal SIGINT/SIGTERM shuts everything down together. Readiness checks don't
+test Telegram's external availability, and an unhealthy check alone does not
+trigger a restart. Deployments briefly interrupt service. Keep exactly one
+Machine to avoid concurrent Telegram pollers and independent budget copies.
+
+## Prepare the configs
+
+The `deploy/*.yaml.example` files are templates; actual YAML files and
+`.deploy/` are ignored by Git and the Docker build context.
+
+```sh
+mkdir -p .deploy
+cp deploy/server.yaml.example .deploy/server.yml
+cp deploy/bot.yaml.example .deploy/bot.yml
+make build-server
+bin/cents-server token new --name bot
+bin/cents-server token new --name desktop
 ```
 
-Keep tokens out of the image. Make them with
-`cents-server token new --name laptop` and put the config on the volume, or
-build it from Fly secrets at start.
+Put the two generated SHA-256 hashes in `.deploy/server.yml`. Keep the raw
+desktop token for the desktop app. The raw bot token becomes
+`CENTS_BOT_SERVER_TOKEN`; the Telegram token from BotFather becomes
+`CENTS_BOT_TELEGRAM_TOKEN`. Those two environment variables are already
+supported by the bot, so the token fields in `bot.yml` can stay empty.
 
-### litestream.yml
+In `.deploy/bot.yml`, set your Telegram user ID and the public Mini App URL,
+`https://YOUR_APP.fly.dev/app/`. Leave the internal server URL at
+`http://127.0.0.1:8740` and the Mini App listener at `127.0.0.1:8750`.
+The bot sets its Telegram menu button to that URL at startup.
 
-```yaml
-dbs:
-  - path: /data/cents.db
-    replicas:
-      - type: s3
-        bucket: cents-backups
-        path: cents.db
-        endpoint: https://...     # any S3-compatible store (Tigris on Fly, R2, B2, ...)
-        # access keys from env: LITESTREAM_ACCESS_KEY_ID / LITESTREAM_SECRET_ACCESS_KEY (Fly secrets)
+`deploy/cloud.yaml.example` is the gateway config copied into the image as
+`/etc/cents/cloud.yml`. By default it creates an empty, unencrypted budget if
+`/data/cents.db` doesn't exist. Existing files are never replaced. Set
+`initialize_database: false` if missing budget data should prevent startup.
+An empty budget needs its currencies set up through a client before use.
+Password-encrypted budget files are not supported by the API server yet.
+
+## Deploy
+
+Set a unique app name in `fly.toml`. Its region defaults to `waw`; change it
+and `TZ = "Europe/Kyiv"` if appropriate. Timezone data is embedded in the
+cloud binary. The Docker build enables CGO for the SQLite driver.
+
+Create the app and its volume, using the same name and region as `fly.toml`:
+
+```sh
+fly apps create YOUR_APP
+fly ips allocate-v4 --shared
+fly ips allocate-v6
+fly volumes create cents_data --region waw --size 1
 ```
 
-## Getting the existing data there
+Stage the configuration as file secrets. Fly decodes these base64 values
+into `/etc/cents/server.yml` and `/etc/cents/bot.yml` at deployment:
 
-1. Stop the desktop app (or the laptop server) so the database isn't
-   changing.
-2. Copy the database to the volume: `fly ssh sftp shell`, then `put`. Or
-   restore it through Litestream after uploading it once.
-3. Start the app on Fly. In the desktop app, connect to
-   `https://cents.example.com` with a new token.
+```sh
+fly secrets set --stage \
+  CENTS_SERVER_CONFIG="$(base64 < .deploy/server.yml | tr -d '\n')" \
+  CENTS_BOT_CONFIG="$(base64 < .deploy/bot.yml | tr -d '\n')"
+fly secrets set --stage \
+  CENTS_BOT_TELEGRAM_TOKEN='YOUR_TELEGRAM_BOT_TOKEN' \
+  CENTS_BOT_SERVER_TOKEN='YOUR_RAW_CENTS_BOT_TOKEN'
+fly deploy --ha=false
+fly scale count 1
+fly checks list
+```
 
-## Checklist
+Use `fly deploy --ha=false` for subsequent deployments too. The provided
+configuration disables autostop and uses rolling replacement on the single
+Machine. It exposes only port 8080 through Fly's HTTPS proxy. Fly terminates
+TLS; the gateway and internal services communicate over HTTP on this Machine.
 
-- [ ] `trusted_proxies` + `Fly-Client-IP` (server/middleware.go, config.go), with tests
-- [ ] WAL mode in `OpenDatabase`, checked with backups and encryption
-- [ ] `-tags timetzdata` (or `time/tzdata`) in the server build
-- [ ] Dockerfile, fly.toml, litestream.yml, entrypoint with restore-on-first-boot
-- [ ] Try a restore from the bucket onto a fresh volume
-- [ ] Optional: let the server open encrypted databases (password from a Fly secret)
+`cents-cloud` configures the API to trust forwarding information only from
+its loopback gateway. The gateway accepts `Fly-Client-IP` only from peers in
+`cloud.yml`'s `trusted_proxies` list, overwrites it on upstream requests, and
+ignores caller-supplied forwarding chains. This preserves the API allowlist
+and separate failed-login limits for external clients. For local use, set
+the gateway's `trusted_proxies: []`.
+
+The sample API allowlist permits all client IPs; a valid token is still
+required. You can narrow it to your client networks, retaining loopback for
+the bot and internal health probes. Telegram Mini App access uses the bot's
+allowed Telegram users and signed Telegram initData separately.
+
+For an existing budget, first let a new deployment start with an empty file.
+Use `fly machine list` to find its ID, then temporarily run a maintenance
+command instead of cents. This keeps SFTP available with the budget closed:
+
+```sh
+fly machine update MACHINE_ID --command "sleep infinity" --skip-health-checks
+fly ssh sftp shell
+```
+
+In the SFTP shell, upload a consistent export/backup from cents:
+
+```text
+put /path/to/your-backup.db /data/cents.db
+exit
+```
+
+Resume the bundle with the same config:
+
+```sh
+fly machine update MACHINE_ID --command "cents-cloud --config /etc/cents/cloud.yml"
+```
+
+Never replace an open budget database. Keep a local backup before migration;
+do not copy an actively written SQLite file. The deployment does not
+implement replication or automatic off-Machine backups.
+
+## Inspect logs
+
+`logs.db` is a separate SQLite database on the same persistent `/data` volume
+as `cents.db`. Its schema is independent of the budget. Records include UTC
+timestamp, severity, component (`cloud`, `server`, `bot`, or `gateway`), message
+and JSON attributes. The gateway records method, route category, status,
+duration, response bytes, original client IP and a generated request ID,
+also returned in `X-Request-ID`.
+
+Request bodies, query strings, authorization headers and Telegram initData
+are not included in gateway access logs. Known bot/server secrets are
+redacted before stdout and SQLite output, including tokens embedded in
+Telegram error URLs. Existing API and bot lifecycle/error logs are captured
+as JSON too. There is no public log-viewing endpoint.
+
+The default retention is 30 days, pruned on startup and hourly. Set
+`log_retention_days: 0` to retain all events. SQLite reuses deleted pages;
+pruning doesn't shrink the file. WAL mode allows concurrent inspection.
+Writes are queued and shutdown flushes for up to ten seconds; a full queue,
+flush timeout or disk failure loses database log entries
+while stdout continues and reports the logging failure. This is diagnostic
+logging, not a transactional financial audit trail. A volume persists across
+deployments; it is not an independent backup.
+
+Stream stdout:
+
+```sh
+fly logs
+```
+
+Inspect recent errors with the `sqlite3` CLI included in the image:
+
+```sh
+fly ssh console
+sqlite3 -readonly /data/logs.db
+```
+
+```sql
+.headers on
+.mode column
+SELECT id, timestamp, level, component, message
+FROM logs
+ORDER BY id DESC
+LIMIT 100;
+
+SELECT timestamp, component, message, attributes
+FROM logs
+WHERE level IN ('WARN', 'ERROR')
+ORDER BY id DESC
+LIMIT 100;
+
+SELECT timestamp, json_extract(attributes, '$.status') AS status,
+       json_extract(attributes, '$.duration_ms') AS duration_ms
+FROM logs
+WHERE component = 'gateway'
+ORDER BY id DESC
+LIMIT 100;
+```
+
+To download a consistent log database while the app runs, use SQLite's backup
+command, then download `/tmp/cents-logs.db` with Fly SFTP. Don't copy only the
+live `logs.db` file: recent records can still be in its WAL.
+
+```sh
+sqlite3 /data/logs.db ".backup '/tmp/cents-logs.db'"
+```
+
+Fly references: [configuration and file secrets](https://docs.fly.io/reference/configuration),
+[single-Machine deployment](https://docs.fly.io/apps/app-availability), and
+[persistent volumes](https://docs.fly.io/volumes/overview).

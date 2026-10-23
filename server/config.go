@@ -31,7 +31,10 @@ type Config struct {
 	// Allow lists the addresses and networks (CIDR) that may connect; empty
 	// allows this machine only.
 	Allow []string `yaml:"allow"`
-	TLS   TLS      `yaml:"tls"`
+	// TrustedProxies may supply the original client in Fly-Client-IP.
+	// Empty ignores forwarding headers, as for a directly exposed server.
+	TrustedProxies []string `yaml:"trusted_proxies"`
+	TLS            TLS      `yaml:"tls"`
 	// InsecureHTTP allows plain HTTP on an address other machines can
 	// reach. Only for testing on a network you trust: tokens and data
 	// travel unencrypted.
@@ -83,12 +86,13 @@ func LoadConfig(path string) (Config, error) {
 
 // options is a checked Config, ready to use.
 type options struct {
-	listen   string
-	database string
-	allow    []netip.Prefix
-	tls      TLS
-	tokens   map[[32]byte]client
-	logger   *slog.Logger
+	listen         string
+	database       string
+	allow          []netip.Prefix
+	trustedProxies []netip.Prefix
+	tls            TLS
+	tokens         map[[32]byte]client
+	logger         *slog.Logger
 }
 
 // check validates cfg and fills in defaults. It refuses setups that would
@@ -116,6 +120,13 @@ func (cfg Config) check(logOutput io.Writer) (options, error) {
 		}
 
 		s.allow = append(s.allow, prefix)
+	}
+	for _, raw := range cfg.TrustedProxies {
+		prefix, err := parseAllowed(raw)
+		if err != nil {
+			return options{}, fmt.Errorf("trusted_proxies: %w", err)
+		}
+		s.trustedProxies = append(s.trustedProxies, prefix)
 	}
 
 	if (cfg.TLS.Cert == "") != (cfg.TLS.Key == "") {

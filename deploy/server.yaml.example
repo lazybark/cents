@@ -1,0 +1,13 @@
+listen: 127.0.0.1:8740
+database: /data/cents.db
+# Public clients authenticate with tokens. Narrow these ranges if desired.
+# cents-cloud preserves the real client IP for this allowlist and throttling.
+allow: [0.0.0.0/0, "::/0"]
+tokens:
+  - name: bot
+    sha256: REPLACE_WITH_BOT_TOKEN_SHA256
+  - name: desktop
+    sha256: REPLACE_WITH_DESKTOP_TOKEN_SHA256
+log:
+  format: json
+  level: info

@@ -1,0 +1,9 @@
+listen: :8080
+server_config: /etc/cents/server.yml
+bot_config: /etc/cents/bot.yml
+logs_database: /data/logs.db
+log_retention_days: 30
+# First deploy can create an empty budget; existing files are never replaced.
+# Set false if a missing database should stop startup instead.
+initialize_database: true
+trusted_proxies: [fdaa::/16]

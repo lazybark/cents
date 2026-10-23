@@ -52,12 +52,15 @@ func Run(ctx context.Context, cfg Config, logOutput io.Writer) error {
 
 	failed := make(chan error, 1)
 	if cfg.WebApp.on() {
+		webDone := make(chan struct{})
 		go func() {
+			defer close(webDone)
 			if err := bt.serveWebApp(ctx, cfg.WebApp, b, cfg.Telegram.Token); err != nil {
 				failed <- err
 				stop()
 			}
 		}()
+		defer func() { stop(); <-webDone }()
 
 		// The menu button follows url, so a new tunnel address needs no
 		// trip to @BotFather.

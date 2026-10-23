@@ -1,0 +1,19 @@
+telegram:
+  token: "" # CENTS_BOT_TELEGRAM_TOKEN from Fly secrets
+  allowed_users: [111111] # Your Telegram user ID
+server:
+  url: http://127.0.0.1:8740
+  token: "" # CENTS_BOT_SERVER_TOKEN from Fly secrets
+reminders:
+  enabled: true
+  days_ahead: 1
+  from: "09:00"
+  until: "21:00"
+  state_file: /data/bot-state.json
+web_app:
+  url: https://YOUR_APP.fly.dev/app/
+  listen: 127.0.0.1:8750
+  button: cents
+log:
+  format: json
+  level: info
