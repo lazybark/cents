@@ -15,6 +15,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/lazybark/cents/dbimport"
 	"github.com/lazybark/cents/service"
 	storage "github.com/lazybark/cents/storage/sqlite"
 )
@@ -42,8 +43,9 @@ type route struct {
 	in, out reflect.Type
 	// status is the status of success; contentType is set for a file sent
 	// instead of JSON.
-	status      int
-	contentType string
+	status             int
+	contentType        string
+	requestContentType string
 	// optionalBody accepts a request without a body.
 	optionalBody bool
 	serve        func(w http.ResponseWriter, r *http.Request, p *params) (any, error)
@@ -440,6 +442,9 @@ func (a *api) fail(w http.ResponseWriter, r *http.Request, err error) {
 	var bad badRequest
 	var missing notFound
 	switch {
+	case errors.Is(err, dbimport.ErrTooLarge):
+		writeError(w, http.StatusRequestEntityTooLarge, "too_large", err.Error())
+		return
 	case errors.As(err, &bad):
 		writeError(w, http.StatusBadRequest, "bad_request", bad.message)
 		return
@@ -480,12 +485,17 @@ func (a *api) fail(w http.ResponseWriter, r *http.Request, err error) {
 // Routes is the REST API (and /healthz) on b and files, without the
 // guard: for a program that checks its callers its own way, like the bot's
 // Mini App.
+// Database imports are available only through the guarded server API.
 func Routes(b service.Backend, files service.Files, log *slog.Logger) http.Handler {
-	return routes(b, files, log)
+	return routesWithImport(b, files, log, false)
 }
 
 // routes is the whole server: health and the API.
 func routes(b service.Backend, files service.Files, log *slog.Logger) *http.ServeMux {
+	return routesWithImport(b, files, log, true)
+}
+
+func routesWithImport(b service.Backend, files service.Files, log *slog.Logger, includeImport bool) *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "version": Version})
@@ -493,6 +503,15 @@ func routes(b service.Backend, files service.Files, log *slog.Logger) *http.Serv
 
 	a := &api{log: log}
 	all := apiRoutes(b, files)
+	if !includeImport {
+		filtered := all[:0]
+		for _, rt := range all {
+			if rt.name != "importDatabase" {
+				filtered = append(filtered, rt)
+			}
+		}
+		all = filtered
+	}
 	all = append(all, get("", "This description of the API (OpenAPI 3).", nil, func(_ *http.Request, _ *params) (map[string]any, error) {
 		return describe(all), nil
 	}).named("describe"))

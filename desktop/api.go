@@ -84,7 +84,9 @@ type API struct {
 
 	// pick asks where to save backups and exports; nil uses the system's
 	// dialogs.
-	pick pickers
+	pick          pickers
+	importMu      sync.Mutex
+	pendingImport *pendingDatabaseImport
 }
 
 // ratesEvent tells the frontend that rates changed in the background.

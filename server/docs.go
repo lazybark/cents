@@ -99,6 +99,9 @@ func operation(rt route, schemas map[string]any) map[string]any {
 			"content":  map[string]any{"application/json": map[string]any{"schema": schema(rt.in, schemas)}},
 		}
 	}
+	if rt.requestContentType != "" {
+		op["requestBody"] = map[string]any{"required": true, "content": map[string]any{rt.requestContentType: map[string]any{"schema": map[string]any{"type": "string", "format": "binary"}}}}
+	}
 
 	success := map[string]any{"description": "Done."}
 	status := rt.status

@@ -51,6 +51,8 @@ func (w *statusWriter) Write(b []byte) (int, error) {
 	return n, err
 }
 
+func (w *statusWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
+
 // remoteAddr is the connecting address. Headers like X-Forwarded-For are
 // ignored: anyone can send them.
 func remoteAddr(r *http.Request) netip.Addr {
@@ -131,7 +133,14 @@ func guard(s options, failures *throttle, next http.Handler) http.Handler {
 		h.Set("X-Content-Type-Options", "nosniff")
 		h.Set("Cache-Control", "no-store")
 		h.Set("Referrer-Policy", "no-referrer")
-		r.Body = http.MaxBytesReader(sw, r.Body, maxBody)
+		limit := BodyLimit(r.Method, r.URL.Path)
+		if limit > maxBody {
+			deadline := time.Now().Add(2 * time.Minute)
+			controller := http.NewResponseController(sw)
+			_ = controller.SetReadDeadline(deadline)
+			_ = controller.SetWriteDeadline(deadline)
+		}
+		r.Body = http.MaxBytesReader(sw, r.Body, limit)
 
 		if !allowed(s.allow, addr) {
 			writeError(sw, http.StatusForbidden, "forbidden", "this address isn't allowed")

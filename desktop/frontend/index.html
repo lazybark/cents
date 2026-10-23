@@ -1187,6 +1187,19 @@
         </section>
 
         <section class="panel">
+          <div class="panel-head">
+            <h3 class="section-title">Import from another database</h3>
+            <button id="import-db" class="button button-primary" type="button">Choose database…</button>
+          </div>
+          <p class="hint">Merge records from a cents .db file into the database or server you are using. Preview the additions first;
+            existing records and balances are kept, and importing the same snapshot again skips records already present.</p>
+          <p class="hint">Use an unencrypted backup made with the current app, up to 32 MB. Both budgets must use the same base currency;
+            a new, empty budget can adopt the imported one.</p>
+          <p class="hint">Importing into a password-encrypted local database is not supported yet.</p>
+          <p id="import-db-error" class="negative" role="alert" hidden></p>
+        </section>
+
+        <section class="panel">
           <form id="export-form" class="form" novalidate>
             <div class="panel-head">
               <h3 class="section-title">Export to CSV</h3>
@@ -2562,6 +2575,27 @@
         </span>
       </div>
     </form>
+  </dialog>
+
+  <dialog id="import-db-dialog" class="dialog dialog-wide" aria-labelledby="import-db-title">
+    <h2 id="import-db-title" class="dialog-title">Import database records</h2>
+    <p id="import-db-source"></p>
+    <p class="hint">Destination</p>
+    <p id="import-db-destination" class="path"></p>
+    <p id="import-db-summary"></p>
+    <p id="import-db-conflicts" class="hint" hidden></p>
+    <div class="import-counts">
+      <table class="table">
+        <thead><tr><th>Records</th><th class="num">To add</th><th class="num">Already present</th></tr></thead>
+        <tbody id="import-db-counts"></tbody>
+      </table>
+    </div>
+    <p class="hint">Existing data wins conflicts. Settings, backup paths and reminder state are kept. Preview has not added any records.</p>
+    <p class="form-error negative" hidden></p>
+    <div class="dialog-actions">
+      <button class="button" type="button" data-close autofocus>Cancel</button>
+      <button id="import-db-confirm" class="button button-primary" type="button">Import records</button>
+    </div>
   </dialog>
 
   <dialog id="confirm-dialog" class="dialog">

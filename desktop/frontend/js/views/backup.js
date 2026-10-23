@@ -1,7 +1,7 @@
 // Backup & export: a full copy of the database where the user picks, and
 // CSV files of chosen records for a period, for spreadsheets.
 import { api } from "../api.js";
-import { busy, formError, localDate, setStatus } from "../ui.js";
+import { busy, cell, formError, localDate, reloadApp, setStatus } from "../ui.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -9,6 +9,10 @@ const el = {
   backupNow: $("backup-now"),
   backupLast: $("backup-last"),
   backupDB: $("backup-db"),
+  importButton: $("import-db"),
+  importError: $("import-db-error"),
+  importDialog: $("import-db-dialog"),
+  importConfirm: $("import-db-confirm"),
 
   form: $("export-form"),
   timed: $("export-timed"),
@@ -24,12 +28,24 @@ const state = {
   view: null,
   // Picks survive switching views; everything is picked to start with.
   picked: null,
+  importPreview: null,
+  importing: false,
 };
 
 export const title = "Backup & export";
 
 export function init() {
   el.backupNow.addEventListener("click", backup);
+  el.importButton.addEventListener("click", previewImport);
+  el.importConfirm.addEventListener("click", confirmImport);
+  el.importDialog.addEventListener("cancel", (event) => {
+    if (state.importing) event.preventDefault();
+  });
+  el.importDialog.addEventListener("close", () => {
+    const preview = state.importPreview;
+    state.importPreview = null;
+    if (preview) api.CancelDatabaseImport(preview.id).catch(() => {});
+  });
   el.form.addEventListener("submit", exportCSV);
   el.form.elements.preset.addEventListener("change", applyPreset);
   for (const name of ["from", "to"]) {
@@ -145,5 +161,57 @@ async function exportCSV(event) {
     setStatus(`exported ${result.files.length} CSV file(s) to ${result.folder}`);
   } catch (err) {
     formError(el.form, String(err));
+  }
+}
+
+const importLabels = {
+  setting_currencies: "Currencies", setting_income_categories: "Income categories", setting_expense_categories: "Expense categories",
+  setting_payment_methods: "Payment methods", setting_tax_types: "Tax types", tags: "Tags", accounts: "Accounts",
+  cashflow_entries: "Income and expense entries", assets: "Investments and assets", debts: "Debts", credits: "Credits",
+  goals: "Goals", taxes: "Taxes", subscriptions: "Subscriptions and obligations", invoices: "Invoices", budgets: "Budgets",
+  account_value_logs: "Account history", asset_value_logs: "Asset history", debt_logs: "Debt payments", credit_logs: "Credit payments",
+  goal_logs: "Goal history", tax_logs: "Tax payments", subscription_payments: "Subscription payments", net_worth_snapshots: "Net worth history",
+  month_notes: "Month notes", rate_records: "Exchange rate history", cashflow_entry_tags: "Entry tags",
+};
+
+async function previewImport() {
+  el.importError.hidden = true;
+  try {
+    const preview = await busy(el.importButton.closest(".panel"), () => api.PreviewDatabaseImport());
+    if (!preview.id) return;
+    state.importPreview = preview;
+    $("import-db-source").textContent = `From ${preview.name}`;
+    $("import-db-destination").textContent = preview.destination;
+    $("import-db-summary").textContent = `${preview.result.added} records to add; ${preview.result.skipped} already present.`;
+    $("import-db-conflicts").hidden = !preview.result.conflicts;
+    $("import-db-conflicts").textContent = `${preview.result.conflicts} records differ. The current versions will be kept.`;
+    $("import-db-counts").replaceChildren(...preview.result.tables.filter(row => row.added || row.skipped).map(row => {
+      const tr = document.createElement("tr");
+      tr.append(cell(importLabels[row.name] ?? row.name), cell(row.added, "num"), cell(row.skipped, "num"));
+      return tr;
+    }));
+    el.importConfirm.hidden = preview.result.added === 0;
+    formError(el.importDialog, "");
+    el.importDialog.showModal();
+  } catch (err) {
+    el.importError.hidden = false;
+    el.importError.textContent = `Import failed: ${err}`;
+  }
+}
+
+async function confirmImport() {
+  if (state.importing || !state.importPreview) return;
+  state.importing = true;
+  el.importConfirm.textContent = "Importing…";
+  try {
+    const result = await busy(el.importDialog, () => api.ImportDatabase(state.importPreview.id));
+    state.importPreview = null;
+    el.importDialog.close();
+    reloadApp(`Imported ${result.added} records; ${result.skipped} existing records kept.`);
+  } catch (err) {
+    formError(el.importDialog, String(err));
+  } finally {
+    state.importing = false;
+    el.importConfirm.textContent = "Import records";
   }
 }

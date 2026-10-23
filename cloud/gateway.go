@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/lazybark/cents/server"
 )
 
 func peerAddr(remote string) netip.Addr {
@@ -53,10 +54,15 @@ func proxyTo(target *url.URL, proxies []netip.Prefix, log *slog.Logger) http.Han
 		Transport: &http.Transport{
 			Proxy:                 nil, // Loopback traffic must never follow HTTP_PROXY.
 			DialContext:           (&net.Dialer{Timeout: 3 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
-			ResponseHeaderTimeout: 60 * time.Second,
+			ResponseHeaderTimeout: 2 * time.Minute,
 			IdleConnTimeout:       60 * time.Second,
 		},
-		ErrorHandler: func(w http.ResponseWriter, r *http.Request, _ error) {
+		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
+			var tooLarge *http.MaxBytesError
+			if errors.As(err, &tooLarge) {
+				http.Error(w, "database upload exceeds the size limit", http.StatusRequestEntityTooLarge)
+				return
+			}
 			log.Error("upstream unavailable", "request_id", r.Header.Get("X-Request-ID"))
 			http.Error(w, "service temporarily unavailable", http.StatusBadGateway)
 		},
@@ -145,7 +151,18 @@ func gateway(api, mini *url.URL, proxies []netip.Prefix, log *slog.Logger) http.
 				log.Log(r.Context(), level, "request", "request_id", id, "method", r.Method, "route", routeName(r.URL.Path), "status", status, "duration_ms", time.Since(started).Milliseconds(), "bytes", sw.bytes, "remote", originalAddr(r, proxies).String())
 			}
 		}()
-		r.Body = http.MaxBytesReader(sw, r.Body, 1<<20)
+		limit := server.BodyLimit(r.Method, r.URL.Path)
+		if limit > 1<<20 {
+			if r.ContentLength > limit {
+				http.Error(sw, "database upload exceeds the size limit", http.StatusRequestEntityTooLarge)
+				return
+			}
+			deadline := time.Now().Add(2 * time.Minute)
+			controller := http.NewResponseController(sw)
+			_ = controller.SetReadDeadline(deadline)
+			_ = controller.SetWriteDeadline(deadline)
+		}
+		r.Body = http.MaxBytesReader(sw, r.Body, limit)
 		mux.ServeHTTP(sw, r)
 	})
 }

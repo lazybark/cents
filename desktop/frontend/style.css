@@ -1119,6 +1119,11 @@ th[aria-sort="descending"] .sort-button::after {
 
 /* Backup & export */
 
+.import-counts {
+  max-height: min(40vh, 340px);
+  overflow: auto;
+}
+
 .export-columns {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));

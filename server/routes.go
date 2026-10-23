@@ -57,6 +57,7 @@ type BackupRequest struct {
 // interchangeable.
 func apiRoutes(b service.Backend, files service.Files) []route {
 	return []route{
+		importRoute(files),
 		// Info and analytics.
 		get("/info", "What a client needs to know first.", nil, func(_ *http.Request, _ *params) (service.Info, error) {
 			return b.Info()

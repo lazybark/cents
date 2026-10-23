@@ -1,5 +1,6 @@
 # Wails needs these tags to produce a working desktop window.
 DESKTOP_TAGS := desktop,production
+DOCKER_IMAGE ?= cents-cloud:local
 
 # The wails CLI normally adds this; plain `go build` on macOS needs it too.
 ifeq ($(shell uname -s),Darwin)
@@ -20,6 +21,11 @@ build-bot:
 # Combined cloud deployment: API, Telegram bot, gateway and SQLite logs.
 build-cloud:
 	go build -o bin/cents-cloud ./cmd/cloud
+
+# Build the combined server/bot image used for local Docker testing.
+.PHONY: build-docker
+build-docker:
+	docker build -t "$(DOCKER_IMAGE)" .
 
 build-all:
 	$(MAKE) build

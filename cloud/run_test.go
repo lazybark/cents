@@ -1,11 +1,13 @@
 package cloud
 
 import (
+	"bytes"
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net"
@@ -20,7 +22,10 @@ import (
 	"time"
 
 	"github.com/lazybark/cents/bot"
+	"github.com/lazybark/cents/dbimport"
+	"github.com/lazybark/cents/flows/account"
 	"github.com/lazybark/cents/server"
+	storage "github.com/lazybark/cents/storage/sqlite"
 	"go.yaml.in/yaml/v3"
 )
 
@@ -119,6 +124,76 @@ func TestCloudBundle(t *testing.T) {
 		if res.StatusCode != tc.status || !strings.Contains(string(body), tc.contains) {
 			t.Errorf("%s: %d %s", tc.path, res.StatusCode, body)
 		}
+	}
+	// Upload a real snapshot larger than the normal 1 MB JSON body limit.
+	// The request crosses the public gateway -> API -> service.
+	sourcePath := filepath.Join(t.TempDir(), "seed.db")
+	sourceDB, _, err := storage.OpenDatabase(sourcePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sourceStore := storage.NewSQLiteStorage(sourceDB)
+	if err := sourceStore.CreateAccount(&account.Account{Name: "Seed bank", Currency: "$", BalanceCents: 12500}); err != nil {
+		t.Fatal(err)
+	}
+	if err := sourceDB.Exec("CREATE TABLE padding (data BLOB)").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := sourceDB.Exec("INSERT INTO padding(data) VALUES (zeroblob(?))", 2<<20).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := sourceStore.Close(); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(sourcePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, preview := range []bool{true, false, true} {
+		req, _ := http.NewRequest("POST", base+"/api/v1/import?preview="+fmt.Sprint(preview), bytes.NewReader(data))
+		req.Header.Set("Authorization", "Bearer "+apiToken)
+		req.Header.Set("Content-Type", "application/vnd.sqlite3")
+		res, err := client.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var result dbimport.Result
+		if err := json.NewDecoder(res.Body).Decode(&result); err != nil {
+			t.Fatal(err)
+		}
+		_ = res.Body.Close()
+		if res.StatusCode != 200 {
+			t.Fatalf("import via bundle: %d %+v", res.StatusCode, result)
+		}
+		check, _ := http.NewRequest("GET", base+"/api/v1/accounts", nil)
+		check.Header.Set("Authorization", "Bearer "+apiToken)
+		view, err := client.Do(check)
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, _ := io.ReadAll(view.Body)
+		_ = view.Body.Close()
+		present := strings.Contains(string(body), "Seed bank")
+		if result.Added > 0 && preview && present {
+			t.Fatal("preview imported data")
+		}
+		if !preview && !present {
+			t.Fatalf("commit failed: %s", body)
+		}
+		if result.Added == 0 && !present {
+			t.Fatal("nothing imported")
+		}
+	}
+	tgImport, _ := http.NewRequest("POST", base+"/app/api/v1/import?preview=false", bytes.NewReader(data[:100]))
+	tgImport.Header.Set("Authorization", "tma "+initData)
+	tgImport.Header.Set("Content-Type", "application/vnd.sqlite3")
+	denied, err := client.Do(tgImport)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = denied.Body.Close()
+	if denied.StatusCode != 404 {
+		t.Fatalf("Telegram exposed database import: %d", denied.StatusCode)
 	}
 	cancel()
 	select {
